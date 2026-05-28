@@ -791,7 +791,6 @@ struct LinuxDoWebSession: Codable, Hashable, Sendable {
 }
 
 enum LinuxDoAuthCredential: Equatable, Sendable {
-    case userAPIKey(key: String, clientID: String)
     case webSession(LinuxDoWebSession)
 }
 

@@ -12,7 +12,7 @@ struct LinuxDoSettingsView: View {
         VStack(alignment: .leading, spacing: 28) {
             SettingGroup(
                 title: "Connection",
-                caption: "LinuxDo uses a browser session by default. User API Key sign-in remains available if Linux.do enables it again."
+                caption: "LinuxDo signs in with a browser session, matching the website experience."
             ) {
                 VStack(spacing: 0) {
                     SettingRow(title: "Account", description: accountDescription) {
@@ -30,13 +30,6 @@ struct LinuxDoSettingsView: View {
                             }
                             .controlSize(.small)
                         }
-                    }
-                    SettingRow(title: "User API Key", description: "Advanced Discourse flow. Linux.do may report that site admins disabled it.") {
-                        Button("Try User API Key Flow") {
-                            Task { await store.signInWithUserAPIKey(presentationAnchor: NSApp.keyWindow) }
-                        }
-                        .controlSize(.small)
-                        .disabled(store.isSigningIn)
                     }
                     SettingRow(title: "Open Linux.do", description: "Open the community in your default browser.") {
                         Button("Open") {

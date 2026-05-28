@@ -39,12 +39,27 @@ enum MemorySearchMode: String, Codable, CaseIterable, Identifiable, Sendable, Ha
 
 enum MemoryWorkspaceSection: String, Codable, CaseIterable, Identifiable, Sendable, Hashable {
     case search
+    case projects
+    case modules
+    case graph
+    case trace
+    case proposals
+    case legacyHistory
+    case settings
     case aiSessions
     case terminalHistory
     case sources
     case setup
 
     var id: String { rawValue }
+
+    static var allCases: [MemoryWorkspaceSection] {
+        [.search, .projects, .modules, .graph, .trace, .proposals, .legacyHistory, .settings]
+    }
+
+    static var legacyCases: [MemoryWorkspaceSection] {
+        [.aiSessions, .terminalHistory, .sources, .setup]
+    }
 }
 
 enum MemoryAIDestination: Hashable, Sendable {

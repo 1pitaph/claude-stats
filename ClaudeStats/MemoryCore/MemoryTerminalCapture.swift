@@ -44,6 +44,15 @@ struct MemoryTerminalCaptureWriter: Sendable {
             ])
         )
         let blocks = terminalBlocks(record: record, stdout: stdout, stderr: stderr)
+        if await CodeMemoryTerminalRecorder().record(
+            title: record.title,
+            body: blocks.map(\.text).joined(separator: "\n\n"),
+            kind: record.kind,
+            cwd: cwd,
+            ref: blocks.first?.ref ?? record.id
+        ) {
+            return record
+        }
         try await ensureTerminalSource()
         try await storage.upsertRecord(record, blocks: blocks)
         try await appendJSONL(record: record, blocks: blocks)
@@ -78,6 +87,15 @@ struct MemoryTerminalCaptureWriter: Sendable {
             ref: MemoryRef.terminal(recordID: record.id, blockID: blockID),
             textHash: MemorySQLiteStore.textHash(text)
         )
+        if await CodeMemoryTerminalRecorder().record(
+            title: record.title,
+            body: text,
+            kind: record.kind,
+            cwd: cwd,
+            ref: block.ref
+        ) {
+            return record
+        }
         try await ensureTerminalSource()
         try await storage.upsertRecord(record, blocks: [block])
         try await appendJSONL(record: record, blocks: [block])
@@ -118,6 +136,15 @@ struct MemoryTerminalCaptureWriter: Sendable {
             ref: MemoryRef.terminal(recordID: record.id, blockID: blockID),
             textHash: MemorySQLiteStore.textHash(text)
         )
+        if await CodeMemoryTerminalRecorder().record(
+            title: record.title,
+            body: text,
+            kind: record.kind,
+            cwd: cwd,
+            ref: block.ref
+        ) {
+            return record
+        }
         try await ensureTerminalSource()
         try await storage.upsertRecord(record, blocks: [block])
         try await appendJSONL(record: record, blocks: [block])

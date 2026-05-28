@@ -20,6 +20,10 @@ enum MemoryPaths {
     static func terminalCapturesURL(rootDirectory: URL = rootDirectory()) -> URL {
         rootDirectory.appendingPathComponent("terminal-captures.jsonl", isDirectory: false)
     }
+
+    static func sidecarPIDURL(rootDirectory: URL = rootDirectory()) -> URL {
+        rootDirectory.appendingPathComponent("memoryd.pid", isDirectory: false)
+    }
 }
 
 struct MemorySourceFileStore: Sendable {

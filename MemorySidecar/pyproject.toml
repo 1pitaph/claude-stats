@@ -1,0 +1,23 @@
+[project]
+name = "claude-stats-memoryd"
+version = "0.1.0"
+description = "Local Code Agent memory sidecar for Claude Stats"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi==0.124.4",
+    "uvicorn==0.38.0",
+    "pydantic==2.12.5",
+    "kuzu==0.11.3",
+]
+
+[project.optional-dependencies]
+adapters = [
+    "mem0ai==0.1.118",
+    "graphiti-core==0.20.1",
+]
+
+[project.scripts]
+memoryd = "memoryd.__main__:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

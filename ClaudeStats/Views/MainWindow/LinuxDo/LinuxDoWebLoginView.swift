@@ -5,10 +5,9 @@ import SwiftUI
 struct LinuxDoWebLoginSheet: View {
     @Bindable var store: LinuxDoStore
     @Binding var isPresented: Bool
-    @State private var status = "Sign in with Linux.do here, or authorize in your default browser."
+    @State private var status = "Sign in with Linux.do in this window."
     @State private var attemptedCookieSignature: String?
     @State private var isVerifying = false
-    @State private var externalBrowserStarted = false
 
     private let loginURL = URL(string: "https://linux.do/login")!
 
@@ -28,14 +27,6 @@ struct LinuxDoWebLoginSheet: View {
                     ProgressView()
                         .controlSize(.small)
                 }
-                Button {
-                    openExternalBrowserSignIn()
-                } label: {
-                    Label("Open in Browser", systemImage: "arrow.up.right.square")
-                }
-                .controlSize(.small)
-                .disabled(isVerifying || store.isSigningIn)
-                .help("Authorize LinuxDo in your default browser, then return to Claude Stats from the browser prompt.")
                 Button("Cancel") {
                     isPresented = false
                 }
@@ -54,10 +45,6 @@ struct LinuxDoWebLoginSheet: View {
             if isAuthenticated {
                 isPresented = false
             }
-        }
-        .onChange(of: store.lastError) { _, error in
-            guard externalBrowserStarted, let error, !error.isEmpty else { return }
-            status = error
         }
     }
 
@@ -85,16 +72,6 @@ struct LinuxDoWebLoginSheet: View {
                 attemptedCookieSignature = nil
                 status = store.lastError ?? "Could not verify this Linux.do session yet."
             }
-        }
-    }
-
-    @MainActor
-    private func openExternalBrowserSignIn() {
-        externalBrowserStarted = true
-        if store.beginExternalBrowserSignIn() {
-            status = "Continue in your default browser. After authorization, choose Claude Stats in the macOS prompt."
-        } else {
-            status = store.lastError ?? "Could not open LinuxDo authorization in your default browser."
         }
     }
 }

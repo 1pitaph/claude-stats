@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 import Observation
 
@@ -72,14 +71,13 @@ struct LinuxDoUserProfileState: Sendable {
 
 enum LinuxDoAuthenticationStatus: Equatable, Sendable {
     case guest
-    case userAPIKey
     case webSession(username: String?, avatarURL: URL?)
 
     var isAuthenticated: Bool {
         switch self {
         case .guest:
             false
-        case .userAPIKey, .webSession:
+        case .webSession:
             true
         }
     }
@@ -88,8 +86,6 @@ enum LinuxDoAuthenticationStatus: Equatable, Sendable {
         switch self {
         case .guest:
             "Guest"
-        case .userAPIKey:
-            "User API Key"
         case .webSession:
             "Browser session"
         }
@@ -99,7 +95,7 @@ enum LinuxDoAuthenticationStatus: Equatable, Sendable {
         switch self {
         case .webSession(let username, _):
             username
-        case .guest, .userAPIKey:
+        case .guest:
             nil
         }
     }
@@ -108,7 +104,7 @@ enum LinuxDoAuthenticationStatus: Equatable, Sendable {
         switch self {
         case .webSession(_, let avatarURL):
             avatarURL
-        case .guest, .userAPIKey:
+        case .guest:
             nil
         }
     }
@@ -142,7 +138,6 @@ final class LinuxDoStore {
     private(set) var userProfileStates: [String: LinuxDoUserProfileState] = [:]
     private(set) var isLoadingCategories = false
     private(set) var isSigningIn = false
-    private(set) var isAwaitingExternalBrowserSignIn = false
     private(set) var isRefreshingNotifications = false
     private(set) var lastError: String?
     private(set) var rateLimitedUntil: Date?
@@ -182,7 +177,6 @@ final class LinuxDoStore {
     @ObservationIgnored private let client: any LinuxDoClienting
     @ObservationIgnored private let cache: any LinuxDoCaching
     @ObservationIgnored private let credentials: any LinuxDoCredentialStoring
-    @ObservationIgnored private let authService: LinuxDoAuthService
     @ObservationIgnored private let notificationService: any LinuxDoNotificationServicing
     @ObservationIgnored private var searchTask: Task<Void, Never>?
     @ObservationIgnored private var notificationTask: Task<Void, Never>?
@@ -198,15 +192,13 @@ final class LinuxDoStore {
         credentials: any LinuxDoCredentialStoring = LinuxDoKeychainStore.shared,
         cache: any LinuxDoCaching = LinuxDoCache(),
         notificationService: any LinuxDoNotificationServicing = LinuxDoNotificationService(),
-        client: (any LinuxDoClienting)? = nil,
-        authService: LinuxDoAuthService? = nil
+        client: (any LinuxDoClienting)? = nil
     ) {
         self.preferences = preferences
         self.credentials = credentials
         self.cache = cache
         self.notificationService = notificationService
         self.client = client ?? LinuxDoClient(credentials: credentials)
-        self.authService = authService ?? LinuxDoAuthService(credentials: credentials)
         self.authenticationStatus = Self.authenticationStatus(from: credentials)
         self.selectedFeed = LinuxDoFeed.stored(preferences.linuxDoSelectedFeed) ?? .latest
         if case .top(let period) = selectedFeed {
@@ -889,79 +881,6 @@ final class LinuxDoStore {
         return state.loadedPostIDs.contains(targetID) ? targetID : nil
     }
 
-    func signInWithUserAPIKey(presentationAnchor: NSWindow?) async {
-        guard let presentationAnchor else {
-            lastError = "Open the main window before signing in to LinuxDo."
-            return
-        }
-        isSigningIn = true
-        lastError = nil
-        do {
-            _ = try await authService.login(presentationAnchor: presentationAnchor)
-            refreshAuthenticationState()
-            await loadCurrentUserIfNeeded(force: true)
-            await refreshNotifications(announce: false)
-        } catch LinuxDoAuthService.AuthError.cancelled {
-            lastError = nil
-        } catch {
-            lastError = userFacingMessage(error)
-        }
-        refreshAuthenticationState()
-        isSigningIn = false
-    }
-
-    @discardableResult
-    func beginExternalBrowserSignIn() -> Bool {
-        lastError = nil
-        do {
-            let url = try authService.beginExternalBrowserLogin()
-            guard NSWorkspace.shared.open(url) else {
-                authService.cancelExternalBrowserLogin()
-                isAwaitingExternalBrowserSignIn = false
-                lastError = "Could not open the LinuxDo authorization page in your default browser."
-                return false
-            }
-            isAwaitingExternalBrowserSignIn = true
-            Log.app.info("LinuxDo external browser authorization opened")
-            return true
-        } catch {
-            isAwaitingExternalBrowserSignIn = false
-            lastError = userFacingMessage(error)
-            Log.app.error("LinuxDo external browser authorization failed to start: \(self.lastError ?? "unknown", privacy: .public)")
-            return false
-        }
-    }
-
-    @discardableResult
-    func handleOpenURL(_ url: URL) -> Bool {
-        guard LinuxDoAuthService.isCallbackURL(url) else { return false }
-        Log.app.info("LinuxDo authorization callback received")
-        Task { @MainActor in
-            await completeExternalBrowserSignIn(callbackURL: url)
-        }
-        return true
-    }
-
-    func completeExternalBrowserSignIn(callbackURL: URL) async {
-        isSigningIn = true
-        lastError = nil
-        do {
-            _ = try authService.completeExternalBrowserLogin(callbackURL: callbackURL)
-            credentials.deleteWebSession()
-            refreshAuthenticationState()
-            await loadCurrentUserIfNeeded(force: true)
-            await refreshNotifications(announce: false)
-            isAwaitingExternalBrowserSignIn = false
-            Log.app.info("LinuxDo external browser authorization completed")
-        } catch {
-            isAwaitingExternalBrowserSignIn = false
-            lastError = userFacingMessage(error)
-            Log.app.error("LinuxDo external browser authorization failed: \(self.lastError ?? "unknown", privacy: .public)")
-        }
-        refreshAuthenticationState()
-        isSigningIn = false
-    }
-
     func signInWithWebSession(_ session: LinuxDoWebSession) async -> Bool {
         guard session.isAuthenticated else {
             lastError = "Linux.do login did not return a usable browser session yet."
@@ -970,7 +889,7 @@ final class LinuxDoStore {
 
         isSigningIn = true
         lastError = nil
-        credentials.deleteAPIKey()
+        credentials.deleteLegacyUserAPIKey()
 
         do {
             try credentials.saveWebSession(session)
@@ -998,8 +917,7 @@ final class LinuxDoStore {
     }
 
     func signOut() async {
-        await client.revokeUserAPIKey()
-        credentials.deleteAPIKey()
+        credentials.deleteLegacyUserAPIKey()
         credentials.deleteWebSession()
         preferences.linuxDoLastLoginUsername = ""
         preferences.linuxDoNotificationsEnabled = false
@@ -1423,7 +1341,7 @@ final class LinuxDoStore {
         if let clientError = error as? LinuxDoClient.ClientError {
             switch clientError {
             case .unauthorized:
-                credentials.deleteAPIKey()
+                credentials.deleteLegacyUserAPIKey()
                 credentials.deleteWebSession()
                 refreshAuthenticationState()
                 currentUser = nil
@@ -1442,16 +1360,10 @@ final class LinuxDoStore {
         if let clientError = error as? LinuxDoClient.ClientError {
             return clientError.description
         }
-        if let authError = error as? LinuxDoAuthService.AuthError {
-            return authError.description
-        }
         return error.localizedDescription
     }
 
     private static func authenticationStatus(from credentials: any LinuxDoCredentialStoring) -> LinuxDoAuthenticationStatus {
-        if credentials.readAPIKey() != nil {
-            return .userAPIKey
-        }
         if let session = credentials.readWebSession(), session.isAuthenticated {
             return .webSession(username: session.username, avatarURL: session.avatarURL)
         }

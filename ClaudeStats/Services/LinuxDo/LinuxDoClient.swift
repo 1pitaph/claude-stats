@@ -18,7 +18,6 @@ protocol LinuxDoClienting: Sendable {
     func fetchUserProfile(username: String) async throws -> LinuxDoUserProfile
     func fetchCSRFToken() async throws -> String
     func fetchNotifications(limit: Int) async throws -> [LinuxDoNotification]
-    func revokeUserAPIKey() async
 }
 
 struct LinuxDoClient: LinuxDoClienting {
@@ -250,20 +249,6 @@ struct LinuxDoClient: LinuxDoClienting {
         return response.notifications.map(\.model)
     }
 
-    func revokeUserAPIKey() async {
-        guard credentials.readAPIKey() != nil else { return }
-        do {
-            let _: EmptyResponse = try await request(
-                path: "/user-api-key/revoke",
-                method: "POST",
-                requiresAuthentication: true,
-                allowsEmptyResponse: true
-            )
-        } catch {
-            Log.network.notice("LinuxDo revoke failed: \(String(describing: error), privacy: .public)")
-        }
-    }
-
     private func get<T: Decodable>(
         path: String,
         queryItems: [URLQueryItem] = [],
@@ -295,7 +280,6 @@ struct LinuxDoClient: LinuxDoClienting {
         method: String,
         requiresAuthentication: Bool,
         requiresWebSession: Bool = false,
-        allowsEmptyResponse: Bool = false,
         bodyData: Data? = nil
     ) async throws -> T {
         guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
@@ -331,8 +315,7 @@ struct LinuxDoClient: LinuxDoClienting {
                 request: request,
                 path: path,
                 method: method,
-                credential: credential,
-                allowsEmptyResponse: allowsEmptyResponse
+                credential: credential
             )
         } catch ClientError.unauthorized where !requiresAuthentication {
             if case .webSession? = credential {
@@ -341,8 +324,7 @@ struct LinuxDoClient: LinuxDoClienting {
                     request: request,
                     path: path,
                     method: method,
-                    credential: nil,
-                    allowsEmptyResponse: allowsEmptyResponse
+                    credential: nil
                 )
             }
             throw ClientError.unauthorized
@@ -353,8 +335,7 @@ struct LinuxDoClient: LinuxDoClienting {
         request originalRequest: URLRequest,
         path: String,
         method: String,
-        credential: LinuxDoAuthCredential?,
-        allowsEmptyResponse: Bool
+        credential: LinuxDoAuthCredential?
     ) async throws -> T {
         var request = originalRequest
         apply(credential: credential, to: &request)
@@ -374,9 +355,6 @@ struct LinuxDoClient: LinuxDoClienting {
         Log.network.notice("LinuxDo \(method, privacy: .public) \(path, privacy: .public) \(http.statusCode, privacy: .public) in \(Int(Date().timeIntervalSince(started) * 1000))ms")
 
         try Self.validate(data: data, http: http)
-        if data.isEmpty, allowsEmptyResponse {
-            return EmptyResponse() as! T
-        }
 
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .custom(Self.decodeDate)
@@ -429,17 +407,13 @@ struct LinuxDoClient: LinuxDoClienting {
             request: request,
             path: "/session/csrf",
             method: "GET",
-            credential: .webSession(session),
-            allowsEmptyResponse: false
+            credential: .webSession(session)
         )
         return response.csrf
     }
 
     private func apply(credential: LinuxDoAuthCredential?, to request: inout URLRequest) {
         switch credential {
-        case .userAPIKey(let key, let clientID):
-            request.setValue(key, forHTTPHeaderField: "User-Api-Key")
-            request.setValue(clientID, forHTTPHeaderField: "User-Api-Client-Id")
         case .webSession(let session):
             if let cookieHeader = session.cookieHeader() {
                 request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
@@ -592,8 +566,6 @@ private struct CreatePostRequest: Encodable {
         case replyToPostNumber = "reply_to_post_number"
     }
 }
-
-private struct EmptyResponse: Decodable {}
 
 private final class HTTPDateFormatter: @unchecked Sendable {
     static let shared = HTTPDateFormatter()

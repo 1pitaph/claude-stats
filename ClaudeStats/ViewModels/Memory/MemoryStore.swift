@@ -19,6 +19,14 @@ final class MemoryStore {
     private(set) var terminalRecords: [MemoryRecord] = []
     private(set) var selectedRecord: MemoryRecord?
     private(set) var selectedBlocks: [MemoryBlock] = []
+    private(set) var codeHealth: CodeMemoryHealth?
+    private(set) var codeProjects: [CodeMemoryProject] = []
+    private(set) var codeSearchResults: [CodeMemorySearchResult] = []
+    private(set) var codeSelectedProjectID: String?
+    private(set) var codeGraph: CodeMemoryGraph?
+    private(set) var codeTrace: CodeMemoryRunTrace?
+    private(set) var codeLastImportResult: CodeMemoryLegacyImportResponse?
+    private(set) var isCodeMemoryLoading = false
     private(set) var isLoading = false
     private(set) var isIndexing = false
     private(set) var isSearching = false
@@ -27,14 +35,17 @@ final class MemoryStore {
 
     @ObservationIgnored private let storage: MemorySQLiteStore
     @ObservationIgnored private let sourceStore: MemorySourceFileStore
+    @ObservationIgnored private let codeBackend: any CodeMemoryBackend
     @ObservationIgnored private var hasLoaded = false
 
     init(
         storage: MemorySQLiteStore = MemorySQLiteStore(),
-        sourceStore: MemorySourceFileStore = MemorySourceFileStore()
+        sourceStore: MemorySourceFileStore = MemorySourceFileStore(),
+        codeBackend: any CodeMemoryBackend = CodeMemoryHTTPClient()
     ) {
         self.storage = storage
         self.sourceStore = sourceStore
+        self.codeBackend = codeBackend
     }
 
     func select(_ next: MemoryWorkspaceSection) {
@@ -43,6 +54,7 @@ final class MemoryStore {
 
     func clearSearchResults() {
         searchResults = []
+        codeSearchResults = []
     }
 
     func loadIfNeeded(sessionStore: SessionStore) async {
@@ -57,6 +69,7 @@ final class MemoryStore {
         do {
             try await loadSources(sessionStore: sessionStore)
             try await refreshDerivedLists()
+            await refreshCodeMemoryStatus()
             hasLoaded = true
             lastError = nil
         } catch {
@@ -83,6 +96,7 @@ final class MemoryStore {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else {
             searchResults = []
+            codeSearchResults = []
             return
         }
 
@@ -90,6 +104,16 @@ final class MemoryStore {
         defer { isSearching = false }
 
         do {
+            if section == .search {
+                let response = try await codeBackend.search(query: query, projectID: codeSelectedProjectID, limit: 30)
+                codeSearchResults = response.results
+                if let first = response.results.first?.memory.projectID {
+                    codeSelectedProjectID = first
+                }
+                lastError = nil
+                return
+            }
+
             var results: [MemorySearchResult] = []
             if searchMode == .text || searchMode == .hybrid || !localAI.semanticSearchAvailable {
                 results += try await storage.search(query: query)
@@ -105,6 +129,130 @@ final class MemoryStore {
                 seen.insert(result.id)
                 return true
             }
+            lastError = nil
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func refreshCodeMemoryStatus() async {
+        guard !isCodeMemoryLoading else { return }
+        isCodeMemoryLoading = true
+        defer { isCodeMemoryLoading = false }
+        do {
+            async let health = codeBackend.health()
+            async let projects = codeBackend.projects()
+            codeHealth = try await health
+            codeProjects = try await projects
+            if codeSelectedProjectID == nil {
+                codeSelectedProjectID = codeProjects.first?.projectID
+            }
+            lastError = nil
+        } catch {
+            codeHealth = nil
+            codeProjects = []
+            lastError = "Code Memory sidecar is unavailable: \(error.localizedDescription)"
+        }
+    }
+
+    func startCodeMemorySidecar() async {
+        guard !isCodeMemoryLoading else { return }
+        isCodeMemoryLoading = true
+        do {
+            let pid = try CodeMemorySidecarManager().start(helperPath: CodeMemorySidecarManager.defaultHelperPath())
+            setupMessage = "Started memoryd pid=\(pid)."
+            lastError = nil
+        } catch {
+            setupMessage = error.localizedDescription
+            lastError = error.localizedDescription
+            isCodeMemoryLoading = false
+            return
+        }
+        isCodeMemoryLoading = false
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        await refreshCodeMemoryStatus()
+    }
+
+    func stopCodeMemorySidecar() async {
+        guard !isCodeMemoryLoading else { return }
+        isCodeMemoryLoading = true
+        defer { isCodeMemoryLoading = false }
+        do {
+            let stopped = try CodeMemorySidecarManager().stop()
+            setupMessage = stopped ? "Stopped memoryd." : "memoryd was not running."
+            codeHealth = nil
+            codeProjects = []
+            codeGraph = nil
+            lastError = nil
+        } catch {
+            setupMessage = error.localizedDescription
+            lastError = error.localizedDescription
+        }
+    }
+
+    func selectCodeProject(_ projectID: String) async {
+        codeSelectedProjectID = projectID
+        await loadCodeGraph(projectID: projectID)
+    }
+
+    func loadCodeGraph(projectID: String? = nil) async {
+        let projectID = projectID ?? codeSelectedProjectID ?? codeProjects.first?.projectID
+        guard let projectID else {
+            codeGraph = nil
+            return
+        }
+        isCodeMemoryLoading = true
+        defer { isCodeMemoryLoading = false }
+        do {
+            codeGraph = try await codeBackend.graph(projectID: projectID)
+            codeSelectedProjectID = projectID
+            lastError = nil
+        } catch {
+            codeGraph = nil
+            lastError = error.localizedDescription
+        }
+    }
+
+    func loadCodeTrace(runID: String) async {
+        let trimmed = runID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        isCodeMemoryLoading = true
+        defer { isCodeMemoryLoading = false }
+        do {
+            codeTrace = try await codeBackend.trace(runID: trimmed)
+            lastError = nil
+        } catch {
+            codeTrace = nil
+            lastError = error.localizedDescription
+        }
+    }
+
+    func importLegacyRecords(kind: MemoryRecordKind?) async {
+        isCodeMemoryLoading = true
+        defer { isCodeMemoryLoading = false }
+        do {
+            let records = try await storage.records(kind: kind, limit: 100)
+            var legacy: [CodeMemoryLegacyRecord] = []
+            for record in records {
+                let blocks = try await storage.blocks(recordID: record.id, limit: 20)
+                let body = blocks.map(\.text).joined(separator: "\n\n")
+                legacy.append(CodeMemoryLegacyRecord(
+                    id: record.id,
+                    ref: blocks.first?.ref ?? record.id,
+                    title: record.title,
+                    body: body.isEmpty ? record.title : body,
+                    type: record.kind == .terminalRun || record.kind == .terminalPipe || record.kind == .shellMetadata ? "fact" : "decision",
+                    scope: CodeMemoryNewScope(kind: "project", key: projectID(for: record), title: record.projectPath ?? record.cwd)
+                ))
+            }
+            let response = try await codeBackend.importLegacy(
+                CodeMemoryLegacyImportRequest(
+                    projectID: codeSelectedProjectID ?? "legacy",
+                    records: legacy
+                )
+            )
+            codeLastImportResult = response
+            await refreshCodeMemoryStatus()
             lastError = nil
         } catch {
             lastError = error.localizedDescription
@@ -465,6 +613,14 @@ final class MemoryStore {
 
     private func aiRecordID(provider: ProviderKind, sessionID: String) -> String {
         "ai:\(provider.rawValue):\(sessionID)"
+    }
+
+    private func projectID(for record: MemoryRecord) -> String {
+        if let projectPath = record.projectPath.nonEmpty ?? record.cwd.nonEmpty {
+            let name = URL(fileURLWithPath: projectPath).lastPathComponent
+            return name.isEmpty ? "legacy" : name
+        }
+        return record.providerRaw.nonEmpty ?? "legacy"
     }
 
     private static func blocks(

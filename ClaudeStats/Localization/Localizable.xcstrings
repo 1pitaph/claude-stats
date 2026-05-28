@@ -7879,16 +7879,6 @@
         }
       }
     },
-    "Authorize LinuxDo in your default browser, then return to Claude Stats from the browser prompt." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "在默认浏览器中授权 LinuxDo，然后从浏览器提示返回 Claude Stats。"
-          }
-        }
-      }
-    },
     "Back" : {
       "localizations" : {
         "zh-Hans" : {
@@ -8909,16 +8899,6 @@
         }
       }
     },
-    "Open in Browser" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "在浏览器中打开"
-          }
-        }
-      }
-    },
     "Open in browser" : {
       "localizations" : {
         "zh-Hans" : {
@@ -9729,6 +9709,16 @@
         }
       }
     },
+    "Sign in with Linux.do in this window." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在此窗口中登录 Linux.do。"
+          }
+        }
+      }
+    },
     "Sort sessions" : {
       "localizations" : {
         "zh-Hans" : {
@@ -9875,16 +9865,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "信任到钥匙串"
-          }
-        }
-      }
-    },
-    "Try User API Key Flow" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "尝试用户 API 密钥流程"
           }
         }
       }
@@ -10359,12 +10339,12 @@
         }
       }
     },
-    "LinuxDo uses a browser session by default. User API Key sign-in remains available if Linux.do enables it again." : {
+    "LinuxDo signs in with a browser session, matching the website experience." : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "LinuxDo 默认使用浏览器会话。如果 Linux.do 重新启用，用户 API 密钥登录仍可用。"
+            "value" : "LinuxDo 使用浏览器会话登录，与网站体验保持一致。"
           }
         }
       }

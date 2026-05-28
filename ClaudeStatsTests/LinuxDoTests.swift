@@ -547,61 +547,6 @@ struct LinuxDoTests {
         #expect(topic.tags == ["纯水"])
     }
 
-    @Test("User API key auth URL and callback payload are strict")
-    func authURLAndPayload() throws {
-        let url = try LinuxDoAuthService.authURL(
-            baseURL: try #require(URL(string: "https://linux.do")),
-            clientID: "client-1",
-            nonce: "nonce-1",
-            publicKeyPEM: "-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----"
-        )
-        let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
-        let query = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value ?? "") })
-
-        #expect(components.path == "/user-api-key/new")
-        #expect(query["client_id"] == "client-1")
-        #expect(query["nonce"] == "nonce-1")
-        #expect(query["scopes"] == "read,notifications,session_info")
-        #expect(query["auth_redirect"] == "claude-stats://linuxdo-auth")
-        #expect(query["padding"] == "oaep")
-
-        let callback = try #require(URL(string: "claude-stats://linuxdo-auth?payload=abc123"))
-        #expect(try LinuxDoAuthService.payload(from: callback) == "abc123")
-
-        let missingPayload = try #require(URL(string: "claude-stats://linuxdo-auth"))
-        #expect(throws: LinuxDoAuthService.AuthError.missingPayload) {
-            try LinuxDoAuthService.payload(from: missingPayload)
-        }
-    }
-
-    @Test("External browser auth prepares URL and requires a pending request")
-    func externalBrowserAuthLifecycle() throws {
-        let credentials = InMemoryLinuxDoCredentialStore(clientID: "client-browser")
-        let service = LinuxDoAuthService(
-            baseURL: try #require(URL(string: "https://linux.do")),
-            credentials: credentials
-        )
-
-        let url = try service.beginExternalBrowserLogin()
-        let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
-        let query = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value ?? "") })
-
-        #expect(components.path == "/user-api-key/new")
-        #expect(query["client_id"] == "client-browser")
-        #expect(query["auth_redirect"] == "claude-stats://linuxdo-auth")
-        #expect(service.hasPendingExternalBrowserLogin)
-        #expect(LinuxDoAuthService.isCallbackURL(try #require(URL(string: "claude-stats://linuxdo-auth?payload=abc"))))
-        #expect(LinuxDoAuthService.isCallbackURL(try #require(URL(string: "claude-stats:/linuxdo-auth?payload=abc"))))
-
-        service.cancelExternalBrowserLogin()
-        #expect(!service.hasPendingExternalBrowserLogin)
-        #expect(throws: LinuxDoAuthService.AuthError.noPendingExternalLogin) {
-            try service.completeExternalBrowserLogin(
-                callbackURL: try #require(URL(string: "claude-stats://linuxdo-auth?payload=abc"))
-            )
-        }
-    }
-
     @Test("Cache distinguishes fresh and stale list entries")
     func cacheFreshAndStale() throws {
         let root = try TempDir.make()
@@ -626,22 +571,13 @@ struct LinuxDoTests {
 
     @Test("In-memory credential store covers save read and logout")
     func credentialStoreRoundTrip() {
-        let store = InMemoryLinuxDoCredentialStore(clientID: "client-a")
+        let store = InMemoryLinuxDoCredentialStore()
 
-        #expect(store.readAPIKey() == nil)
-        #expect(store.readClientID() == "client-a")
+        #expect(store.readAuthCredential() == nil)
 
-        store.saveAPIKey("api-key")
-        store.saveClientID("client-b")
         store.saveWebSession(Self.webSession(username: "tester"))
 
-        #expect(store.readAPIKey() == "api-key")
-        #expect(store.readClientID() == "client-b")
         #expect(store.readWebSession()?.username == "tester")
-        #expect(store.readAuthCredential() == .userAPIKey(key: "api-key", clientID: "client-b"))
-
-        store.deleteAPIKey()
-        #expect(store.readAPIKey() == nil)
         #expect(store.readAuthCredential() == .webSession(Self.webSession(username: "tester")))
 
         store.deleteWebSession()
@@ -684,7 +620,7 @@ struct LinuxDoTests {
     @Test("Notification sync skips history and delivers each new unread id once")
     func notificationsHighWaterMark() async {
         let preferences = Self.makePreferences()
-        let credentials = InMemoryLinuxDoCredentialStore(apiKey: "api-key")
+        let credentials = InMemoryLinuxDoCredentialStore(webSession: Self.webSession(username: "tester"))
         let client = FakeLinuxDoClient(notifications: [Self.notification(id: 10)])
         let notificationService = FakeLinuxDoNotificationService()
         let store = LinuxDoStore(
@@ -1315,18 +1251,6 @@ struct LinuxDoTests {
         #expect(refreshedState.profile?.name == "Neo Refreshed")
         #expect(refreshedState.error == nil)
         #expect(client.fetchUserProfileUsernames == ["Neo", "neo", "neo"])
-    }
-
-    @Test("Client sends API key credentials")
-    func clientSendsAPIKeyCredentials() async throws {
-        let credentials = InMemoryLinuxDoCredentialStore(apiKey: "api-key", clientID: "client-id")
-        let client = Self.makeClient(credentials: credentials) { request in
-            #expect(request.value(forHTTPHeaderField: "User-Api-Key") == "api-key")
-            #expect(request.value(forHTTPHeaderField: "User-Api-Client-Id") == "client-id")
-            return Self.response(body: Self.currentUserJSON)
-        }
-
-        _ = try await client.fetchCurrentUser()
     }
 
     @Test("Client sends web session cookies")
@@ -2073,8 +1997,6 @@ private final class FakeLinuxDoClient: LinuxDoClienting, @unchecked Sendable {
         notifications
     }
 
-    func revokeUserAPIKey() async {}
-
     private static func fallbackPost(id: Int) -> LinuxDoPost {
         LinuxDoPost(
             id: id,
@@ -2120,36 +2042,18 @@ private final class LinuxDoCallCounter: @unchecked Sendable {
 
 private final class CountingLinuxDoCredentialStore: LinuxDoCredentialStoring, @unchecked Sendable {
     private let lock = NSLock()
-    private var apiKey: String?
-    private var clientID: String
     private var webSession: LinuxDoWebSession?
-    private var apiKeyReads = 0
     private var webSessionReads = 0
 
-    init(apiKey: String? = nil, clientID: String = "test-client-id", webSession: LinuxDoWebSession? = nil) {
-        self.apiKey = apiKey
-        self.clientID = clientID
+    init(webSession: LinuxDoWebSession? = nil) {
         self.webSession = webSession
     }
 
     var readCount: Int {
-        lock.withLock { apiKeyReads + webSessionReads }
+        lock.withLock { webSessionReads }
     }
 
-    func readAPIKey() -> String? {
-        lock.withLock {
-            apiKeyReads += 1
-            return apiKey
-        }
-    }
-
-    func saveAPIKey(_ apiKey: String) {
-        lock.withLock { self.apiKey = apiKey }
-    }
-
-    func deleteAPIKey() {
-        lock.withLock { apiKey = nil }
-    }
+    func deleteLegacyUserAPIKey() {}
 
     func readWebSession() -> LinuxDoWebSession? {
         lock.withLock {
@@ -2164,14 +2068,6 @@ private final class CountingLinuxDoCredentialStore: LinuxDoCredentialStoring, @u
 
     func deleteWebSession() {
         lock.withLock { webSession = nil }
-    }
-
-    func readClientID() -> String {
-        lock.withLock { clientID }
-    }
-
-    func saveClientID(_ clientID: String) {
-        lock.withLock { self.clientID = clientID }
     }
 }
 

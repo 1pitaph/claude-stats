@@ -378,6 +378,9 @@ targets:
       - path: ClaudeStats/Resources/GitTools
         type: folder
         buildPhase: resources
+      - path: MemorySidecar
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: Sparkle
       - target: OpenComputerUseKit

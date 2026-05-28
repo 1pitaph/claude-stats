@@ -155,14 +155,6 @@ final class AppEnvironment {
         store.startAutoRefresh(every: TimeInterval(preferences.autoRefreshMinutes) * 60)
     }
 
-    @discardableResult
-    func handleOpenURL(_ url: URL) -> Bool {
-        if linuxDo.handleOpenURL(url) {
-            return true
-        }
-        return false
-    }
-
     private static var isRunningUnitTests: Bool {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
             || NSClassFromString("XCTestCase") != nil

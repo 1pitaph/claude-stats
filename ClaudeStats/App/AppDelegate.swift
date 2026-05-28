@@ -52,10 +52,6 @@ final class AppDelegate: GhosttyEmbed.AppDelegate {
 
     @MainActor
     func application(_ application: NSApplication, open urls: [URL]) {
-        for url in urls where env.handleOpenURL(url) {
-            NSApp.activate(ignoringOtherApps: true)
-            return
-        }
         if let firstURL = urls.first {
             Log.app.notice("Unhandled application URL: \(firstURL.absoluteString, privacy: .public)")
         }
