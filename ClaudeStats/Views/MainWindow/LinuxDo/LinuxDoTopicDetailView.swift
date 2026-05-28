@@ -117,6 +117,8 @@ struct LinuxDoTopicDetailView: View {
                             contentBlocks: store.contentBlocks(for: post),
                             contentBlocksForReply: { store.contentBlocks(for: $0) },
                             isTopicOwner: post.postNumber == 1,
+                            profileState: store.userProfileState(username: post.username),
+                            postsInTopic: postCount(for: post.username, in: detail),
                             repliesState: state.replyStates[post.id] ?? LinuxDoPostRepliesState(),
                             replyComposer: state.replyComposers[post.id] ?? LinuxDoComposerState(),
                             replyDraft: Binding(
@@ -127,6 +129,8 @@ struct LinuxDoTopicDetailView: View {
                             isLikePending: state.pendingLikePostIDs.contains(post.id),
                             isReactionPending: state.pendingReactionPostIDs.contains(post.id),
                             canWrite: store.canWriteForum,
+                            onLoadProfile: { Task { await store.loadUserProfile(username: post.username) } },
+                            onRetryProfile: { Task { await store.loadUserProfile(username: post.username, force: true) } },
                             onToggleReplies: { store.toggleReplies(topicID: topicID, postID: post.id) },
                             onBeginReply: { store.beginReply(topicID: topicID, postID: post.id) },
                             onCancelReply: { store.cancelReply(topicID: topicID, postID: post.id) },
@@ -341,6 +345,13 @@ struct LinuxDoTopicDetailView: View {
         max(detail.stream.count, detail.postsCount, detail.posts.count)
     }
 
+    private func postCount(for username: String, in detail: LinuxDoTopicDetail) -> Int {
+        let normalized = username.lowercased()
+        return detail.posts.reduce(0) { count, post in
+            post.username.lowercased() == normalized ? count + 1 : count
+        }
+    }
+
     private func navigatorAlignment(for mode: LinuxDoReadingNavigatorMode) -> Alignment {
         switch mode {
         case .rail, .hidden:
@@ -373,6 +384,8 @@ private struct LinuxDoPostView: View {
     let contentBlocks: [LinuxDoContentBlock]
     let contentBlocksForReply: (LinuxDoPost) -> [LinuxDoContentBlock]
     let isTopicOwner: Bool
+    let profileState: LinuxDoUserProfileState
+    let postsInTopic: Int
     let repliesState: LinuxDoPostRepliesState
     let replyComposer: LinuxDoComposerState
     @Binding var replyDraft: String
@@ -380,6 +393,8 @@ private struct LinuxDoPostView: View {
     let isLikePending: Bool
     let isReactionPending: Bool
     let canWrite: Bool
+    let onLoadProfile: () -> Void
+    let onRetryProfile: () -> Void
     let onToggleReplies: () -> Void
     let onBeginReply: () -> Void
     let onCancelReply: () -> Void
@@ -390,7 +405,14 @@ private struct LinuxDoPostView: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
-            LinuxDoPostAvatarColumn(post: post, isTopicOwner: isTopicOwner)
+            LinuxDoPostAvatarColumn(
+                post: post,
+                isTopicOwner: isTopicOwner,
+                profileState: profileState,
+                postsInTopic: postsInTopic,
+                onLoadProfile: onLoadProfile,
+                onRetryProfile: onRetryProfile
+            )
 
             VStack(alignment: .leading, spacing: 11) {
                 LinuxDoPostHeader(post: post, isTopicOwner: isTopicOwner)
@@ -453,24 +475,51 @@ private struct LinuxDoPostView: View {
 private struct LinuxDoPostAvatarColumn: View {
     let post: LinuxDoPost
     let isTopicOwner: Bool
+    let profileState: LinuxDoUserProfileState
+    let postsInTopic: Int
+    let onLoadProfile: () -> Void
+    let onRetryProfile: () -> Void
+    @State private var isShowingProfile = false
 
     var body: some View {
         VStack(spacing: 8) {
-            AsyncImage(url: post.avatarURL) { image in
-                image.resizable().scaledToFill()
-            } placeholder: {
-                Image(systemName: "person.crop.circle.fill")
-                    .foregroundStyle(Color.stxMuted)
+            Button {
+                isShowingProfile = true
+                onLoadProfile()
+            } label: {
+                avatar
             }
-            .frame(width: 38, height: 38)
-            .clipShape(Circle())
-            .overlay(Circle().stroke(Color.stxAccent.opacity(isTopicOwner ? 0.45 : 0.18), lineWidth: 1))
+            .buttonStyle(.plain)
+            .help("User Profile")
+            .accessibilityLabel("User Profile")
+            .popover(isPresented: $isShowingProfile, arrowEdge: .trailing) {
+                LinuxDoUserProfilePopover(
+                    fallbackUsername: post.username,
+                    fallbackDisplayName: post.displayAuthorName,
+                    fallbackAvatarURL: post.avatarURL,
+                    state: profileState,
+                    postsInTopic: postsInTopic,
+                    onRetry: onRetryProfile
+                )
+            }
 
             Text("#\(post.postNumber)")
                 .font(.sora(9).monospacedDigit())
                 .foregroundStyle(Color.stxMuted)
         }
         .frame(width: 48)
+    }
+
+    private var avatar: some View {
+        AsyncImage(url: post.avatarURL) { image in
+            image.resizable().scaledToFill()
+        } placeholder: {
+            Image(systemName: "person.crop.circle.fill")
+                .foregroundStyle(Color.stxMuted)
+        }
+        .frame(width: 38, height: 38)
+        .clipShape(Circle())
+        .overlay(Circle().stroke(Color.stxAccent.opacity(isTopicOwner ? 0.45 : 0.18), lineWidth: 1))
     }
 }
 

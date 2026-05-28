@@ -14,7 +14,7 @@ enum AIConfigDocumentKind: String, CaseIterable, Sendable, Hashable, Identifiabl
         case .instruction: "Instructions"
         case .providerConfig: "Provider"
         case .plan: "Plans"
-        case .pluginConfig: "Plugins"
+        case .pluginConfig: "Plugin Manifests"
         case .other: "Other"
         }
     }
@@ -24,7 +24,7 @@ enum AIConfigDocumentKind: String, CaseIterable, Sendable, Hashable, Identifiabl
         case .instruction: "Instruction"
         case .providerConfig: "Provider Config"
         case .plan: "Plan"
-        case .pluginConfig: "Plugin Config"
+        case .pluginConfig: "Plugin Manifest"
         case .other: "Config"
         }
     }
@@ -55,7 +55,7 @@ enum AIConfigsFilter: String, CaseIterable, Sendable, Hashable, Identifiable {
         case .instructions: "Instructions"
         case .provider: "Provider"
         case .plans: "Plans"
-        case .plugins: "Plugins"
+        case .plugins: "Plugin Manifests"
         }
     }
 
@@ -101,7 +101,7 @@ enum AIConfigsSection: String, CaseIterable, Sendable, Hashable, Identifiable {
         case .instructions: "Instructions"
         case .provider: "Provider"
         case .plans: "Plans"
-        case .plugins: "Plugins"
+        case .plugins: "Plugin Manifests"
         case .diagnostics: "Diagnostics"
         }
     }
@@ -123,7 +123,7 @@ enum AIConfigsSection: String, CaseIterable, Sendable, Hashable, Identifiable {
         case .instructions: "Instructions"
         case .provider: "Provider configs"
         case .plans: "Plans"
-        case .plugins: "Plugins"
+        case .plugins: "Plugin Manifests"
         case .diagnostics: "Diagnostics"
         }
     }
@@ -301,6 +301,35 @@ struct AIConfigDocument: Identifiable, Sendable, Hashable {
 
     var hasProblems: Bool {
         diagnostics.contains { $0.severity == .error || $0.severity == .warning }
+    }
+
+    var templateContent: String? {
+        guard isExpected, !exists else { return nil }
+        switch (provider, fileKind, title) {
+        case (.claude, .json, _):
+            return "{\n  \"permissions\": {\n    \"allow\": [],\n    \"deny\": []\n  }\n}\n"
+        case (.claude, .markdown, _):
+            return "# Project Instructions\n\nDescribe project conventions, commands, and review expectations here.\n"
+        case (.codex, .toml, _):
+            return "# Codex configuration\nmodel = \"gpt-5.3-codex\"\napproval_policy = \"on-request\"\nsandbox_mode = \"workspace-write\"\n"
+        case (.codex, .markdown, _):
+            return "# AGENTS.md\n\n## Build & Test\n\nDescribe the commands agents should run after code changes.\n"
+        default:
+            switch fileKind {
+            case .json:
+                return "{\n}\n"
+            case .markdown:
+                return "# Instructions\n\n"
+            case .toml:
+                return "# Configuration\n"
+            case .text:
+                return ""
+            }
+        }
+    }
+
+    var canCreateFromTemplate: Bool {
+        templateContent != nil
     }
 }
 

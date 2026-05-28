@@ -12,10 +12,16 @@ import AppKit
 struct SessionDetailView: View {
     @Environment(AppEnvironment.self) private var env
     let session: Session
+    let memoryBlocks: [MemoryBlock]
     @State private var transcriptMessages: [SessionTranscriptMessage] = []
     @State private var transcriptIsLoading = false
     @State private var similarSessions: [SemanticSessionSearchResult] = []
     @State private var similarSessionsLoading = false
+
+    init(session: Session, memoryBlocks: [MemoryBlock] = []) {
+        self.session = session
+        self.memoryBlocks = memoryBlocks
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -143,16 +149,39 @@ struct SessionDetailView: View {
                                                   defaultValue: "No readable conversation content found in this transcript."))
             } else {
                 LazyVStack(alignment: .leading, spacing: 10) {
-                    ForEach(transcriptMessages) { message in
+                    ForEach(transcriptRows) { row in
                         TranscriptMessageRow(
-                            message: message,
-                            modelDisplayName: message.model.map {
+                            message: row.message,
+                            modelDisplayName: row.message.model.map {
                                 env.store.displayName(forModel: $0, provider: session.provider)
-                            }
+                            },
+                            memoryBlock: row.memoryBlock
                         )
                     }
                 }
             }
+        }
+    }
+
+    private var transcriptRows: [TranscriptMemoryRow] {
+        transcriptMessages.enumerated().map { offset, message in
+            TranscriptMemoryRow(
+                id: "\(offset)-\(message.id)",
+                message: message,
+                memoryBlock: memoryBlock(for: message, ordinal: offset)
+            )
+        }
+    }
+
+    private func memoryBlock(for message: SessionTranscriptMessage, ordinal: Int) -> MemoryBlock? {
+        let role = MemoryBlockRole(rawValue: message.role.rawValue)
+        let trimmed = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let role,
+           let exact = memoryBlocks.first(where: { $0.ordinal == ordinal && $0.role == role }) {
+            return exact
+        }
+        return memoryBlocks.first { block in
+            block.ordinal == ordinal || block.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed
         }
     }
 
@@ -367,9 +396,16 @@ private struct SimilarSessionResultRow: View {
     }
 }
 
+private struct TranscriptMemoryRow: Identifiable {
+    let id: String
+    let message: SessionTranscriptMessage
+    let memoryBlock: MemoryBlock?
+}
+
 private struct TranscriptMessageRow: View {
     let message: SessionTranscriptMessage
     let modelDisplayName: String?
+    let memoryBlock: MemoryBlock?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -391,6 +427,24 @@ private struct TranscriptMessageRow: View {
                         .font(.sora(10).monospacedDigit())
                         .foregroundStyle(Color.stxMuted)
                 }
+
+                Button {
+                    copyToPasteboard(message.text)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                }
+                .controlSize(.small)
+                .help("Copy text")
+
+                if let memoryBlock {
+                    Button {
+                        copyToPasteboard(memoryBlock.ref)
+                    } label: {
+                        Image(systemName: "link")
+                    }
+                    .controlSize(.small)
+                    .help("Copy Memory ref")
+                }
             }
 
             Text(message.text)
@@ -404,6 +458,11 @@ private struct TranscriptMessageRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .appSurface(.compactCard(radius: 8), padding: nil)
     }
+}
+
+private func copyToPasteboard(_ value: String) {
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(value, forType: .string)
 }
 
 private extension SessionTranscriptMessage.Role {

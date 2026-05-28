@@ -133,6 +133,46 @@ targets:
           DEVELOPMENT_TEAM: "$(APPLE_TEAM_ID)"
           OTHER_CODE_SIGN_FLAGS: "--timestamp"
 
+  ClaudeStatsMemoryCLI:
+    type: tool
+    platform: macOS
+    sources:
+      - path: ClaudeStatsMemoryCLI
+      - path: ClaudeStats/MemoryCore
+    dependencies:
+      - sdk: libsqlite3.tbd
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.claudestats.ClaudeStatsMemoryCLI
+        PRODUCT_NAME: claude-stats-memory
+        PRODUCT_MODULE_NAME: ClaudeStatsMemoryCLI
+        MARKETING_VERSION: "1.7.7"
+        CURRENT_PROJECT_VERSION: "76"
+        GENERATE_INFOPLIST_FILE: YES
+        CREATE_INFOPLIST_SECTION_IN_BINARY: YES
+        INSTALL_PATH: ""
+        SKIP_INSTALL: YES
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+      configs:
+        Debug:
+          CODE_SIGN_IDENTITY: "-"
+          CODE_SIGN_STYLE: Automatic
+        DebugCloudKit:
+          CODE_SIGN_IDENTITY: Apple Development
+          CODE_SIGN_STYLE: Automatic
+          DEVELOPMENT_TEAM: 24XGLNT76L
+        Release:
+          CODE_SIGN_IDENTITY: "-"
+          CODE_SIGN_STYLE: Automatic
+        ReleaseSigned:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
+          CODE_SIGN_IDENTITY: "$(SIGN_IDENTITY)"
+          DEVELOPMENT_TEAM: "$(APPLE_TEAM_ID)"
+          ENABLE_HARDENED_RUNTIME: YES
+          OTHER_CODE_SIGN_FLAGS: "--timestamp"
+
   RockxyBackendEmbed:
     type: framework
     platform: macOS
@@ -348,6 +388,12 @@ targets:
         copy:
           destination: wrapper
           subpath: Contents/Library/HelperTools
+      - target: ClaudeStatsMemoryCLI
+        link: false
+        codeSign: true
+        copy:
+          destination: wrapper
+          subpath: Contents/Helpers
       - target: GhosttyEmbed
       - target: AtollEmbed
       - package: Lottie

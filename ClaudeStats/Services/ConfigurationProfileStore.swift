@@ -23,6 +23,29 @@ struct ConfigurationApplyResult: Sendable, Hashable {
     let appliedAt: Date
 }
 
+struct ConfigurationBackupSummary: Identifiable, Sendable, Hashable {
+    let id: String
+    let profileID: UUID
+    let profileName: String
+    let createdAt: Date
+    let directoryPath: String
+    let fileCount: Int
+}
+
+struct ConfigurationBackupDiff: Identifiable, Sendable, Hashable {
+    enum Status: String, Sendable, Hashable {
+        case unchanged
+        case changed
+        case missingOnDisk
+        case createdAfterBackup
+    }
+
+    let id: String
+    let targetPath: String
+    let backupPath: String?
+    let status: Status
+}
+
 /// Handles all disk I/O for configuration profiles. Views and view models keep
 /// the user's intent; this store owns persistence, backup creation, hashing,
 /// and atomic writes.
@@ -119,6 +142,91 @@ struct ConfigurationProfileStore: Sendable {
         }.value
     }
 
+    func listBackups() async throws -> [ConfigurationBackupSummary] {
+        let backupsDirectory = backupsDirectory
+        return try await Task.detached(priority: .utility) {
+            guard let directories = try? FileManager.default.contentsOfDirectory(
+                at: backupsDirectory,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            ) else {
+                return []
+            }
+
+            return directories.compactMap { directory -> ConfigurationBackupSummary? in
+                guard (try? directory.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else {
+                    return nil
+                }
+                let manifestURL = directory.appendingPathComponent("manifest.json", isDirectory: false)
+                guard let data = try? Data(contentsOf: manifestURL),
+                      let manifest = try? JSONDecoder.profileDecoder.decode(BackupManifest.self, from: data) else {
+                    return nil
+                }
+                return ConfigurationBackupSummary(
+                    id: directory.path,
+                    profileID: manifest.profileID,
+                    profileName: manifest.profileName,
+                    createdAt: manifest.createdAt,
+                    directoryPath: directory.path,
+                    fileCount: manifest.files.count
+                )
+            }
+            .sorted { $0.createdAt > $1.createdAt }
+        }.value
+    }
+
+    func diffBackup(_ backup: ConfigurationBackupSummary) async throws -> [ConfigurationBackupDiff] {
+        try await Task.detached(priority: .utility) {
+            let manifest = try Self.readBackupManifest(directory: URL(fileURLWithPath: backup.directoryPath, isDirectory: true))
+            return manifest.files.map { entry in
+                let targetURL = URL(fileURLWithPath: entry.targetPath)
+                let targetExists = FileManager.default.fileExists(atPath: targetURL.path)
+                let status: ConfigurationBackupDiff.Status
+                if let backupPath = entry.backupPath {
+                    let backupURL = URL(fileURLWithPath: backupPath)
+                    let backupData = try? Data(contentsOf: backupURL)
+                    let targetData = try? Data(contentsOf: targetURL)
+                    if !targetExists {
+                        status = .missingOnDisk
+                    } else if backupData == targetData {
+                        status = .unchanged
+                    } else {
+                        status = .changed
+                    }
+                } else {
+                    status = targetExists ? .createdAfterBackup : .unchanged
+                }
+                return ConfigurationBackupDiff(
+                    id: "\(backup.directoryPath):\(entry.targetPath)",
+                    targetPath: entry.targetPath,
+                    backupPath: entry.backupPath,
+                    status: status
+                )
+            }
+        }.value
+    }
+
+    func restoreBackup(_ backup: ConfigurationBackupSummary) async throws -> ConfigurationApplyResult {
+        try await Task.detached(priority: .utility) {
+            let restoredAt = Date()
+            let directory = URL(fileURLWithPath: backup.directoryPath, isDirectory: true)
+            let manifest = try Self.readBackupManifest(directory: directory)
+            for entry in manifest.files {
+                let targetURL = URL(fileURLWithPath: entry.targetPath)
+                if let backupPath = entry.backupPath {
+                    try FileManager.default.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    if FileManager.default.fileExists(atPath: targetURL.path) {
+                        try FileManager.default.removeItem(at: targetURL)
+                    }
+                    try FileManager.default.copyItem(at: URL(fileURLWithPath: backupPath), to: targetURL)
+                } else if FileManager.default.fileExists(atPath: targetURL.path) {
+                    try FileManager.default.removeItem(at: targetURL)
+                }
+            }
+            return ConfigurationApplyResult(backupDirectory: directory, appliedAt: restoredAt)
+        }.value
+    }
+
     static func hash(_ content: String) -> String {
         let digest = SHA256.hash(data: Data(content.utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
@@ -199,6 +307,12 @@ struct ConfigurationProfileStore: Sendable {
     private static func directoryExists(_ url: URL) -> Bool {
         var isDirectory: ObjCBool = false
         return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
+    private static func readBackupManifest(directory: URL) throws -> BackupManifest {
+        let manifestURL = directory.appendingPathComponent("manifest.json", isDirectory: false)
+        let data = try Data(contentsOf: manifestURL)
+        return try JSONDecoder.profileDecoder.decode(BackupManifest.self, from: data)
     }
 
     private struct BackupManifest: Codable, Sendable {

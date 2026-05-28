@@ -58,8 +58,8 @@ struct ConfigurationEditorPane: View {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(editor.diagnostics) { diagnostic in
                     HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: diagnostic.severity == .error ? "exclamationmark.triangle.fill" : "exclamationmark.triangle")
-                            .foregroundStyle(diagnostic.severity == .error ? Color(red: 0.85, green: 0.22, blue: 0.18) : Color(red: 0.92, green: 0.58, blue: 0.16))
+                        Image(systemName: diagnostic.severity == .error ? "exclamationmark.triangle.fill" : diagnostic.severity == .warning ? "exclamationmark.triangle" : "info.circle")
+                            .foregroundStyle(diagnostic.severity == .error ? Color(red: 0.85, green: 0.22, blue: 0.18) : diagnostic.severity == .warning ? Color(red: 0.92, green: 0.58, blue: 0.16) : Color.stxMuted)
                             .frame(width: 16)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(diagnostic.message)
@@ -205,8 +205,8 @@ private struct ConfigurationEditorStatusBar: View {
             Label("Line \(editor.cursorLine), column \(editor.cursorColumn)", systemImage: "text.cursor")
             Text("\(editor.draftCharacterCount) chars")
             if let diagnostic = editor.primaryDiagnostic {
-                Text(diagnostic.severity == .error ? "Error" : "Warning")
-                    .foregroundStyle(diagnostic.severity == .error ? Color(red: 0.85, green: 0.22, blue: 0.18) : Color(red: 0.92, green: 0.58, blue: 0.16))
+                Text(diagnostic.severity == .error ? "Error" : diagnostic.severity == .warning ? "Warning" : "Info")
+                    .foregroundStyle(diagnostic.severity == .error ? Color(red: 0.85, green: 0.22, blue: 0.18) : diagnostic.severity == .warning ? Color(red: 0.92, green: 0.58, blue: 0.16) : Color.stxMuted)
             } else {
                 Text("Syntax OK")
                     .foregroundStyle(Color.stxAccent)

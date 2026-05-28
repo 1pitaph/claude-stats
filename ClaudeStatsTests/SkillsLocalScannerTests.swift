@@ -86,8 +86,10 @@ struct SkillsLocalScannerTests {
 
         let plugin = try #require(snapshot.skills.first { $0.name == "SwiftUI Patterns" })
         #expect(plugin.scope == .plugin)
+        #expect(plugin.plugin?.id == "openai-curated/build-macos-apps")
         #expect(plugin.plugin?.displayName == "Build macOS Apps")
         #expect(plugin.plugin?.version == "2.0.0")
+        #expect(plugin.folderPath.contains("build-macos-apps/2.0.0/skills/swiftui-patterns"))
 
         #expect(!snapshot.skills.contains { $0.folderName == "hatch-link" })
 

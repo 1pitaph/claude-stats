@@ -13,6 +13,7 @@ enum ConfigurationEditorServiceError: LocalizedError, Sendable {
 
 struct ConfigurationEditorDiagnostic: Identifiable, Sendable, Hashable {
     enum Severity: String, Sendable, Hashable {
+        case info
         case warning
         case error
     }
@@ -109,7 +110,9 @@ struct ConfigurationEditorService: Sendable {
             jsonDiagnostics(for: content)
         case .markdown:
             markdownDiagnostics(for: content)
-        case .toml, .text:
+        case .toml:
+            tomlDiagnostics(for: content)
+        case .text:
             []
         }
     }
@@ -155,6 +158,166 @@ struct ConfigurationEditorService: Sendable {
                 column: nil
             ),
         ]
+    }
+
+    private static func tomlDiagnostics(for content: String) -> [ConfigurationEditorDiagnostic] {
+        guard content.utf8.count <= AIConfigScanner.previewByteLimit else {
+            return [
+                ConfigurationEditorDiagnostic(
+                    id: "toml:large",
+                    severity: .warning,
+                    message: "Large TOML file skipped for syntax diagnostics.",
+                    line: nil,
+                    column: nil
+                ),
+            ]
+        }
+
+        var diagnostics: [ConfigurationEditorDiagnostic] = []
+        var currentSection: String?
+        let allowedTopLevelKeys: Set<String> = [
+            "model", "model_provider", "model_reasoning_effort", "model_reasoning_summary",
+            "approval_policy", "sandbox_mode", "notify", "hide_agent_reasoning",
+            "network_access", "cwd", "tools", "shell_environment_policy",
+        ]
+
+        for (offset, rawLine) in content.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+            let lineNumber = offset + 1
+            let line = stripTOMLComment(String(rawLine)).trimmingCharacters(in: .whitespaces)
+            guard !line.isEmpty else { continue }
+
+            if line.hasPrefix("[") {
+                guard line.hasSuffix("]"), line.count > 2 else {
+                    diagnostics.append(
+                        ConfigurationEditorDiagnostic(
+                            id: "toml:section:\(lineNumber)",
+                            severity: .error,
+                            message: "TOML section header is not closed.",
+                            line: lineNumber,
+                            column: line.firstIndex(of: "[").map { line.distance(from: line.startIndex, to: $0) + 1 }
+                        )
+                    )
+                    continue
+                }
+                currentSection = String(line.dropFirst().dropLast())
+                continue
+            }
+
+            guard let equals = line.firstIndex(of: "=") else {
+                diagnostics.append(
+                    ConfigurationEditorDiagnostic(
+                        id: "toml:assignment:\(lineNumber)",
+                        severity: .error,
+                        message: "TOML key/value lines must contain '='.",
+                        line: lineNumber,
+                        column: nil
+                    )
+                )
+                continue
+            }
+
+            let key = String(line[..<equals]).trimmingCharacters(in: .whitespaces)
+            let value = String(line[line.index(after: equals)...]).trimmingCharacters(in: .whitespaces)
+            if key.isEmpty {
+                diagnostics.append(
+                    ConfigurationEditorDiagnostic(
+                        id: "toml:key:\(lineNumber)",
+                        severity: .error,
+                        message: "TOML key is empty.",
+                        line: lineNumber,
+                        column: 1
+                    )
+                )
+            }
+            if value.isEmpty {
+                diagnostics.append(
+                    ConfigurationEditorDiagnostic(
+                        id: "toml:value:\(lineNumber)",
+                        severity: .error,
+                        message: "TOML value is empty.",
+                        line: lineNumber,
+                        column: line.distance(from: line.startIndex, to: equals) + 2
+                    )
+                )
+            } else if let message = tomlValueProblem(value) {
+                diagnostics.append(
+                    ConfigurationEditorDiagnostic(
+                        id: "toml:value:\(lineNumber):\(message)",
+                        severity: .error,
+                        message: message,
+                        line: lineNumber,
+                        column: line.distance(from: line.startIndex, to: equals) + 2
+                    )
+                )
+            }
+
+            if currentSection == nil, !key.isEmpty, !allowedTopLevelKeys.contains(key) {
+                diagnostics.append(
+                    ConfigurationEditorDiagnostic(
+                        id: "toml:unknown:\(lineNumber):\(key)",
+                        severity: .info,
+                        message: "Unknown top-level TOML key '\(key)'.",
+                        line: lineNumber,
+                        column: 1
+                    )
+                )
+            }
+        }
+        return diagnostics
+    }
+
+    private static func stripTOMLComment(_ line: String) -> String {
+        var inString = false
+        var escaped = false
+        var result = ""
+        for character in line {
+            if character == "\\" && inString {
+                escaped.toggle()
+                result.append(character)
+                continue
+            }
+            if character == "\"", !escaped {
+                inString.toggle()
+            }
+            escaped = false
+            if character == "#", !inString {
+                break
+            }
+            result.append(character)
+        }
+        return result
+    }
+
+    private static func tomlValueProblem(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasPrefix("\"") {
+            return stringIsClosed(trimmed) ? nil : "TOML string is not closed."
+        }
+        if trimmed.hasPrefix("[") && !trimmed.hasSuffix("]") {
+            return "TOML array is not closed."
+        }
+        if trimmed.hasPrefix("{") && !trimmed.hasSuffix("}") {
+            return "TOML inline table is not closed."
+        }
+        return nil
+    }
+
+    private static func stringIsClosed(_ value: String) -> Bool {
+        var escaped = false
+        for character in value.dropFirst() {
+            if escaped {
+                escaped = false
+                continue
+            }
+            if character == "\\" {
+                escaped = true
+                continue
+            }
+            if character == "\"" {
+                return true
+            }
+        }
+        return false
     }
 
     private static func jsonErrorLocation(from message: String) -> (line: Int?, column: Int?) {

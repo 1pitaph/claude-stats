@@ -279,6 +279,8 @@ struct AIConfigScanner: Sendable {
         ConfigurationEditorService.diagnosticsSync(for: content, kind: kind).map { diagnostic in
             let severity: AIConfigDiagnostic.Severity
             switch diagnostic.severity {
+            case .info:
+                severity = .info
             case .warning:
                 severity = .warning
             case .error:

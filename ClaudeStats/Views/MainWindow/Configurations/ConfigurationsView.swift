@@ -2,6 +2,8 @@ import AppKit
 import SwiftUI
 
 struct ConfigurationsView: View {
+    var showsHeader = true
+
     @Environment(AppEnvironment.self) private var env
 
     private let workspaceMaxWidth: CGFloat = 980
@@ -20,9 +22,11 @@ struct ConfigurationsView: View {
         @Bindable var vm = env.apiProviders
         let environmentVM = env.cliEnvironment
 
-        CenteredPaneContainer(maxWidth: workspaceMaxWidth, topPadding: 36) {
+        CenteredPaneContainer(maxWidth: workspaceMaxWidth, topPadding: showsHeader ? 36 : 18) {
             VStack(alignment: .leading, spacing: 18) {
-                header(vm: vm)
+                if showsHeader {
+                    header(vm: vm)
+                }
                 WorkspaceColumnsLayout(
                     railWidth: railColumnWidth,
                     listWidth: providerColumnWidth,

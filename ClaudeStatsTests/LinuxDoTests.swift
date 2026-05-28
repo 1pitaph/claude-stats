@@ -368,6 +368,55 @@ struct LinuxDoTests {
         #expect(post.postURL?.absoluteString == "https://linux.do/t/hello/3/1")
     }
 
+    @Test("User profile response decodes Discourse profile stats badges and groups")
+    func userProfileResponseDecode() throws {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom(Self.decodeLinuxDoDate)
+        let response = try decoder.decode(UserProfileResponse.self, from: Data(Self.userProfileRichJSON.utf8))
+        let profile = LinuxDoResponseMapper.userProfile(from: response)
+
+        #expect(profile.id == 1)
+        #expect(profile.username == "tester")
+        #expect(profile.displayName == "Tester")
+        #expect(profile.avatarURL?.absoluteString == "https://linux.do/user_avatar/linux.do/tester/96/1.png")
+        #expect(profile.title == "Builder")
+        #expect(profile.plainBioExcerpt == "Native reader")
+        #expect(profile.website == "example.com")
+        #expect(profile.location == "Xi'an")
+        #expect(profile.createdAt == Date(timeIntervalSince1970: 1_700_000_000))
+        #expect(profile.lastSeenAt == Date(timeIntervalSince1970: 1_700_003_600))
+        #expect(profile.trustLevel == 3)
+        #expect(profile.isModerator)
+        #expect(!profile.isAdmin)
+        #expect(profile.primaryGroupName == "linux-do")
+        #expect(profile.flairName == "Guide")
+        #expect(profile.flairURL?.absoluteString == "https://linux.do/images/flair.png")
+        #expect(profile.stats.postCount == 42)
+        #expect(profile.stats.topicCount == 7)
+        #expect(profile.stats.likesReceived == 99)
+        #expect(profile.stats.likesGiven == 12)
+        #expect(profile.stats.solutionsCount == 5)
+        #expect(profile.stats.profileViewCount == 1_234)
+        #expect(profile.stats.readTimeSeconds == 3_600)
+        #expect(profile.groups.map(\.name) == ["seed-users", "linux-do"])
+        #expect(profile.badges.map(\.name) == ["Great Share"])
+        #expect(profile.badges.first?.grantedAt == Date(timeIntervalSince1970: 1_700_000_100))
+
+        let minimal = try decoder.decode(UserProfileResponse.self, from: Data("""
+        {
+          "user": {
+            "id": 2,
+            "username": "minimal",
+            "ignored_shape": { "ok": true }
+          }
+        }
+        """.utf8))
+        let minimalProfile = LinuxDoResponseMapper.userProfile(from: minimal)
+        #expect(minimalProfile.username == "minimal")
+        #expect(minimalProfile.badges.isEmpty)
+        #expect(minimalProfile.groups.isEmpty)
+    }
+
     @Test("Emoji catalog response decodes dynamic Discourse groups")
     func emojiCatalogResponseDecode() throws {
         let response = try JSONDecoder().decode(EmojiCatalogResponse.self, from: Data("""
@@ -1223,6 +1272,51 @@ struct LinuxDoTests {
         #expect(store.authenticationDescription == "Guest")
     }
 
+    @Test("Store caches user profiles and keeps stale data available on retryable failures")
+    func storeCachesUserProfilesAndRetries() async throws {
+        let firstProfile = LinuxDoUserProfile(
+            id: 20,
+            username: "neo",
+            name: "Neo",
+            avatarURL: URL(string: "https://linux.do/user_avatar/linux.do/neo/96/1.png")
+        )
+        let refreshedProfile = LinuxDoUserProfile(
+            id: 20,
+            username: "neo",
+            name: "Neo Refreshed",
+            avatarURL: URL(string: "https://linux.do/user_avatar/linux.do/neo/96/2.png")
+        )
+        let client = FakeLinuxDoClient(userProfilesByUsername: ["neo": firstProfile])
+        let store = LinuxDoStore(
+            preferences: Self.makePreferences(),
+            credentials: InMemoryLinuxDoCredentialStore(),
+            notificationService: FakeLinuxDoNotificationService(),
+            client: client
+        )
+
+        await store.loadUserProfile(username: "Neo")
+        await store.loadUserProfile(username: "neo")
+
+        #expect(store.userProfileState(username: "NEO").profile?.name == "Neo")
+        #expect(client.fetchUserProfileUsernames == ["Neo"])
+
+        client.fetchUserProfileError = LinuxDoClient.ClientError.http(status: 500)
+        await store.loadUserProfile(username: "neo", force: true)
+
+        let failedState = store.userProfileState(username: "neo")
+        #expect(failedState.profile?.name == "Neo")
+        #expect(failedState.error == "Linux.do returned HTTP 500.")
+
+        client.fetchUserProfileError = nil
+        client.userProfilesByUsername["neo"] = refreshedProfile
+        await store.loadUserProfile(username: "neo", force: true)
+
+        let refreshedState = store.userProfileState(username: "neo")
+        #expect(refreshedState.profile?.name == "Neo Refreshed")
+        #expect(refreshedState.error == nil)
+        #expect(client.fetchUserProfileUsernames == ["Neo", "neo", "neo"])
+    }
+
     @Test("Client sends API key credentials")
     func clientSendsAPIKeyCredentials() async throws {
         let credentials = InMemoryLinuxDoCredentialStore(apiKey: "api-key", clientID: "client-id")
@@ -1362,6 +1456,24 @@ struct LinuxDoTests {
 
         #expect(user.username == "tester")
         #expect(user.avatarURL?.absoluteString == "https://linux.do/user_avatar/linux.do/tester/96/1.png")
+    }
+
+    @Test("Client fetches user profile with web session cookies")
+    func clientFetchesUserProfileWithWebSessionCookies() async throws {
+        let credentials = InMemoryLinuxDoCredentialStore(webSession: Self.webSession(csrfToken: "csrf-token"))
+        let client = Self.makeClient(credentials: credentials) { request in
+            #expect(request.httpMethod == "GET")
+            #expect(request.url?.path == "/u/tester.json")
+            #expect(request.value(forHTTPHeaderField: "Cookie")?.contains("_t=session-token") == true)
+            #expect(request.value(forHTTPHeaderField: "X-Requested-With") == "XMLHttpRequest")
+            return Self.response(body: Self.userProfileRichJSON)
+        }
+
+        let profile = try await client.fetchUserProfile(username: "tester")
+
+        #expect(profile.username == "tester")
+        #expect(profile.avatarURL?.absoluteString == "https://linux.do/user_avatar/linux.do/tester/96/1.png")
+        #expect(profile.badges.first?.name == "Great Share")
     }
 
     @Test("Client retries public feed as guest after stale web session unauthorized")
@@ -1600,6 +1712,69 @@ struct LinuxDoTests {
     }
     """
 
+    nonisolated private static let userProfileRichJSON = """
+    {
+      "user": {
+        "id": 1,
+        "username": "tester",
+        "name": "Tester",
+        "avatar_template": "/user_avatar/linux.do/tester/{size}/1.png",
+        "title": "Builder",
+        "bio_excerpt": "<p>Native reader</p>",
+        "website": "example.com",
+        "location": "Xi'an",
+        "created_at": "2023-11-14T22:13:20.000Z",
+        "last_seen_at": "2023-11-14T23:13:20.000Z",
+        "trust_level": 3,
+        "admin": false,
+        "moderator": true,
+        "primary_group_name": "linux-do",
+        "flair_name": "Guide",
+        "flair_url": "/images/flair.png",
+        "topic_count": 7,
+        "post_count": 42,
+        "likes_received": 99,
+        "likes_given": 12,
+        "solutions_count": 5,
+        "profile_view_count": 1234,
+        "time_read": 3600,
+        "recent_time_read": 120,
+        "topics_entered": 55,
+        "posts_read_count": 500,
+        "groups": [
+          {
+            "id": 11,
+            "name": "seed-users",
+            "full_name": "Seed Users",
+            "flair_url": "/images/seed.png"
+          }
+        ]
+      },
+      "badges": [
+        {
+          "id": 501,
+          "name": "Great Share",
+          "slug": "great-share",
+          "description": "Shared something useful",
+          "icon": "fa-link"
+        }
+      ],
+      "user_badges": [
+        {
+          "badge_id": 501,
+          "granted_at": "2023-11-14T22:15:00.000Z"
+        }
+      ],
+      "groups": [
+        {
+          "id": 12,
+          "name": "linux-do",
+          "full_name": "LINUX DO"
+        }
+      ]
+    }
+    """
+
     nonisolated private static let topicListJSON = """
     {
       "topic_list": {
@@ -1729,11 +1904,14 @@ private final class FakeLinuxDoClient: LinuxDoClienting, @unchecked Sendable {
     var reactionUsersByPostID: [Int: [LinuxDoReaction]]
     var notifications: [LinuxDoNotification]
     var currentUser: LinuxDoCurrentUser
+    var userProfilesByUsername: [String: LinuxDoUserProfile]
+    var fetchUserProfileError: Error?
     var nextCreatedPost: LinuxDoPost?
     var fetchTopicListCalls = 0
     var fetchPostsBatches: [[Int]] = []
     var fetchTopicPages: [Int] = []
     var fetchPostRepliesCalls: [Int] = []
+    var fetchUserProfileUsernames: [String] = []
     var toggleLikeCalls: [(postID: Int, liked: Bool)] = []
     var toggleReactionCalls: [(postID: Int, reactionID: String)] = []
     var createReplyCalls: [(topicID: Int, raw: String, replyToPostNumber: Int?)] = []
@@ -1748,6 +1926,8 @@ private final class FakeLinuxDoClient: LinuxDoClienting, @unchecked Sendable {
         reactionUsersByPostID: [Int: [LinuxDoReaction]] = [:],
         notifications: [LinuxDoNotification] = [],
         currentUser: LinuxDoCurrentUser = LinuxDoCurrentUser(id: 1, username: "tester", name: nil, avatarURL: nil),
+        userProfilesByUsername: [String: LinuxDoUserProfile] = [:],
+        fetchUserProfileError: Error? = nil,
         nextCreatedPost: LinuxDoPost? = nil
     ) {
         self.topicList = topicList
@@ -1758,6 +1938,8 @@ private final class FakeLinuxDoClient: LinuxDoClienting, @unchecked Sendable {
         self.reactionUsersByPostID = reactionUsersByPostID
         self.notifications = notifications
         self.currentUser = currentUser
+        self.userProfilesByUsername = userProfilesByUsername
+        self.fetchUserProfileError = fetchUserProfileError
         self.nextCreatedPost = nextCreatedPost
     }
 
@@ -1868,6 +2050,19 @@ private final class FakeLinuxDoClient: LinuxDoClienting, @unchecked Sendable {
 
     func fetchUser(username: String) async throws -> LinuxDoCurrentUser {
         currentUser
+    }
+
+    func fetchUserProfile(username: String) async throws -> LinuxDoUserProfile {
+        fetchUserProfileUsernames.append(username)
+        if let fetchUserProfileError {
+            throw fetchUserProfileError
+        }
+        return userProfilesByUsername[username.lowercased()] ?? LinuxDoUserProfile(
+            id: currentUser.id,
+            username: username,
+            name: currentUser.name,
+            avatarURL: currentUser.avatarURL
+        )
     }
 
     func fetchCSRFToken() async throws -> String {

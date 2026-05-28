@@ -4,20 +4,18 @@ import SwiftUI
 /// Top-level page shown in the main window's detail column. Settings live in
 /// their own main-window mode, not as a `MainPage`.
 enum MainPage: String, CaseIterable, Identifiable, Sendable {
-    case dashboard, linuxDo, configurations, usage, leaderboards, activity, git, system, skills, terminal
+    case dashboard, linuxDo, usage, leaderboards, activity, git, system, terminal
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .dashboard: L10n.string("main_page.dashboard", defaultValue: "Dashboard")
         case .linuxDo: "LinuxDo"
-        case .configurations: L10n.string("main_page.switcher", defaultValue: "Switcher")
         case .usage: L10n.string("main_page.usage", defaultValue: "Usage")
         case .leaderboards: L10n.string("main_page.leaderboards", defaultValue: "Leaderboards")
         case .activity: L10n.string("main_page.activity", defaultValue: "Activity")
         case .git: L10n.string("main_page.git", defaultValue: "Git")
         case .system: L10n.string("main_page.system", defaultValue: "System")
-        case .skills: "Skills"
         case .terminal: L10n.string("main_page.terminal", defaultValue: "Terminal")
         }
     }
@@ -26,13 +24,11 @@ enum MainPage: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .dashboard: "square.grid.2x2"
         case .linuxDo: "globe.asia.australia"
-        case .configurations: "slider.horizontal.3"
         case .usage: "chart.bar.xaxis"
         case .leaderboards: "trophy"
         case .activity: "waveform"
         case .git: "arrow.triangle.branch"
         case .system: "cpu"
-        case .skills: "sparkles"
         case .terminal: "terminal"
         }
     }
@@ -64,13 +60,16 @@ struct MainWindowView: View {
     @SceneStorage("mainWindow.sidebarVisible") private var sidebarVisible: Bool = true
     @SceneStorage("mainWindow.mode") private var modeRaw: String = MainWindowMode.app.rawValue
     @SceneStorage("mainWindow.settingsSection") private var settingsSectionRaw: String = SettingsSection.general.rawValue
-    @SceneStorage("mainWindow.configsSection") private var configsSectionRaw: String = AIConfigsSection.overview.rawValue
+    @SceneStorage("mainWindow.configSection") private var configSectionRaw: String = ""
+    @SceneStorage("mainWindow.configsSection") private var configFilesSectionRaw: String = AIConfigsSection.overview.rawValue
     @SceneStorage("mainWindow.configsSearch") private var configsSearchText: String = ""
     @SceneStorage("mainWindow.configsProjectID") private var configsProjectIDRaw: String = ""
     @SceneStorage("mainWindow.configsDocumentID") private var configsDocumentIDRaw: String = ""
+    @SceneStorage("mainWindow.memorySection") private var memorySectionRaw: String = MemoryWorkspaceSection.search.rawValue
+    @SceneStorage("mainWindow.memoryAIDestination") private var memoryAIDestinationRaw: String = MemoryAIDestination.overviewRawValue
     @SceneStorage("mainWindow.networkSection") private var networkSectionRaw: String = NetworkSection.traffic.rawValue
     @SceneStorage("mainWindow.opsSection") private var opsSectionRaw: String = OpsSection.ports.rawValue
-    @SceneStorage("mainWindow.sessionsDestination") private var sessionsDestinationRaw: String = SessionsDestination.overviewRawValue
+    @SceneStorage("mainWindow.sessionsDestination") private var legacySessionsDestinationRaw: String = ""
     @State private var page: MainPage = .dashboard
     @State private var toggleHovering = false
     @State private var trafficLights = TrafficLightPositioner()
@@ -78,24 +77,16 @@ struct MainWindowView: View {
     @State private var linuxDoSignInEnabled = true
 
     private var availablePages: [MainPage] {
-        var pages: [MainPage] = [.dashboard, .configurations, .usage, .leaderboards]
+        var pages: [MainPage] = [.dashboard, .usage, .leaderboards]
         if env.preferences.aiActivityAnalysisEnabled { pages.append(.activity) }
         if env.preferences.gitTrackingEnabled { pages.append(.git) }
         if env.preferences.systemMonitorEnabled { pages.append(.system) }
-        pages.append(.skills)
         pages.append(.terminal)
         return pages
     }
 
-    /// Resolves the currently selected session against the store. Returns nil
-    /// if the id was set but the session has since been removed.
-    private var selectedSession: Session? {
-        guard case .session(let id) = sessionsDestination else { return nil }
-        return env.store.sessions(for: env.preferences.selectedProvider).first { $0.id == id }
-    }
-
-    private var sessionsDestination: SessionsDestination {
-        SessionsDestination(rawValue: sessionsDestinationRaw)
+    private var memoryAIDestination: MemoryAIDestination {
+        MemoryAIDestination(rawValue: memoryAIDestinationRaw)
     }
 
     private var mode: MainWindowMode {
@@ -104,10 +95,6 @@ struct MainWindowView: View {
 
     private var settingsSection: SettingsSection {
         SettingsSection(rawValue: settingsSectionRaw) ?? .general
-    }
-
-    private var configsSection: AIConfigsSection {
-        AIConfigsSection(rawValue: configsSectionRaw) ?? .overview
     }
 
     private var networkSection: NetworkSection {
@@ -122,20 +109,6 @@ struct MainWindowView: View {
         Binding(
             get: { settingsSection },
             set: { settingsSectionRaw = $0.rawValue }
-        )
-    }
-
-    private var configsSectionBinding: Binding<AIConfigsSection> {
-        Binding(
-            get: { configsSection },
-            set: { configsSectionRaw = $0.rawValue }
-        )
-    }
-
-    private var configsSearchBinding: Binding<String> {
-        Binding(
-            get: { configsSearchText },
-            set: { configsSearchText = $0 }
         )
     }
 
@@ -167,10 +140,10 @@ struct MainWindowView: View {
         )
     }
 
-    private var sessionsDestinationBinding: Binding<SessionsDestination> {
+    private var memoryAIDestinationBinding: Binding<MemoryAIDestination> {
         Binding(
-            get: { sessionsDestination },
-            set: { sessionsDestinationRaw = $0.rawValue }
+            get: { memoryAIDestination },
+            set: { memoryAIDestinationRaw = $0.rawValue }
         )
     }
 
@@ -187,10 +160,12 @@ struct MainWindowView: View {
                     page: $page,
                     availablePages: availablePages,
                     isLinuxDoActive: mode == .linuxDo,
+                    isConfigsActive: mode == .configs,
+                    isMemoryActive: mode == .memory,
                     onOpenSettings: openSettings,
                     onOpenLinuxDo: openLinuxDo,
-                    onOpenSessions: openSessions,
                     onOpenConfigs: openConfigs,
+                    onOpenMemory: openMemory,
                     onOpenNetwork: openNetwork,
                     onOpenOps: openOps
                 )
@@ -201,17 +176,10 @@ struct MainWindowView: View {
                     onExit: closeLinuxDo,
                     onSignIn: openLinuxDoSignIn
                 )
-            } sessionsSidebar: {
-                SessionSidebarColumn(
-                    destination: sessionsDestinationBinding,
-                    onExit: closeSessions
-                )
             } configsSidebar: {
-                AIConfigsSidebarColumn(
-                    section: configsSectionBinding,
-                    searchText: configsSearchBinding,
-                    onExit: closeConfigs
-                )
+                ConfigWorkspaceSidebar(store: env.configWorkspace, onExit: closeConfigs)
+            } memorySidebar: {
+                MemoryWorkspaceSidebar(store: env.memory, onExit: closeMemory)
             } settingsSidebar: {
                 SettingsSidebarColumn(section: settingsSectionBinding, onExit: closeSettings)
             } networkSidebar: {
@@ -222,15 +190,14 @@ struct MainWindowView: View {
                 detail
             } linuxDoDetail: {
                 LinuxDoWorkspaceView(store: env.linuxDo)
-            } sessionsDetail: {
-                sessionsDetail
             } configsDetail: {
-                AIConfigsDetailView(
-                    section: configsSection,
-                    searchText: configsSearchText,
+                ConfigWorkspaceView(
+                    store: env.configWorkspace,
                     selectedProjectID: configsProjectIDBinding,
                     selectedDocumentID: configsDocumentIDBinding
                 )
+            } memoryDetail: {
+                MemoryWorkspaceView(store: env.memory, aiDestination: memoryAIDestinationBinding)
             } settingsDetail: {
                 SettingsDetailView(section: settingsSection, onSelectSection: selectSettingsSection)
             } networkDetail: {
@@ -244,7 +211,7 @@ struct MainWindowView: View {
                     .onTapGesture { clearTextFocus() }
             }
 
-            if mode == .app || mode == .linuxDo || mode == .sessions || mode == .configs || mode == .network || mode == .ops {
+            if mode == .app || mode == .linuxDo || mode == .configs || mode == .memory || mode == .network || mode == .ops {
                 sidebarToggle
                     .padding(.leading, 81)
                     .padding(.top, 11)
@@ -256,8 +223,10 @@ struct MainWindowView: View {
             trafficLights.attach(to: window)
         })
         .onAppear {
+            restoreConfigWorkspaceState()
+            restoreMemoryWorkspaceState()
             normalizeNavigationState()
-            if mode == .sessions { clearInvalidSessionSelection() }
+            if mode == .memory { clearInvalidMemoryAIDestination() }
             DockVisibilityCoordinator.shared.acquire()
             Log.app.info("Main window opened on page \(page.rawValue, privacy: .public)")
         }
@@ -276,13 +245,23 @@ struct MainWindowView: View {
             }
             pageRaw = new.rawValue
         }
+        .onChange(of: env.configWorkspace.section) { _, new in
+            configSectionRaw = new.rawValue
+        }
+        .onChange(of: env.configWorkspace.filesSection) { _, new in
+            configFilesSectionRaw = new.rawValue
+        }
+        .onChange(of: env.configWorkspace.filesSearchText) { _, new in
+            configsSearchText = new
+        }
+        .onChange(of: env.memory.section) { _, new in
+            memorySectionRaw = new.rawValue
+        }
         .onChange(of: env.store.lastRefreshedAt) { _, _ in
-            if mode == .sessions { clearInvalidSessionSelection() }
+            if mode == .memory { clearInvalidMemoryAIDestination() }
         }
         .onChange(of: env.preferences.selectedProvider) { _, _ in
-            if mode == .sessions, case .session = sessionsDestination {
-                sessionsDestinationRaw = SessionsDestination.overviewRawValue
-            }
+            if mode == .memory { clearInvalidMemoryAIDestination() }
         }
         .onChange(of: env.preferences.aiActivityAnalysisEnabled) { _, on in
             if !on && page == .activity { page = .dashboard }
@@ -334,8 +313,6 @@ struct MainWindowView: View {
             DashboardView()
         case .linuxDo:
             DashboardView()
-        case .configurations:
-            ConfigurationsView()
         case .usage:
             MainUsageView()
         case .leaderboards:
@@ -346,26 +323,8 @@ struct MainWindowView: View {
             MainGitActivityView()
         case .system:
             MainSystemMonitorView()
-        case .skills:
-            SkillsWorkspaceView(store: env.skills)
         case .terminal:
             TerminalWorkspaceView(store: env.terminalStore)
-        }
-    }
-
-    @ViewBuilder
-    private var sessionsDetail: some View {
-        switch sessionsDestination {
-        case .overview:
-            SessionsOverviewDetailView()
-        case .analysis:
-            SessionsAnalysisDetailView()
-        case .session:
-            if let session = selectedSession {
-                CenteredPaneContainer { SessionDetailView(session: session) }
-            } else {
-                SessionsOverviewDetailView()
-            }
         }
     }
 
@@ -386,11 +345,6 @@ struct MainWindowView: View {
 
     private func selectSettingsSection(_ section: SettingsSection) {
         settingsSectionRaw = section.rawValue
-    }
-
-    private func openSessions() {
-        sessionsDestinationRaw = SessionsDestination.overviewRawValue
-        transition(to: .sessions)
     }
 
     private func openLinuxDo() {
@@ -421,6 +375,10 @@ struct MainWindowView: View {
         transition(to: .configs)
     }
 
+    private func openMemory() {
+        transition(to: .memory)
+    }
+
     private func openNetwork() {
         transition(to: .network)
     }
@@ -433,16 +391,16 @@ struct MainWindowView: View {
         transition(to: .app)
     }
 
-    private func closeSessions() {
-        transition(to: .app)
-    }
-
     private func closeLinuxDo() {
         Log.app.info("Closing LinuxDo mode")
         transition(to: .app)
     }
 
     private func closeConfigs() {
+        transition(to: .app)
+    }
+
+    private func closeMemory() {
         transition(to: .app)
     }
 
@@ -467,11 +425,19 @@ struct MainWindowView: View {
         }
     }
 
-    private func clearInvalidSessionSelection() {
-        guard case .session(let id) = sessionsDestination else { return }
-        let sessions = env.store.sessions(for: env.preferences.selectedProvider)
-        if !sessions.contains(where: { $0.id == id }) {
-            sessionsDestinationRaw = SessionsDestination.overviewRawValue
+    private func clearInvalidMemoryAIDestination() {
+        switch memoryAIDestination {
+        case .session(let id):
+            let sessions = env.store.sessions(for: env.preferences.selectedProvider)
+            if !sessions.contains(where: { $0.id == id }) {
+                memoryAIDestinationRaw = MemoryAIDestination.overviewRawValue
+            }
+        case .indexedRecord(let id):
+            if !env.memory.aiRecords.contains(where: { $0.id == id }) {
+                memoryAIDestinationRaw = MemoryAIDestination.overviewRawValue
+            }
+        case .overview, .analysis:
+            break
         }
     }
 
@@ -489,8 +455,28 @@ struct MainWindowView: View {
     }
 
     private func normalizeNavigationState() {
+        if modeRaw == "sessions" {
+            modeRaw = MainWindowMode.memory.rawValue
+            memorySectionRaw = MemoryWorkspaceSection.aiSessions.rawValue
+            if memoryAIDestinationRaw == MemoryAIDestination.overviewRawValue,
+               !legacySessionsDestinationRaw.isEmpty {
+                memoryAIDestinationRaw = legacySessionsDestinationRaw
+            }
+            sidebarVisible = true
+        }
+
         if MainWindowMode(rawValue: modeRaw) == nil {
             modeRaw = MainWindowMode.app.rawValue
+        }
+
+        if env.configWorkspace.migrateLegacyMainPage(rawValue: pageRaw) {
+            configSectionRaw = env.configWorkspace.section.rawValue
+            configFilesSectionRaw = env.configWorkspace.filesSection.rawValue
+            page = .dashboard
+            pageRaw = MainPage.dashboard.rawValue
+            modeRaw = MainWindowMode.configs.rawValue
+            sidebarVisible = true
+            return
         }
 
         let storedPage = MainPage(rawValue: pageRaw) ?? .dashboard
@@ -505,6 +491,32 @@ struct MainWindowView: View {
         if mode == .linuxDo {
             sidebarVisible = true
         }
+    }
+
+    private func restoreConfigWorkspaceState() {
+        if let section = ConfigWorkspaceSection(rawValue: configSectionRaw), !configSectionRaw.isEmpty {
+            env.configWorkspace.section = section
+        } else {
+            let legacySection = AIConfigsSection(rawValue: configFilesSectionRaw) ?? .overview
+            switch legacySection {
+            case .overview:
+                env.configWorkspace.section = .overview
+            case .diagnostics:
+                env.configWorkspace.section = .diagnostics
+            case .instructions, .provider, .plans, .plugins:
+                env.configWorkspace.section = .files
+            }
+        }
+
+        env.configWorkspace.filesSection = ConfigFilesSection(storedRawValue: configFilesSectionRaw)
+        env.configWorkspace.filesSearchText = configsSearchText
+        configSectionRaw = env.configWorkspace.section.rawValue
+        configFilesSectionRaw = env.configWorkspace.filesSection.rawValue
+    }
+
+    private func restoreMemoryWorkspaceState() {
+        env.memory.section = MemoryWorkspaceSection(rawValue: memorySectionRaw) ?? .search
+        memorySectionRaw = env.memory.section.rawValue
     }
 }
 

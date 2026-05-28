@@ -108,6 +108,181 @@ struct LinuxDoUser: Codable, Hashable, Identifiable, Sendable {
     let avatarURL: URL?
 }
 
+struct LinuxDoUserProfile: Codable, Hashable, Identifiable, Sendable {
+    let id: Int
+    let username: String
+    let name: String?
+    let avatarURL: URL?
+    let title: String?
+    let bioExcerpt: String?
+    let website: String?
+    let location: String?
+    let createdAt: Date?
+    let lastSeenAt: Date?
+    let trustLevel: Int?
+    let isAdmin: Bool
+    let isModerator: Bool
+    let primaryGroupName: String?
+    let flairName: String?
+    let flairURL: URL?
+    let stats: LinuxDoUserProfileStats
+    let badges: [LinuxDoUserBadge]
+    let groups: [LinuxDoUserGroup]
+
+    init(
+        id: Int,
+        username: String,
+        name: String? = nil,
+        avatarURL: URL? = nil,
+        title: String? = nil,
+        bioExcerpt: String? = nil,
+        website: String? = nil,
+        location: String? = nil,
+        createdAt: Date? = nil,
+        lastSeenAt: Date? = nil,
+        trustLevel: Int? = nil,
+        isAdmin: Bool = false,
+        isModerator: Bool = false,
+        primaryGroupName: String? = nil,
+        flairName: String? = nil,
+        flairURL: URL? = nil,
+        stats: LinuxDoUserProfileStats = LinuxDoUserProfileStats(),
+        badges: [LinuxDoUserBadge] = [],
+        groups: [LinuxDoUserGroup] = []
+    ) {
+        self.id = id
+        self.username = username
+        self.name = name
+        self.avatarURL = avatarURL
+        self.title = title
+        self.bioExcerpt = bioExcerpt
+        self.website = website
+        self.location = location
+        self.createdAt = createdAt
+        self.lastSeenAt = lastSeenAt
+        self.trustLevel = trustLevel
+        self.isAdmin = isAdmin
+        self.isModerator = isModerator
+        self.primaryGroupName = primaryGroupName
+        self.flairName = flairName
+        self.flairURL = flairURL
+        self.stats = stats
+        self.badges = badges
+        self.groups = groups
+    }
+
+    var displayName: String {
+        if let name, !name.isEmpty {
+            return name
+        }
+        return username
+    }
+
+    var plainBioExcerpt: String {
+        (bioExcerpt ?? "").htmlStrippedAndDecoded
+    }
+
+    var profileURL: URL? {
+        guard let encodedUsername = username.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+            return nil
+        }
+        return URL(string: "https://linux.do/u/\(encodedUsername)")
+    }
+}
+
+struct LinuxDoUserProfileStats: Codable, Hashable, Sendable {
+    let topicCount: Int?
+    let postCount: Int?
+    let likesReceived: Int?
+    let likesGiven: Int?
+    let solutionsCount: Int?
+    let profileViewCount: Int?
+    let readTimeSeconds: Int?
+    let recentReadTimeSeconds: Int?
+    let topicsEntered: Int?
+    let postsReadCount: Int?
+
+    init(
+        topicCount: Int? = nil,
+        postCount: Int? = nil,
+        likesReceived: Int? = nil,
+        likesGiven: Int? = nil,
+        solutionsCount: Int? = nil,
+        profileViewCount: Int? = nil,
+        readTimeSeconds: Int? = nil,
+        recentReadTimeSeconds: Int? = nil,
+        topicsEntered: Int? = nil,
+        postsReadCount: Int? = nil
+    ) {
+        self.topicCount = topicCount
+        self.postCount = postCount
+        self.likesReceived = likesReceived
+        self.likesGiven = likesGiven
+        self.solutionsCount = solutionsCount
+        self.profileViewCount = profileViewCount
+        self.readTimeSeconds = readTimeSeconds
+        self.recentReadTimeSeconds = recentReadTimeSeconds
+        self.topicsEntered = topicsEntered
+        self.postsReadCount = postsReadCount
+    }
+}
+
+struct LinuxDoUserBadge: Codable, Hashable, Identifiable, Sendable {
+    let id: Int
+    let name: String
+    let slug: String?
+    let description: String?
+    let iconName: String?
+    let imageURL: URL?
+    let grantedAt: Date?
+
+    init(
+        id: Int,
+        name: String,
+        slug: String? = nil,
+        description: String? = nil,
+        iconName: String? = nil,
+        imageURL: URL? = nil,
+        grantedAt: Date? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.slug = slug
+        self.description = description
+        self.iconName = iconName
+        self.imageURL = imageURL
+        self.grantedAt = grantedAt
+    }
+}
+
+struct LinuxDoUserGroup: Codable, Hashable, Identifiable, Sendable {
+    let id: String
+    let name: String
+    let fullName: String?
+    let title: String?
+    let flairURL: URL?
+    let flairColorHex: String?
+    let flairBackgroundColorHex: String?
+
+    init(
+        id: String? = nil,
+        name: String,
+        fullName: String? = nil,
+        title: String? = nil,
+        flairURL: URL? = nil,
+        flairColorHex: String? = nil,
+        flairBackgroundColorHex: String? = nil
+    ) {
+        self.id = id ?? name
+        self.name = name
+        self.fullName = fullName
+        self.title = title
+        self.flairURL = flairURL
+        self.flairColorHex = flairColorHex
+        self.flairBackgroundColorHex = flairBackgroundColorHex
+    }
+}
+
 struct LinuxDoTopicSummary: Codable, Hashable, Identifiable, Sendable {
     let id: Int
     let title: String

@@ -15,6 +15,7 @@ protocol LinuxDoClienting: Sendable {
     func createTopic(title: String, raw: String, categoryID: Int?) async throws -> LinuxDoPost
     func fetchCurrentUser() async throws -> LinuxDoCurrentUser
     func fetchUser(username: String) async throws -> LinuxDoCurrentUser
+    func fetchUserProfile(username: String) async throws -> LinuxDoUserProfile
     func fetchCSRFToken() async throws -> String
     func fetchNotifications(limit: Int) async throws -> [LinuxDoNotification]
     func revokeUserAPIKey() async
@@ -226,7 +227,13 @@ struct LinuxDoClient: LinuxDoClienting {
     func fetchUser(username: String) async throws -> LinuxDoCurrentUser {
         let encodedUsername = username.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? username
         let response: UserProfileResponse = try await get(path: "/u/\(encodedUsername).json")
-        return response.user.currentUser
+        return response.currentUser
+    }
+
+    func fetchUserProfile(username: String) async throws -> LinuxDoUserProfile {
+        let encodedUsername = username.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? username
+        let response: UserProfileResponse = try await get(path: "/u/\(encodedUsername).json")
+        return LinuxDoResponseMapper.userProfile(from: response)
     }
 
     func fetchCSRFToken() async throws -> String {

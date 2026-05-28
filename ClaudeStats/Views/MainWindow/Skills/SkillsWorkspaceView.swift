@@ -29,19 +29,23 @@ private enum SkillsWorkspaceLayout {
 
 struct SkillsWorkspaceView: View {
     @Bindable var store: SkillsStore
+    var showsHeader = true
+
     @Environment(AppEnvironment.self) private var env
     @State private var workspaceLayout: SkillsWorkspaceLayout = .sideBySide
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SkillsHeader(
-                summaryText: store.headerSummaryText,
-                isLoading: store.isScanning || store.isRemoteLoading,
-                selectedTab: store.selectedTab,
-                refreshLocal: refreshLocal,
-                refreshRemote: refreshRemote
-            )
-            StxRule()
+            if showsHeader {
+                SkillsHeader(
+                    summaryText: store.headerSummaryText,
+                    isLoading: store.isScanning || store.isRemoteLoading,
+                    selectedTab: store.selectedTab,
+                    refreshLocal: refreshLocal,
+                    refreshRemote: refreshRemote
+                )
+                StxRule()
+            }
             SkillsWorkspaceBar(
                 selectedTab: store.selectedTab,
                 layout: workspaceLayout,

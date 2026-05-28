@@ -46,6 +46,10 @@ enum LinuxDoResponseMapper {
     static func emojiURLs(from response: EmojiCatalogResponse) -> [String: URL] {
         Dictionary(uniqueKeysWithValues: response.emojis.map { ($0.name, $0.imageURL) })
     }
+
+    static func userProfile(from response: UserProfileResponse) -> LinuxDoUserProfile {
+        response.profile
+    }
 }
 
 struct TopicListResponse: Decodable, Sendable {
@@ -225,7 +229,63 @@ struct CurrentUserResponse: Decodable, Sendable {
 }
 
 struct UserProfileResponse: Decodable, Sendable {
-    let user: UserResponse
+    let user: UserProfileUserResponse
+    let badges: [BadgeResponse]?
+    let userBadges: [UserBadgeResponse]?
+    let groups: [GroupResponse]?
+
+    enum CodingKeys: String, CodingKey {
+        case user
+        case badges
+        case userBadges = "user_badges"
+        case groups
+    }
+
+    var currentUser: LinuxDoCurrentUser {
+        user.currentUser
+    }
+
+    var profile: LinuxDoUserProfile {
+        user.profile(
+            badges: mappedBadges,
+            groups: mappedGroups
+        )
+    }
+
+    private var mappedBadges: [LinuxDoUserBadge] {
+        var badgeByID: [Int: BadgeResponse] = [:]
+        for badge in badges ?? [] {
+            badgeByID[badge.id] = badge
+        }
+        guard let userBadges, !userBadges.isEmpty else {
+            return (badges ?? []).map { $0.model(grantedAt: nil) }
+        }
+        return userBadges.compactMap { userBadge in
+            if let badge = userBadge.badge ?? badgeByID[userBadge.badgeID] {
+                return badge.model(grantedAt: userBadge.grantedAt)
+            }
+            guard let name = userBadge.name, !name.isEmpty else { return nil }
+            return LinuxDoUserBadge(
+                id: userBadge.badgeID,
+                name: name,
+                slug: userBadge.slug,
+                description: userBadge.description,
+                iconName: userBadge.icon,
+                imageURL: LinuxDoURLResolver.url(from: userBadge.imageURL),
+                grantedAt: userBadge.grantedAt
+            )
+        }
+    }
+
+    private var mappedGroups: [LinuxDoUserGroup] {
+        var seen = Set<String>()
+        var values: [LinuxDoUserGroup] = []
+        for group in (user.groups ?? []) + (groups ?? []) {
+            guard seen.insert(group.key).inserted else { continue }
+            values.append(group.model)
+        }
+        return values
+    }
 }
 
 struct CSRFResponse: Decodable, Sendable {
@@ -417,6 +477,202 @@ struct UserResponse: Decodable, Sendable {
             username: username,
             name: name,
             avatarURL: LinuxDoURLResolver.avatarURL(from: avatarTemplate)
+        )
+    }
+}
+
+struct UserProfileUserResponse: Decodable, Sendable {
+    let id: Int
+    let username: String
+    let name: String?
+    let avatarTemplate: String?
+    let title: String?
+    let bioExcerpt: String?
+    let website: String?
+    let location: String?
+    let createdAt: Date?
+    let lastSeenAt: Date?
+    let trustLevel: Int?
+    let admin: Bool?
+    let moderator: Bool?
+    let primaryGroupName: String?
+    let flairName: String?
+    let flairURL: String?
+    let topicCount: Int?
+    let postCount: Int?
+    let likesReceived: Int?
+    let likesGiven: Int?
+    let solutionsCount: Int?
+    let acceptedAnswers: Int?
+    let solvedCount: Int?
+    let profileViewCount: Int?
+    let timeRead: Int?
+    let recentTimeRead: Int?
+    let topicsEntered: Int?
+    let postsReadCount: Int?
+    let groups: [GroupResponse]?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case username
+        case name
+        case avatarTemplate = "avatar_template"
+        case title
+        case bioExcerpt = "bio_excerpt"
+        case website
+        case location
+        case createdAt = "created_at"
+        case lastSeenAt = "last_seen_at"
+        case trustLevel = "trust_level"
+        case admin
+        case moderator
+        case primaryGroupName = "primary_group_name"
+        case flairName = "flair_name"
+        case flairURL = "flair_url"
+        case topicCount = "topic_count"
+        case postCount = "post_count"
+        case likesReceived = "likes_received"
+        case likesGiven = "likes_given"
+        case solutionsCount = "solutions_count"
+        case acceptedAnswers = "accepted_answers"
+        case solvedCount = "solved_count"
+        case profileViewCount = "profile_view_count"
+        case timeRead = "time_read"
+        case recentTimeRead = "recent_time_read"
+        case topicsEntered = "topics_entered"
+        case postsReadCount = "posts_read_count"
+        case groups
+    }
+
+    var currentUser: LinuxDoCurrentUser {
+        LinuxDoCurrentUser(
+            id: id,
+            username: username,
+            name: name,
+            avatarURL: LinuxDoURLResolver.avatarURL(from: avatarTemplate)
+        )
+    }
+
+    func profile(badges: [LinuxDoUserBadge], groups: [LinuxDoUserGroup]) -> LinuxDoUserProfile {
+        LinuxDoUserProfile(
+            id: id,
+            username: username,
+            name: name,
+            avatarURL: LinuxDoURLResolver.avatarURL(from: avatarTemplate),
+            title: title,
+            bioExcerpt: bioExcerpt,
+            website: website,
+            location: location,
+            createdAt: createdAt,
+            lastSeenAt: lastSeenAt,
+            trustLevel: trustLevel,
+            isAdmin: admin ?? false,
+            isModerator: moderator ?? false,
+            primaryGroupName: primaryGroupName,
+            flairName: flairName,
+            flairURL: LinuxDoURLResolver.url(from: flairURL),
+            stats: LinuxDoUserProfileStats(
+                topicCount: topicCount,
+                postCount: postCount,
+                likesReceived: likesReceived,
+                likesGiven: likesGiven,
+                solutionsCount: solutionsCount ?? acceptedAnswers ?? solvedCount,
+                profileViewCount: profileViewCount,
+                readTimeSeconds: timeRead,
+                recentReadTimeSeconds: recentTimeRead,
+                topicsEntered: topicsEntered,
+                postsReadCount: postsReadCount
+            ),
+            badges: badges,
+            groups: groups
+        )
+    }
+}
+
+struct BadgeResponse: Decodable, Sendable {
+    let id: Int
+    let name: String
+    let slug: String?
+    let description: String?
+    let icon: String?
+    let imageURL: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case slug
+        case description
+        case icon
+        case imageURL = "image_url"
+    }
+
+    func model(grantedAt: Date?) -> LinuxDoUserBadge {
+        LinuxDoUserBadge(
+            id: id,
+            name: name,
+            slug: slug,
+            description: description,
+            iconName: icon,
+            imageURL: LinuxDoURLResolver.url(from: imageURL),
+            grantedAt: grantedAt
+        )
+    }
+}
+
+struct UserBadgeResponse: Decodable, Sendable {
+    let badgeID: Int
+    let grantedAt: Date?
+    let name: String?
+    let slug: String?
+    let description: String?
+    let icon: String?
+    let imageURL: String?
+    let badge: BadgeResponse?
+
+    enum CodingKeys: String, CodingKey {
+        case badgeID = "badge_id"
+        case grantedAt = "granted_at"
+        case name
+        case slug
+        case description
+        case icon
+        case imageURL = "image_url"
+        case badge
+    }
+}
+
+struct GroupResponse: Decodable, Sendable {
+    let id: Int?
+    let name: String
+    let fullName: String?
+    let title: String?
+    let flairURL: String?
+    let flairColor: String?
+    let flairBackgroundColor: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case fullName = "full_name"
+        case title
+        case flairURL = "flair_url"
+        case flairColor = "flair_color"
+        case flairBackgroundColor = "flair_bg_color"
+    }
+
+    var key: String {
+        name.lowercased()
+    }
+
+    var model: LinuxDoUserGroup {
+        LinuxDoUserGroup(
+            id: id.map(String.init) ?? name,
+            name: name,
+            fullName: fullName,
+            title: title,
+            flairURL: LinuxDoURLResolver.url(from: flairURL),
+            flairColorHex: flairColor,
+            flairBackgroundColorHex: flairBackgroundColor
         )
     }
 }

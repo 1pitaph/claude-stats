@@ -9,6 +9,8 @@ final class ConfigurationProfilesViewModel {
     private(set) var profilesByProvider: [ProviderKind: [ConfigProfile]] = [:]
     private(set) var activeProfileByProvider: [ProviderKind: ConfigProfile] = [:]
     private(set) var scopeOptionsByProvider: [ProviderKind: [ConfigProfileScope]] = [:]
+    private(set) var backups: [ConfigurationBackupSummary] = []
+    private(set) var selectedBackupDiffs: [ConfigurationBackupDiff] = []
     private(set) var isLoading = false
     private(set) var isWorking = false
     private(set) var lastError: String?
@@ -42,6 +44,7 @@ final class ConfigurationProfilesViewModel {
             rebuildProfileCaches()
             hasLoaded = true
             await refreshStatuses()
+            await reloadBackups()
         } catch {
             lastError = error.localizedDescription
             Log.app.error("Failed to load configuration profiles: \(error.localizedDescription, privacy: .public)")
@@ -63,6 +66,39 @@ final class ConfigurationProfilesViewModel {
     func latestBackupURL(for profile: ConfigProfile) -> URL? {
         guard let path = library.latestBackupDirectoryByProfileID[profile.id] else { return nil }
         return URL(fileURLWithPath: path, isDirectory: true)
+    }
+
+    func reloadBackups() async {
+        do {
+            backups = try await store.listBackups()
+            lastError = nil
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func loadBackupDiff(_ backup: ConfigurationBackupSummary) async {
+        do {
+            selectedBackupDiffs = try await store.diffBackup(backup)
+            lastError = nil
+        } catch {
+            selectedBackupDiffs = []
+            lastError = error.localizedDescription
+        }
+    }
+
+    func restoreBackup(_ backup: ConfigurationBackupSummary) async -> Bool {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            _ = try await store.restoreBackup(backup)
+            await refreshStatuses()
+            await reloadBackups()
+            return true
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
     }
 
     func profile(id: UUID) -> ConfigProfile? {

@@ -60,6 +60,21 @@ struct ConfigurationEditorServiceTests {
         #expect(diagnostics.first?.message.isEmpty == false)
     }
 
+    @Test("TOML diagnostics report syntax and unknown keys")
+    func tomlDiagnostics() throws {
+        let valid = ConfigurationEditorService.diagnosticsSync(
+            for: "model = \"gpt-5.3-codex\"\napproval_policy = \"on-request\"\n",
+            kind: .toml
+        )
+        #expect(valid.isEmpty)
+
+        let invalid = ConfigurationEditorService.diagnosticsSync(for: "model = \"unterminated\n", kind: .toml)
+        #expect(invalid.contains { $0.severity == .error })
+
+        let unknown = ConfigurationEditorService.diagnosticsSync(for: "surprise = true\n", kind: .toml)
+        #expect(unknown.contains { $0.severity == .info })
+    }
+
     @Test("Missing snapshot fails without writing")
     func missingSnapshotFails() async throws {
         let temp = try makeTempDirectory()

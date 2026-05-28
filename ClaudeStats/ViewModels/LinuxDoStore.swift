@@ -63,6 +63,13 @@ struct LinuxDoComposerState: Sendable, Equatable {
     }
 }
 
+struct LinuxDoUserProfileState: Sendable {
+    var profile: LinuxDoUserProfile?
+    var isLoading = false
+    var fetchedAt: Date?
+    var error: String?
+}
+
 enum LinuxDoAuthenticationStatus: Equatable, Sendable {
     case guest
     case userAPIKey
@@ -132,6 +139,7 @@ final class LinuxDoStore {
     private(set) var notifications: [LinuxDoNotification] = []
     private(set) var notificationAuthorization: LinuxDoNotificationAuthorizationStatus = .notDetermined
     private(set) var emojiURLsByID: [String: URL] = [:]
+    private(set) var userProfileStates: [String: LinuxDoUserProfileState] = [:]
     private(set) var isLoadingCategories = false
     private(set) var isSigningIn = false
     private(set) var isAwaitingExternalBrowserSignIn = false
@@ -181,6 +189,7 @@ final class LinuxDoStore {
     @ObservationIgnored private var contentBlockCache: [LinuxDoPostContentCacheKey: [LinuxDoContentBlock]] = [:]
     @ObservationIgnored private var contentBlockCacheOrder: [LinuxDoPostContentCacheKey] = []
     @ObservationIgnored private let contentBlockCacheLimit = 1_000
+    @ObservationIgnored private let userProfileCacheTTL: TimeInterval = 30 * 60
     @ObservationIgnored private var hasAttemptedEmojiCatalogLoad = false
     @ObservationIgnored private var isLoadingEmojiCatalog = false
 
@@ -365,6 +374,42 @@ final class LinuxDoStore {
 
     func emojiURL(for reactionID: String) -> URL? {
         emojiURLsByID[reactionID] ?? fallbackEmojiURL(for: reactionID)
+    }
+
+    func userProfileState(username: String) -> LinuxDoUserProfileState {
+        userProfileStates[normalizedUsername(username)] ?? LinuxDoUserProfileState()
+    }
+
+    func loadUserProfile(username: String, force: Bool = false) async {
+        let key = normalizedUsername(username)
+        guard !key.isEmpty else { return }
+        var state = userProfileStates[key] ?? LinuxDoUserProfileState()
+        if !force,
+           let fetchedAt = state.fetchedAt,
+           state.profile != nil,
+           Date().timeIntervalSince(fetchedAt) <= userProfileCacheTTL {
+            return
+        }
+        guard !state.isLoading else { return }
+
+        state.isLoading = true
+        state.error = nil
+        userProfileStates[key] = state
+
+        do {
+            let profile = try await client.fetchUserProfile(username: username)
+            state = userProfileStates[key] ?? state
+            state.profile = profile
+            state.fetchedAt = Date()
+            state.isLoading = false
+            state.error = nil
+        } catch {
+            state = userProfileStates[key] ?? state
+            state.isLoading = false
+            state.error = userFacingMessage(error)
+            handle(error)
+        }
+        userProfileStates[key] = state
     }
 
     func toggleReplies(topicID: Int, postID: Int) {
@@ -1107,6 +1152,10 @@ final class LinuxDoStore {
         } else {
             nil
         }
+    }
+
+    private func normalizedUsername(_ username: String) -> String {
+        username.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     private func post(withID postID: Int, in state: LinuxDoTopicDetailState) -> LinuxDoPost? {

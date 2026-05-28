@@ -5,6 +5,8 @@ struct AIConfigsWorkspaceView: View {
     let searchText: String
     @Binding var selectedProjectID: String
     @Binding var selectedDocumentID: String
+    var relatedSkills: (AIConfigDocument) -> [ConfigRelatedSkill] = { _ in [] }
+    var createMissingDocument: (AIConfigDocument) -> Void = { _ in }
 
     @Environment(AppEnvironment.self) private var env
 
@@ -61,7 +63,12 @@ struct AIConfigsWorkspaceView: View {
             )
             .frame(minWidth: 0, idealWidth: 360, maxWidth: .infinity)
         } secondary: {
-            AIConfigDocumentInspector(document: selectedDocument, refresh: refresh)
+            AIConfigDocumentInspector(
+                document: selectedDocument,
+                relatedSkills: selectedDocument.map(relatedSkills) ?? [],
+                createMissingDocument: createMissingDocument,
+                refresh: refresh
+            )
                 .frame(minWidth: 0, idealWidth: 520, maxWidth: .infinity)
         }
     }
@@ -88,7 +95,12 @@ struct AIConfigsWorkspaceView: View {
             )
             .frame(minHeight: 0, maxHeight: .infinity)
         } secondary: {
-            AIConfigDocumentInspector(document: selectedDocument, refresh: refresh)
+            AIConfigDocumentInspector(
+                document: selectedDocument,
+                relatedSkills: selectedDocument.map(relatedSkills) ?? [],
+                createMissingDocument: createMissingDocument,
+                refresh: refresh
+            )
                 .frame(minHeight: 0, maxHeight: .infinity)
         }
     }
@@ -194,7 +206,7 @@ private struct AIConfigsBrowserPane: View {
                 if documents.isEmpty {
                     AIConfigsEmptyState(
                         title: "No files",
-                        message: "This scope has no files for the selected Configs section.",
+                        message: "This scope has no files for the selected Config section.",
                         symbol: "doc"
                     )
                     .frame(minHeight: 220)

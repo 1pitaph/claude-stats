@@ -412,6 +412,13 @@ struct LocalSkillDetailModel: Identifiable, Sendable, Hashable {
             }
             if let plugin = primary.plugin {
                 facts.append(SkillFactModel("Plugin", value: plugin.displayName))
+                facts.append(SkillFactModel("Plugin ID", value: plugin.id))
+                if let version = plugin.version {
+                    facts.append(SkillFactModel("Plugin Version", value: version))
+                }
+                if let enabled = plugin.enabled {
+                    facts.append(SkillFactModel("Plugin Enabled", value: enabled ? "Yes" : "No"))
+                }
             }
         }
         primaryFacts = facts

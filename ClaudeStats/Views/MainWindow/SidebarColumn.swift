@@ -12,10 +12,12 @@ struct SidebarColumn: View {
     @Binding var page: MainPage
     var availablePages: [MainPage]
     var isLinuxDoActive = false
+    var isConfigsActive = false
+    var isMemoryActive = false
     var onOpenSettings: () -> Void
     var onOpenLinuxDo: () -> Void
-    var onOpenSessions: () -> Void
     var onOpenConfigs: () -> Void
+    var onOpenMemory: () -> Void
     var onOpenNetwork: () -> Void
     var onOpenOps: () -> Void
 
@@ -38,7 +40,6 @@ struct SidebarColumn: View {
                 clearTextFocus()
                 onOpenLinuxDo()
             }
-            sessionsEntryRow
 
             sectionHeader("STATS")
             navRow(.usage)
@@ -47,11 +48,20 @@ struct SidebarColumn: View {
             if env.preferences.systemMonitorEnabled { navRow(.system) }
 
             sectionHeader("TOOLS")
-            navRow(.configurations)
             SidebarRow(
-                title: "Configs",
-                symbol: "doc.text.magnifyingglass",
-                isSelected: false,
+                title: "Memory",
+                symbol: "brain",
+                isSelected: isMemoryActive,
+                trailingSymbol: "chevron.right",
+                showsTrailingOnHover: true
+            ) {
+                clearTextFocus()
+                onOpenMemory()
+            }
+            SidebarRow(
+                title: "Config",
+                symbol: "slider.horizontal.3",
+                isSelected: isConfigsActive,
                 trailingSymbol: "chevron.right",
                 showsTrailingOnHover: true
             ) {
@@ -59,7 +69,6 @@ struct SidebarColumn: View {
                 onOpenConfigs()
             }
             if env.preferences.gitTrackingEnabled { navRow(.git) }
-            navRow(.skills)
             SidebarRow(
                 title: "Ops",
                 symbol: "wrench.and.screwdriver",
@@ -111,21 +120,6 @@ struct SidebarColumn: View {
                 clearTextFocus()
                 page = p
             }
-        }
-    }
-
-    private var sessionsEntryRow: some View {
-        let count = env.store.sessions(for: env.preferences.selectedProvider).count
-        return SidebarRow(
-            title: "Sessions",
-            symbol: "text.bubble",
-            isSelected: false,
-            trailingText: count > 0 ? "\(count)" : nil,
-            trailingSymbol: "chevron.right",
-            showsTrailingOnHover: true
-        ) {
-            clearTextFocus()
-            onOpenSessions()
         }
     }
 
@@ -221,12 +215,14 @@ struct SidebarRow: View {
     @Previewable @State var page: MainPage = .dashboard
     return SidebarColumn(
         page: $page,
-        availablePages: [.dashboard, .configurations, .usage, .activity, .git],
+        availablePages: [.dashboard, .usage, .activity, .git],
         isLinuxDoActive: false,
+        isConfigsActive: false,
+        isMemoryActive: false,
         onOpenSettings: {},
         onOpenLinuxDo: {},
-        onOpenSessions: {},
         onOpenConfigs: {},
+        onOpenMemory: {},
         onOpenNetwork: {},
         onOpenOps: {}
     )

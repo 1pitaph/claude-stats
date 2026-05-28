@@ -3,8 +3,8 @@ import SwiftUI
 enum MainWindowMode: String, Sendable {
     case app
     case linuxDo
-    case sessions
     case configs
+    case memory
     case settings
     case network
     case ops
@@ -13,8 +13,8 @@ enum MainWindowMode: String, Sendable {
 enum MainWindowMotion {
     static let appSidebarWidth: CGFloat = 240
     static let linuxDoSidebarWidth: CGFloat = 240
-    static let sessionsSidebarWidth: CGFloat = 240
     static let configsSidebarWidth: CGFloat = 240
+    static let memorySidebarWidth: CGFloat = 240
     static let settingsSidebarWidth: CGFloat = 220
     static let networkSidebarWidth: CGFloat = 240
     static let opsSidebarWidth: CGFloat = 240
@@ -60,14 +60,14 @@ enum MainWindowMotion {
         )
     }
 
-    static var sessionsDetailTransition: AnyTransition {
+    static var configsDetailTransition: AnyTransition {
         .asymmetric(
             insertion: .offset(x: detailOffset).combined(with: .opacity),
             removal: .offset(x: detailOffset).combined(with: .opacity)
         )
     }
 
-    static var configsDetailTransition: AnyTransition {
+    static var memoryDetailTransition: AnyTransition {
         .asymmetric(
             insertion: .offset(x: detailOffset).combined(with: .opacity),
             removal: .offset(x: detailOffset).combined(with: .opacity)
@@ -90,25 +90,25 @@ enum MainWindowMotion {
 }
 
 /// Stable two-column shell for the main window. The sidebar column transitions
-/// directly between app, LinuxDo, sessions, configs, settings, network, and ops
+/// directly between app, LinuxDo, configs, memory, settings, network, and ops
 /// navigation while the detail panel stays mounted so its leading boundary can
 /// move with the sidebar width.
-struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSidebar: View, ConfigsSidebar: View, SettingsSidebar: View, NetworkSidebar: View, OpsSidebar: View, AppDetail: View, LinuxDoDetail: View, SessionsDetail: View, ConfigsDetail: View, SettingsDetail: View, NetworkDetail: View, OpsDetail: View>: View {
+struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, ConfigsSidebar: View, MemorySidebar: View, SettingsSidebar: View, NetworkSidebar: View, OpsSidebar: View, AppDetail: View, LinuxDoDetail: View, ConfigsDetail: View, MemoryDetail: View, SettingsDetail: View, NetworkDetail: View, OpsDetail: View>: View {
     let mode: MainWindowMode
     let sidebarVisible: Bool
     let boundaryFalloffEnabled: Bool
 
     private let appSidebar: AppSidebar
     private let linuxDoSidebar: LinuxDoSidebar
-    private let sessionsSidebar: SessionsSidebar
     private let configsSidebar: ConfigsSidebar
+    private let memorySidebar: MemorySidebar
     private let settingsSidebar: SettingsSidebar
     private let networkSidebar: NetworkSidebar
     private let opsSidebar: OpsSidebar
     private let appDetail: AppDetail
     private let linuxDoDetail: LinuxDoDetail
-    private let sessionsDetail: SessionsDetail
     private let configsDetail: ConfigsDetail
+    private let memoryDetail: MemoryDetail
     private let settingsDetail: SettingsDetail
     private let networkDetail: NetworkDetail
     private let opsDetail: OpsDetail
@@ -119,15 +119,15 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
         boundaryFalloffEnabled: Bool,
         @ViewBuilder appSidebar: () -> AppSidebar,
         @ViewBuilder linuxDoSidebar: () -> LinuxDoSidebar,
-        @ViewBuilder sessionsSidebar: () -> SessionsSidebar,
         @ViewBuilder configsSidebar: () -> ConfigsSidebar,
+        @ViewBuilder memorySidebar: () -> MemorySidebar,
         @ViewBuilder settingsSidebar: () -> SettingsSidebar,
         @ViewBuilder networkSidebar: () -> NetworkSidebar,
         @ViewBuilder opsSidebar: () -> OpsSidebar,
         @ViewBuilder appDetail: () -> AppDetail,
         @ViewBuilder linuxDoDetail: () -> LinuxDoDetail,
-        @ViewBuilder sessionsDetail: () -> SessionsDetail,
         @ViewBuilder configsDetail: () -> ConfigsDetail,
+        @ViewBuilder memoryDetail: () -> MemoryDetail,
         @ViewBuilder settingsDetail: () -> SettingsDetail,
         @ViewBuilder networkDetail: () -> NetworkDetail,
         @ViewBuilder opsDetail: () -> OpsDetail
@@ -137,15 +137,15 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
         self.boundaryFalloffEnabled = boundaryFalloffEnabled
         self.appSidebar = appSidebar()
         self.linuxDoSidebar = linuxDoSidebar()
-        self.sessionsSidebar = sessionsSidebar()
         self.configsSidebar = configsSidebar()
+        self.memorySidebar = memorySidebar()
         self.settingsSidebar = settingsSidebar()
         self.networkSidebar = networkSidebar()
         self.opsSidebar = opsSidebar()
         self.appDetail = appDetail()
         self.linuxDoDetail = linuxDoDetail()
-        self.sessionsDetail = sessionsDetail()
         self.configsDetail = configsDetail()
+        self.memoryDetail = memoryDetail()
         self.settingsDetail = settingsDetail()
         self.networkDetail = networkDetail()
         self.opsDetail = opsDetail()
@@ -172,10 +172,10 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
             sidebarVisible ? MainWindowMotion.appSidebarWidth : 0
         case .linuxDo:
             sidebarVisible ? MainWindowMotion.linuxDoSidebarWidth : 0
-        case .sessions:
-            sidebarVisible ? MainWindowMotion.sessionsSidebarWidth : 0
         case .configs:
             sidebarVisible ? MainWindowMotion.configsSidebarWidth : 0
+        case .memory:
+            sidebarVisible ? MainWindowMotion.memorySidebarWidth : 0
         case .settings:
             MainWindowMotion.settingsSidebarWidth
         case .network:
@@ -191,9 +191,9 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
             return sidebarVisible
         case .linuxDo:
             return sidebarVisible
-        case .sessions:
-            return sidebarVisible
         case .configs:
+            return sidebarVisible
+        case .memory:
             return sidebarVisible
         case .settings:
             return true
@@ -208,16 +208,16 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
         mode == .app && sidebarVisible
     }
 
-    private var sessionsSidebarIsActive: Bool {
-        mode == .sessions && sidebarVisible
-    }
-
     private var linuxDoSidebarIsActive: Bool {
         mode == .linuxDo && sidebarVisible
     }
 
     private var configsSidebarIsActive: Bool {
         mode == .configs && sidebarVisible
+    }
+
+    private var memorySidebarIsActive: Bool {
+        mode == .memory && sidebarVisible
     }
 
     private var settingsSidebarIsActive: Bool {
@@ -249,19 +249,19 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
                     .allowsHitTesting(linuxDoSidebarIsActive)
                     .accessibilityHidden(!linuxDoSidebarIsActive)
                     .transition(MainWindowMotion.secondarySidebarTransition)
-            case .sessions:
-                sessionsSidebar
-                    .frame(width: MainWindowMotion.sessionsSidebarWidth)
-                    .opacity(sidebarVisible ? 1 : 0)
-                    .allowsHitTesting(sessionsSidebarIsActive)
-                    .accessibilityHidden(!sessionsSidebarIsActive)
-                    .transition(MainWindowMotion.secondarySidebarTransition)
             case .configs:
                 configsSidebar
                     .frame(width: MainWindowMotion.configsSidebarWidth)
                     .opacity(sidebarVisible ? 1 : 0)
                     .allowsHitTesting(configsSidebarIsActive)
                     .accessibilityHidden(!configsSidebarIsActive)
+                    .transition(MainWindowMotion.secondarySidebarTransition)
+            case .memory:
+                memorySidebar
+                    .frame(width: MainWindowMotion.memorySidebarWidth)
+                    .opacity(sidebarVisible ? 1 : 0)
+                    .allowsHitTesting(memorySidebarIsActive)
+                    .accessibilityHidden(!memorySidebarIsActive)
                     .transition(MainWindowMotion.secondarySidebarTransition)
             case .settings:
                 settingsSidebar
@@ -299,13 +299,13 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
                 linuxDoDetail
                     .transition(MainWindowMotion.linuxDoDetailTransition)
                     .zIndex(1)
-            case .sessions:
-                sessionsDetail
-                    .transition(MainWindowMotion.sessionsDetailTransition)
-                    .zIndex(1)
             case .configs:
                 configsDetail
                     .transition(MainWindowMotion.configsDetailTransition)
+                    .zIndex(1)
+            case .memory:
+                memoryDetail
+                    .transition(MainWindowMotion.memoryDetailTransition)
                     .zIndex(1)
             case .settings:
                 settingsDetail
@@ -341,17 +341,17 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
             Spacer()
         }
         .padding()
-    } sessionsSidebar: {
-        VStack(alignment: .leading) {
-            Text("Back")
-            Text("Sessions")
-            Spacer()
-        }
-        .padding()
     } configsSidebar: {
         VStack(alignment: .leading) {
             Text("Back")
             Text("Overview")
+            Spacer()
+        }
+        .padding()
+    } memorySidebar: {
+        VStack(alignment: .leading) {
+            Text("Back")
+            Text("Memory")
             Spacer()
         }
         .padding()
@@ -380,10 +380,10 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
         Color.stxBackground.overlay(Text("App Detail"))
     } linuxDoDetail: {
         Color.stxBackground.overlay(Text("LinuxDo Detail"))
-    } sessionsDetail: {
-        Color.stxBackground.overlay(Text("Sessions Detail"))
     } configsDetail: {
-        Color.stxBackground.overlay(Text("Configs Detail"))
+        Color.stxBackground.overlay(Text("Config Detail"))
+    } memoryDetail: {
+        Color.stxBackground.overlay(Text("Memory Detail"))
     } settingsDetail: {
         Color.stxBackground.overlay(Text("Settings Detail"))
     } networkDetail: {
