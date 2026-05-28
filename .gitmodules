@@ -16,3 +16,11 @@
 [submodule "ThirdParty/llama.cpp"]
 	path = ThirdParty/llama.cpp
 	url = https://github.com/ggml-org/llama.cpp.git
+[submodule "ThirdParty/mem0"]
+	path = ThirdParty/mem0
+	url = https://github.com/1pitaph/mem0.git
+	branch = integration/claude-stats
+[submodule "ThirdParty/graphiti"]
+	path = ThirdParty/graphiti
+	url = https://github.com/1pitaph/graphiti.git
+	branch = integration/claude-stats
