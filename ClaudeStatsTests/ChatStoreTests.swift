@@ -46,6 +46,30 @@ struct ChatStoreTests {
         #expect(messages.last?.content == "partial")
     }
 
+    @Test("Memory context is not injected into chat requests by default")
+    func memoryContextIsNotInjectedByDefault() async throws {
+        let client = CapturingChatClient(events: [.completed(finishReason: "stop")])
+        let store = ChatStore(
+            persistence: FakeChatPersistence(),
+            chatClient: client
+        )
+        let endpoint = FakeChatEndpointProvider()
+
+        await store.loadIfNeeded(defaultModelID: "test-model")
+        store.draft = "Hello without memory context"
+        store.send(endpointProvider: endpoint, sessions: [], sourceIDs: [])
+        try await waitUntilIdle(store)
+
+        let request = try #require(client.capturedRequests().first)
+        let joined = request.messages.map(\.content).joined(separator: "\n")
+        #expect(request.messages.map(\.role).prefix(2) == ["system", "user"])
+        #expect(joined.contains("Hello without memory context"))
+        #expect(!joined.contains("Code Memory"))
+        #expect(!joined.contains("graph_facts"))
+        #expect(!joined.contains("mem0"))
+        #expect(!joined.contains("Graphiti"))
+    }
+
     private func waitUntilIdle(_ store: ChatStore) async throws {
         for _ in 0..<80 {
             if !store.isGenerating { return }
@@ -98,6 +122,38 @@ private struct FakeChatClient: LocalAIChatStreaming {
                 task.cancel()
             }
         }
+    }
+}
+
+private final class CapturingChatClient: LocalAIChatStreaming, @unchecked Sendable {
+    private let events: [LocalAIChatStreamEvent]
+    private let lock = NSLock()
+    private var requests: [LocalAIChatCompletionsRequest] = []
+
+    init(events: [LocalAIChatStreamEvent]) {
+        self.events = events
+    }
+
+    func streamChat(
+        endpoint: LocalAIOpenAIEndpoint,
+        request: LocalAIChatCompletionsRequest
+    ) -> AsyncThrowingStream<LocalAIChatStreamEvent, Error> {
+        lock.lock()
+        requests.append(request)
+        lock.unlock()
+
+        return AsyncThrowingStream { continuation in
+            for event in events {
+                continuation.yield(event)
+            }
+            continuation.finish()
+        }
+    }
+
+    func capturedRequests() -> [LocalAIChatCompletionsRequest] {
+        lock.lock()
+        defer { lock.unlock() }
+        return requests
     }
 }
 

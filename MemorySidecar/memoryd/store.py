@@ -5,6 +5,7 @@ import json
 import sqlite3
 import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -17,8 +18,8 @@ def canonical_json(value: Any) -> str:
 
 
 class MemoryStore:
-    schema_version = 2
-    api_version = 4
+    schema_version = 3
+    api_version = 5
 
     def __init__(self, root: Path, adapters: MemoryAdapters | None = None):
         self.root = root
@@ -37,7 +38,8 @@ class MemoryStore:
 
     def health(self) -> dict[str, Any]:
         row = self.conn.execute("SELECT COUNT(*) AS count FROM memory_events").fetchone()
-        memories = self.conn.execute("SELECT COUNT(*) AS count FROM memories").fetchone()
+        active_memories = self.conn.execute("SELECT COUNT(*) AS count FROM memories WHERE status = 'active'").fetchone()
+        total_memories = self.conn.execute("SELECT COUNT(*) AS count FROM memories").fetchone()
         pending = self.conn.execute("SELECT COUNT(*) AS count FROM projection_jobs WHERE status = 'pending'").fetchone()
         failed = self.conn.execute("SELECT COUNT(*) AS count FROM projection_jobs WHERE status = 'failed'").fetchone()
         proposals = self.conn.execute("SELECT COUNT(*) AS count FROM memories WHERE status = 'proposed'").fetchone()
@@ -47,7 +49,8 @@ class MemoryStore:
             "api_version": self.api_version,
             "store": str(self.db_path),
             "event_count": int(row["count"]),
-            "memory_count": int(memories["count"]),
+            "memory_count": int(active_memories["count"]),
+            "total_memory_count": int(total_memories["count"]),
             "proposal_count": int(proposals["count"]),
             "module_count": int(modules["count"]),
             "projection_pending": int(pending["count"]),
@@ -140,7 +143,10 @@ class MemoryStore:
                 "memory.superseded": "superseded",
                 "memory.conflict_detected": "conflicted",
             }[event_type]
-            self.conn.execute("UPDATE memories SET status = ?, updated_at = ? WHERE id = ?", (status, timestamp, memory_id))
+            self.conn.execute(
+                "UPDATE memories SET status = ?, invalid_at = COALESCE(invalid_at, ?), updated_at = ? WHERE id = ?",
+                (status, timestamp, timestamp, memory_id),
+            )
         elif event_type in {"memory.source_observed", "memory.extraction_requested"}:
             source_payload = after or delta or payload
             if isinstance(source_payload, dict):
@@ -222,7 +228,9 @@ class MemoryStore:
             raise KeyError(memory_id)
         before = self._memory_row(row)
         after = before | {key: value for key, value in payload.items() if key in {
-            "title", "body", "type", "status", "normalized_claim", "confidence", "importance", "source_refs", "metadata", "scope", "scopes"
+            "title", "body", "type", "status", "normalized_claim", "confidence", "importance",
+            "source_refs", "metadata", "scope", "scopes", "valid_at", "invalid_at",
+            "review_reason", "extracted_by",
         }}
         after["id"] = memory_id
         after["project_id"] = before["project_id"]
@@ -282,7 +290,11 @@ class MemoryStore:
         sql_where = f"WHERE {' AND '.join(where)}" if where else ""
         rows = self.conn.execute(
             f"""
-            SELECT m.*, COUNT(ms.memory_id) AS memory_count, MAX(mem.updated_at) AS updated_at
+            SELECT
+                m.*,
+                COUNT(CASE WHEN mem.status = 'active' THEN ms.memory_id END) AS memory_count,
+                COUNT(ms.memory_id) AS total_memory_count,
+                MAX(CASE WHEN mem.status = 'active' THEN mem.updated_at END) AS updated_at
             FROM modules m
             LEFT JOIN memory_scopes ms ON ms.scope_id = m.scope_id
             LEFT JOIN memories mem ON mem.id = ms.memory_id
@@ -293,6 +305,46 @@ class MemoryStore:
             params,
         ).fetchall()
         return {"modules": [dict(row) for row in rows]}
+
+    def memories(
+        self,
+        *,
+        project_id: str | None = None,
+        module_id: str | None = None,
+        status: str | None = "active",
+        memory_type: str | None = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        params: list[Any] = []
+        where: list[str] = []
+        joins = ""
+        if module_id:
+            joins = "JOIN memory_scopes ms ON ms.memory_id = mem.id"
+            where.append("ms.scope_id = ?")
+            params.append(module_id)
+        if project_id:
+            where.append("mem.project_id = ?")
+            params.append(project_id)
+        if status:
+            where.append("mem.status = ?")
+            params.append(status)
+        if memory_type:
+            where.append("mem.type = ?")
+            params.append(memory_type)
+        sql_where = f"WHERE {' AND '.join(where)}" if where else ""
+        params.append(max(1, min(limit, 500)))
+        rows = self.conn.execute(
+            f"""
+            SELECT mem.*
+            FROM memories mem
+            {joins}
+            {sql_where}
+            ORDER BY mem.importance DESC, mem.confidence DESC, mem.updated_at DESC
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+        return {"memories": [self._memory_row(row) for row in rows]}
 
     def ingest_source(self, payload: dict[str, Any]) -> dict[str, Any]:
         project_id = str(payload.get("project_id") or "unknown")
@@ -319,6 +371,7 @@ class MemoryStore:
             "content_hash": content_hash,
             "metadata": payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {},
         }
+        self._upsert_episode(source)
         existing = self.conn.execute("SELECT content_hash FROM sources WHERE id = ?", (source_id,)).fetchone()
         if existing and existing["content_hash"] == content_hash:
             return {"status": "skipped", "source": source, "created": [], "proposed": []}
@@ -330,7 +383,7 @@ class MemoryStore:
                 "event_type": "memory.source_observed",
                 "actor": payload.get("actor") if isinstance(payload.get("actor"), dict) else {"kind": "sync"},
                 "after": source,
-                "source_refs": [{"kind": kind, "uri": uri, "path": path, "content_hash": content_hash}],
+                "source_refs": [{"kind": kind, "uri": uri, "path": path, "content_hash": content_hash, "source_id": source_id, "episode_id": f"episode:{source_id}"}],
             }
         )
         created: list[dict[str, Any]] = []
@@ -348,10 +401,10 @@ class MemoryStore:
                         "type": _memory_type_for_source(kind),
                         "status": "active",
                         "scope": self._source_scope(project_id, path=path, uri=uri).to_json(),
-                        "source_refs": [{"kind": kind, "uri": uri, "path": path, "content_hash": content_hash}],
+                        "source_refs": [{"kind": kind, "uri": uri, "path": path, "content_hash": content_hash, "source_id": source_id, "episode_id": f"episode:{source_id}"}],
                         "metadata": string_map(source["metadata"] | {"source_id": source_id, "source_hash": content_hash}),
                     },
-                    "source_refs": [{"kind": kind, "uri": uri, "path": path, "content_hash": content_hash}],
+                    "source_refs": [{"kind": kind, "uri": uri, "path": path, "content_hash": content_hash, "source_id": source_id, "episode_id": f"episode:{source_id}"}],
                 }
             )
             if "memory" in memory:
@@ -525,8 +578,47 @@ class MemoryStore:
         trace_id = self._record_retrieval_trace(query=query, project_id=project_id, results=results)
         return {"query": query, "trace_id": trace_id, "results": results}
 
+    def unified_search(self, payload: dict[str, Any]) -> dict[str, Any]:
+        query = str(payload.get("query") or "").strip()
+        filters = payload.get("filters") if isinstance(payload.get("filters"), dict) else {}
+        project_id = filters.get("project_id") or payload.get("project_id")
+        module_id = filters.get("module_id")
+        limit = _bounded_int(payload.get("limit") or filters.get("limit"), default=20, minimum=1, maximum=100)
+        statuses = filters.get("statuses") if isinstance(filters.get("statuses"), list) else None
+        status = str(statuses[0]) if statuses else str(filters.get("status") or "active")
+        include_graph_facts = _bool_value(filters.get("include_graph_facts", payload.get("include_graph_facts", True)))
+        as_of = _float_or_none(filters.get("as_of"))
+
+        canonical = self.search(query, project_id=project_id, limit=limit, status=status or None)
+        memory_results = canonical["results"]
+        graph_results: list[dict[str, Any]] = []
+        if include_graph_facts:
+            for result in self.adapters.search(query, project_id=project_id, limit=limit):
+                fact = self._graph_fact_from_adapter_result(result, project_id=project_id)
+                if fact is None:
+                    continue
+                if module_id and fact.get("module_id") != module_id:
+                    continue
+                if not _is_valid_at(fact.get("valid_at"), fact.get("invalid_at"), as_of):
+                    continue
+                graph_results.append(fact)
+        return {
+            "query": query,
+            "trace_id": canonical["trace_id"],
+            "memory_results": memory_results,
+            "graph_results": graph_results[:limit],
+            "source_results": self._source_results(project_id=project_id, query=query, limit=min(limit, 20)),
+        }
+
     def context_pack(self, query: str, *, project_id: str | None = None, limit: int = 10) -> dict[str, Any]:
-        search = self.search(query, project_id=project_id, limit=limit)
+        unified = self.unified_search(
+            {
+                "query": query,
+                "project_id": project_id,
+                "limit": limit,
+                "filters": {"project_id": project_id, "include_graph_facts": True},
+            }
+        )
         grouped: dict[str, list[dict[str, Any]]] = {
             "rules": [],
             "facts": [],
@@ -534,7 +626,7 @@ class MemoryStore:
             "commands": [],
             "decisions": [],
         }
-        for result in search["results"]:
+        for result in unified["memory_results"]:
             memory = result["memory"]
             key = {
                 "rule": "rules",
@@ -546,12 +638,23 @@ class MemoryStore:
                 "decision": "decisions",
             }.get(memory["type"], "facts")
             grouped[key].append(memory)
-        return {"query": query, "trace_id": search["trace_id"], "context": grouped}
+        return {
+            "query": query,
+            "trace_id": unified["trace_id"],
+            "context": grouped,
+            "graph_facts": unified["graph_results"],
+            "sources": unified["source_results"],
+        }
 
     def projects(self) -> list[dict[str, Any]]:
         rows = self.conn.execute(
             """
-            SELECT project_id, COUNT(*) AS memory_count, MAX(updated_at) AS updated_at
+            SELECT
+                project_id,
+                COUNT(CASE WHEN status = 'active' THEN 1 END) AS memory_count,
+                COUNT(*) AS total_memory_count,
+                SUM(CASE WHEN status = 'proposed' THEN 1 ELSE 0 END) AS proposal_count,
+                MAX(CASE WHEN status = 'active' THEN updated_at END) AS updated_at
             FROM memories
             GROUP BY project_id
             ORDER BY updated_at DESC
@@ -578,7 +681,17 @@ class MemoryStore:
                 "status": memory["status"],
                 "body": memory["body"],
                 "source_refs": json.loads(memory["source_refs_json"] or "[]"),
-                "metadata": json.loads(memory["metadata_json"] or "{}"),
+                "metadata": string_map(
+                    json.loads(memory["metadata_json"] or "{}")
+                    | {
+                        "valid_at": memory["valid_at"],
+                        "invalid_at": memory["invalid_at"],
+                        "confidence": memory["confidence"],
+                        "importance": memory["importance"],
+                        "review_reason": memory["review_reason"],
+                        "extracted_by": memory["extracted_by"],
+                    }
+                ),
             }
             for link in self.conn.execute("SELECT scope_id, primary_scope FROM memory_scopes WHERE memory_id = ?", (memory["id"],)):
                 edges.append({"source": memory_node, "target": link["scope_id"], "kind": "SCOPED_TO", "primary": bool(link["primary_scope"])})
@@ -588,6 +701,34 @@ class MemoryStore:
             nodes[event_node] = {"id": event_node, "kind": "event", "title": event["event_type"], "seq": event["seq"]}
             if event["memory_id"]:
                 edges.append({"source": event_node, "target": f"memory:{event['memory_id']}", "kind": "AFFECTS"})
+
+        for source in self.conn.execute("SELECT * FROM sources WHERE project_id = ?", (project_id,)):
+            source_node = f"source:{source['id']}"
+            nodes[source_node] = {
+                "id": source_node,
+                "kind": "source",
+                "title": source["title"],
+                "body": source["excerpt"],
+                "metadata": string_map(json.loads(source["metadata_json"] or "{}")),
+            }
+
+        for episode in self.conn.execute("SELECT * FROM episodes WHERE project_id = ?", (project_id,)):
+            episode_node = episode["id"] if str(episode["id"]).startswith("episode:") else f"episode:{episode['id']}"
+            source_node = f"source:{episode['source_id']}"
+            nodes[episode_node] = {
+                "id": episode_node,
+                "kind": "episode",
+                "title": episode["title"],
+                "body": episode["body_excerpt"],
+                "metadata": string_map(json.loads(episode["metadata_json"] or "{}")),
+            }
+            edges.append({"source": source_node, "target": episode_node, "kind": "HAS_EPISODE"})
+
+        for link in self.conn.execute("SELECT memory_id, episode_id, relation FROM memory_episode_links"):
+            memory_node = f"memory:{link['memory_id']}"
+            episode_node = link["episode_id"] if str(link["episode_id"]).startswith("episode:") else f"episode:{link['episode_id']}"
+            if memory_node in nodes and episode_node in nodes:
+                edges.append({"source": memory_node, "target": episode_node, "kind": "HAS_PROVENANCE", "metadata": {"relation": link["relation"]}})
 
         adapter_graph = self.adapters.graph(project_id)
         for node in adapter_graph.get("nodes", []):
@@ -619,11 +760,115 @@ class MemoryStore:
             "memory_usage": usage,
         }
 
+    def review_items(self, *, project_id: str | None = None, limit: int = 100) -> dict[str, Any]:
+        proposals = self.proposals(project_id=project_id, limit=limit)["memories"]
+        conflicted = self.memories(project_id=project_id, status="conflicted", limit=limit)["memories"]
+        low_confidence = [
+            self._memory_row(row)
+            for row in self.conn.execute(
+                """
+                SELECT * FROM memories
+                WHERE status = 'active'
+                  AND confidence < 0.6
+                  AND (? IS NULL OR project_id = ?)
+                ORDER BY confidence ASC, updated_at DESC
+                LIMIT ?
+                """,
+                (project_id, project_id, max(1, min(limit, 100))),
+            )
+        ]
+        return {
+            "proposals": proposals,
+            "conflicts": conflicted,
+            "low_confidence": low_confidence,
+            "graph_facts": [],
+        }
+
+    def promote_graph_fact(self, payload: dict[str, Any]) -> dict[str, Any]:
+        project_id = str(payload.get("project_id") or "graphiti")
+        fact = str(payload.get("fact") or payload.get("body") or payload.get("title") or "").strip()
+        if not fact:
+            raise ValueError("graph fact body is required")
+        return self.propose_memory(
+            {
+                "project_id": project_id,
+                "title": str(payload.get("title") or fact[:120]),
+                "body": fact,
+                "type": str(payload.get("type") or "fact"),
+                "status": "proposed",
+                "source_refs": payload.get("source_refs") if isinstance(payload.get("source_refs"), list) else [{"kind": "graphiti", "uri": str(payload.get("id") or "")}],
+                "metadata": string_map(payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}) | {
+                    "promoted_from": "graphiti",
+                    "graph_fact_id": str(payload.get("id") or ""),
+                },
+                "review_reason": "graph_fact_promotion",
+                "extracted_by": "graphiti",
+                "valid_at": payload.get("valid_at"),
+                "invalid_at": payload.get("invalid_at"),
+            }
+        )
+
     def event(self, event_id: str) -> dict[str, Any]:
         row = self.conn.execute("SELECT * FROM memory_events WHERE event_id = ?", (event_id,)).fetchone()
         if row is None:
             raise KeyError(event_id)
         return self._event_row(row)
+
+    def _graph_fact_from_adapter_result(self, result: dict[str, Any], *, project_id: str | None) -> dict[str, Any] | None:
+        if not isinstance(result, dict):
+            return None
+        memory = result.get("memory") if isinstance(result.get("memory"), dict) else {}
+        metadata = memory.get("metadata") if isinstance(memory.get("metadata"), dict) else {}
+        adapter = str(metadata.get("adapter") or result.get("match_kind") or "")
+        memory_id = str(memory.get("id") or "")
+        if adapter != "graphiti" and not memory_id.startswith("graphiti:"):
+            return None
+        edge_uuid = str(metadata.get("edge_uuid") or memory_id.removeprefix("graphiti:"))
+        fact = str(memory.get("body") or memory.get("title") or metadata.get("fact") or "")
+        if not fact:
+            return None
+        resolved_project = str(memory.get("project_id") or project_id or "graphiti")
+        valid_at = metadata.get("valid_at") or memory.get("valid_at")
+        invalid_at = metadata.get("invalid_at") or memory.get("invalid_at")
+        return {
+            "id": memory_id or f"graphiti:{edge_uuid}",
+            "project_id": resolved_project,
+            "title": str(memory.get("title") or fact[:120]),
+            "fact": fact,
+            "relation": str(metadata.get("relation") or result.get("match_kind") or "RELATED_TO"),
+            "source": str(metadata.get("source") or ""),
+            "target": str(metadata.get("target") or ""),
+            "valid_at": valid_at,
+            "invalid_at": invalid_at,
+            "score": float(result.get("score") or 0.0),
+            "source_refs": memory.get("source_refs") if isinstance(memory.get("source_refs"), list) else [{"kind": "graphiti", "uri": edge_uuid}],
+            "metadata": string_map(metadata | {"edge_uuid": edge_uuid}),
+            "evidence": result.get("evidence") if isinstance(result.get("evidence"), list) else [{"adapter": "graphiti", "score": float(result.get("score") or 0.0), "detail": "temporal graph fact"}],
+        }
+
+    def _source_results(self, *, project_id: str | None, query: str, limit: int) -> list[dict[str, Any]]:
+        params: list[Any] = []
+        where: list[str] = []
+        if project_id:
+            where.append("project_id = ?")
+            params.append(project_id)
+        if query:
+            like = f"%{query.lower()}%"
+            where.append("(lower(title) LIKE ? OR lower(excerpt) LIKE ? OR lower(uri) LIKE ?)")
+            params.extend([like, like, like])
+        sql_where = f"WHERE {' AND '.join(where)}" if where else ""
+        params.append(max(1, min(limit, 100)))
+        rows = self.conn.execute(
+            f"""
+            SELECT id, project_id, kind, title, uri, path, content_hash, excerpt, metadata_json, updated_at
+            FROM sources
+            {sql_where}
+            ORDER BY updated_at DESC
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+        return [self._source_row(row) for row in rows]
 
     def _projection_count(self, status: str) -> int:
         row = self.conn.execute("SELECT COUNT(*) AS count FROM projection_jobs WHERE status = ?", (status,)).fetchone()
@@ -685,25 +930,60 @@ class MemoryStore:
         self.conn.execute(
             """
             INSERT INTO sources (
-                id, project_id, kind, uri, path, commit_sha, content_hash, excerpt
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                id, project_id, kind, title, uri, path, commit_sha, content_hash, excerpt, metadata_json, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 kind = excluded.kind,
+                title = excluded.title,
                 uri = excluded.uri,
                 path = excluded.path,
                 commit_sha = excluded.commit_sha,
                 content_hash = excluded.content_hash,
-                excerpt = excluded.excerpt
+                excerpt = excluded.excerpt,
+                metadata_json = excluded.metadata_json,
+                updated_at = excluded.updated_at
             """,
             (
                 source_id,
                 project_id,
                 str(payload.get("kind") or "source"),
+                str(payload.get("title") or payload.get("uri") or payload.get("path") or source_id)[:160],
                 str(payload.get("uri") or payload.get("path") or source_id),
                 payload.get("path"),
                 payload.get("commit_sha"),
                 content_hash,
                 _excerpt(body, 800),
+                canonical_json(payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}),
+                time.time(),
+            ),
+        )
+
+    def _upsert_episode(self, source: dict[str, Any]) -> None:
+        episode_id = str(source.get("episode_id") or f"episode:{source['id']}")
+        now = time.time()
+        self.conn.execute(
+            """
+            INSERT INTO episodes (
+                id, source_id, project_id, kind, title, body_excerpt, reference_time, metadata_json, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                title = excluded.title,
+                body_excerpt = excluded.body_excerpt,
+                reference_time = excluded.reference_time,
+                metadata_json = excluded.metadata_json,
+                updated_at = excluded.updated_at
+            """,
+            (
+                episode_id,
+                source["id"],
+                source["project_id"],
+                source["kind"],
+                source["title"],
+                _excerpt(str(source.get("body") or ""), 1200),
+                float(source.get("reference_time") or now),
+                canonical_json(source.get("metadata") if isinstance(source.get("metadata"), dict) else {}),
+                now,
+                now,
             ),
         )
 
@@ -738,6 +1018,10 @@ class MemoryStore:
             scopes=next_scopes,
             source_refs=memory.source_refs,
             metadata=memory.metadata,
+            valid_at=memory.valid_at,
+            invalid_at=memory.invalid_at,
+            review_reason=memory.review_reason,
+            extracted_by=memory.extracted_by,
         )
 
     def _infer_module(self, project_id: str, source_refs: list[dict[str, Any]]) -> Scope | None:
@@ -798,8 +1082,9 @@ class MemoryStore:
             """
             INSERT INTO memories (
                 id, project_id, type, status, title, body, normalized_claim,
-                confidence, importance, source_refs_json, metadata_json, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                confidence, importance, source_refs_json, metadata_json, valid_at,
+                invalid_at, review_reason, extracted_by, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 type = excluded.type,
                 status = excluded.status,
@@ -810,6 +1095,10 @@ class MemoryStore:
                 importance = excluded.importance,
                 source_refs_json = excluded.source_refs_json,
                 metadata_json = excluded.metadata_json,
+                valid_at = excluded.valid_at,
+                invalid_at = excluded.invalid_at,
+                review_reason = excluded.review_reason,
+                extracted_by = excluded.extracted_by,
                 updated_at = excluded.updated_at
             """,
             (
@@ -824,17 +1113,31 @@ class MemoryStore:
                 memory.importance,
                 canonical_json(memory.source_refs),
                 canonical_json(memory.metadata | {"last_event_id": event_id}),
+                memory.valid_at,
+                memory.invalid_at,
+                memory.review_reason,
+                memory.extracted_by,
                 now,
                 now,
             ),
         )
         self.conn.execute("DELETE FROM memory_scopes WHERE memory_id = ?", (memory_id,))
+        self.conn.execute("DELETE FROM memory_episode_links WHERE memory_id = ?", (memory_id,))
         for index, scope in enumerate(memory.scopes):
             self._upsert_scope(memory.project_id, scope)
             self.conn.execute(
                 "INSERT OR REPLACE INTO memory_scopes (memory_id, scope_id, primary_scope) VALUES (?, ?, ?)",
                 (memory_id, scope.id, 1 if index == 0 else 0),
             )
+        for ref in memory.source_refs:
+            episode_id = ref.get("episode_id")
+            if not episode_id and ref.get("source_id"):
+                episode_id = f"episode:{ref['source_id']}"
+            if episode_id:
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO memory_episode_links (memory_id, episode_id, relation) VALUES (?, ?, ?)",
+                    (memory_id, str(episode_id), "evidence"),
+                )
         self.conn.execute("UPDATE memory_events SET memory_id = ? WHERE event_id = ?", (memory_id, event_id))
         row = self.conn.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)).fetchone()
         return self._memory_row(row)
@@ -912,6 +1215,10 @@ class MemoryStore:
             "scope": [scope.to_json() for scope in memory.scopes],
             "source_refs": memory.source_refs,
             "metadata": memory.metadata,
+            "valid_at": memory.valid_at,
+            "invalid_at": memory.invalid_at,
+            "review_reason": memory.review_reason,
+            "extracted_by": memory.extracted_by,
         }
 
     def _memory_row(self, row: sqlite3.Row) -> dict[str, Any]:
@@ -941,6 +1248,10 @@ class MemoryStore:
             "source_refs": json.loads(row["source_refs_json"] or "[]"),
             "metadata": string_map(json.loads(row["metadata_json"] or "{}")),
             "scopes": scopes,
+            "valid_at": row["valid_at"],
+            "invalid_at": row["invalid_at"],
+            "review_reason": row["review_reason"],
+            "extracted_by": row["extracted_by"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
@@ -970,6 +1281,20 @@ class MemoryStore:
             "source_refs": json.loads(row["source_refs_json"] or "[]"),
             "hash": row["hash"],
             "prev_hash": row["prev_hash"],
+        }
+
+    def _source_row(self, row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "id": row["id"],
+            "project_id": row["project_id"],
+            "kind": row["kind"],
+            "title": row["title"],
+            "uri": row["uri"],
+            "path": row["path"],
+            "content_hash": row["content_hash"],
+            "excerpt": row["excerpt"],
+            "metadata": string_map(json.loads(row["metadata_json"] or "{}")),
+            "updated_at": row["updated_at"],
         }
 
     def _migrate(self) -> None:
@@ -1005,6 +1330,10 @@ class MemoryStore:
                 importance REAL NOT NULL,
                 source_refs_json TEXT NOT NULL,
                 metadata_json TEXT NOT NULL,
+                valid_at REAL,
+                invalid_at REAL,
+                review_reason TEXT,
+                extracted_by TEXT,
                 created_at REAL NOT NULL,
                 updated_at REAL NOT NULL
             );
@@ -1037,11 +1366,34 @@ class MemoryStore:
                 id TEXT PRIMARY KEY,
                 project_id TEXT NOT NULL,
                 kind TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
                 uri TEXT NOT NULL,
                 path TEXT,
                 commit_sha TEXT,
                 content_hash TEXT,
-                excerpt TEXT
+                excerpt TEXT,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                updated_at REAL NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS episodes (
+                id TEXT PRIMARY KEY,
+                source_id TEXT NOT NULL,
+                project_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                title TEXT NOT NULL,
+                body_excerpt TEXT NOT NULL,
+                reference_time REAL,
+                metadata_json TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS memory_episode_links (
+                memory_id TEXT NOT NULL,
+                episode_id TEXT NOT NULL,
+                relation TEXT NOT NULL,
+                PRIMARY KEY(memory_id, episode_id, relation)
             );
 
             CREATE TABLE IF NOT EXISTS modules (
@@ -1102,8 +1454,21 @@ class MemoryStore:
 
             """
         )
+        self._ensure_column("memories", "valid_at", "REAL")
+        self._ensure_column("memories", "invalid_at", "REAL")
+        self._ensure_column("memories", "review_reason", "TEXT")
+        self._ensure_column("memories", "extracted_by", "TEXT")
+        self._ensure_column("sources", "title", "TEXT NOT NULL DEFAULT ''")
+        self._ensure_column("sources", "metadata_json", "TEXT NOT NULL DEFAULT '{}'")
+        self._ensure_column("sources", "updated_at", "REAL NOT NULL DEFAULT 0")
+        self.conn.execute("UPDATE sources SET title = COALESCE(NULLIF(title, ''), uri), updated_at = CASE WHEN updated_at = 0 THEN strftime('%s','now') ELSE updated_at END")
         self.conn.execute(f"PRAGMA user_version={self.schema_version}")
         self.conn.commit()
+
+    def _ensure_column(self, table: str, column: str, definition: str) -> None:
+        rows = self.conn.execute(f"PRAGMA table_info({table})").fetchall()
+        if column not in {row["name"] for row in rows}:
+            self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def _excerpt(text: str, limit: int) -> str:
@@ -1118,6 +1483,46 @@ def _memory_type_for_source(kind: str) -> str:
     if kind in {"codex_transcript", "claude_transcript", "terminal_capture"}:
         return "workflow"
     return "fact"
+
+
+def _bounded_int(value: object, *, default: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(minimum, min(parsed, maximum))
+
+
+def _bool_value(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def _float_or_none(value: object) -> float | None:
+    try:
+        return float(value) if value is not None and value != "" else None
+    except (TypeError, ValueError):
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+            except ValueError:
+                return None
+        return None
+
+
+def _is_valid_at(valid_at: object, invalid_at: object, as_of: float | None) -> bool:
+    if as_of is None:
+        return True
+    start = _float_or_none(valid_at)
+    end = _float_or_none(invalid_at)
+    if start is not None and start > as_of:
+        return False
+    if end is not None and end <= as_of:
+        return False
+    return True
 
 
 def _module_name(parts: list[str], project_id: str) -> str | None:

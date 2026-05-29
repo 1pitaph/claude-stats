@@ -49,6 +49,20 @@ class MemoryHTTPRequestHandler(BaseHTTPRequestHandler):
                 project_id = query.get("project_id", [None])[0]
                 limit = int(query.get("limit", ["100"])[0])
                 self._json(self.store.proposals(project_id=project_id, limit=limit))
+            elif parsed.path == "/v1/memories":
+                self._json(
+                    self.store.memories(
+                        project_id=query.get("project_id", [None])[0],
+                        module_id=query.get("module_id", [None])[0],
+                        status=query.get("status", ["active"])[0],
+                        memory_type=query.get("type", [None])[0],
+                        limit=int(query.get("limit", ["100"])[0]),
+                    )
+                )
+            elif parsed.path == "/v1/review/items":
+                project_id = query.get("project_id", [None])[0]
+                limit = int(query.get("limit", ["100"])[0])
+                self._json(self.store.review_items(project_id=project_id, limit=limit))
             elif parsed.path.startswith("/v1/projects/") and parsed.path.endswith("/graph"):
                 project_id = _project_id_from_graph_path(parsed.path)
                 self._json(self.store.graph(project_id))
@@ -70,6 +84,8 @@ class MemoryHTTPRequestHandler(BaseHTTPRequestHandler):
                 self._json(self.store.ingest_source(body))
             elif parsed.path == "/v1/sync/start":
                 self._json({"status": "ok"})
+            elif parsed.path == "/v1/search":
+                self._json(self.store.unified_search(body))
             elif parsed.path in {"/v1/reindex", "/v1/adapters/reindex"}:
                 project_id = body.get("project_id") if isinstance(body, dict) else None
                 drain = bool(body.get("drain")) if isinstance(body, dict) else False
@@ -81,6 +97,8 @@ class MemoryHTTPRequestHandler(BaseHTTPRequestHandler):
                 self._json(self.store.drain_projection_jobs(limit=limit, include_failed=include_failed))
             elif parsed.path == "/v1/memories/propose":
                 self._json(self.store.propose_memory(body))
+            elif parsed.path == "/v1/graph-facts/promote":
+                self._json(self.store.promote_graph_fact(body))
             elif parsed.path.startswith("/v1/memories/") and parsed.path.endswith("/accept"):
                 memory_id = unquote(parsed.path.split("/")[3])
                 self._json(self.store.accept_memory(memory_id, actor=body.get("actor") if isinstance(body, dict) else None))

@@ -20,9 +20,8 @@ struct ChatWorkspaceView: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             StxRule()
-            messages
+            chatContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            composer
         }
         .task(id: refreshKey) {
             await store.loadIfNeeded(defaultModelID: env.localAI.modelStore.selectedLLMModel.id)
@@ -84,19 +83,31 @@ struct ChatWorkspaceView: View {
         return "\(model) · \(String(localized: "No project context"))"
     }
 
+    @ViewBuilder
+    private var chatContent: some View {
+        Group {
+            if store.hasMessages {
+                VStack(spacing: 0) {
+                    messages
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    bottomComposer
+                }
+            } else {
+                centeredComposer
+            }
+        }
+        .overlay(alignment: .top) {
+            errorBanner
+        }
+    }
+
     private var messages: some View {
         ScrollViewReader { proxy in
             AppScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
-                    if store.selectedConversation?.messages.isEmpty != false {
-                        chatEmptyState
-                            .frame(maxWidth: .infinity)
-                            .frame(minHeight: 320)
-                    } else {
-                        ForEach(store.selectedConversation?.messages ?? []) { message in
-                            ChatMessageBubble(message: message)
-                                .id(message.id)
-                        }
+                    ForEach(store.selectedConversation?.messages ?? []) { message in
+                        ChatMessageBubble(message: message)
+                            .id(message.id)
                     }
                     Color.clear
                         .frame(height: 1)
@@ -114,116 +125,171 @@ struct ChatWorkspaceView: View {
                 proxy.scrollTo("chat-bottom", anchor: .bottom)
             }
         }
-        .overlay(alignment: .top) {
-            if let error = store.lastError {
-                Text(error)
-                    .font(.sora(11))
-                    .foregroundStyle(Color.red)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 7)
-                    .background(AppSurface.panelFill, in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.red.opacity(0.35), lineWidth: 1))
-                    .padding(.top, 10)
-            }
+    }
+
+    @ViewBuilder
+    private var errorBanner: some View {
+        if let error = store.lastError {
+            Text(error)
+                .font(.sora(11))
+                .foregroundStyle(Color.red)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(AppSurface.panelFill, in: RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.red.opacity(0.35), lineWidth: 1))
+                .padding(.top, 10)
         }
     }
 
-    private var chatEmptyState: some View {
-        VStack(spacing: 12) {
-            Image(systemName: env.localAI.localLLMAvailable ? "bubble.left.and.bubble.right" : "arrow.down.circle")
-                .font(.system(size: 34, weight: .semibold))
-                .foregroundStyle(Color.stxMuted)
-            Text(env.localAI.localLLMAvailable ? "Ask the local model" : "Install a local LLM")
-                .font(.sora(16, weight: .semibold))
-            Text(env.localAI.localLLMAvailable ? "Start a private local conversation with read-only project context." : "Download an LLM in Local AI settings before chatting.")
-                .font(.sora(12))
-                .foregroundStyle(Color.stxMuted)
-                .multilineTextAlignment(.center)
-            if !env.localAI.localLLMAvailable {
-                Button {
-                    openLocalAISettings()
-                } label: {
-                    Label("Open Local AI Settings", systemImage: "gearshape")
-                }
-                .controlSize(.small)
-            }
+    private var centeredComposer: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
+            composerPanel
+                .padding(.horizontal, 42)
+            Spacer(minLength: 0)
         }
-        .padding(24)
+        .padding(.vertical, 28)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private var composer: some View {
+    private var bottomComposer: some View {
         VStack(spacing: 0) {
             StxRule()
-            VStack(alignment: .leading, spacing: 10) {
-                ZStack(alignment: .topLeading) {
-                    TextEditor(text: $store.draft)
-                        .font(.sora(14))
-                        .scrollContentBackground(.hidden)
-                        .frame(minHeight: 72, maxHeight: 118)
-                        .disabled(store.isGenerating)
-                    if store.draft.isEmpty {
-                        Text("Ask anything")
-                            .font(.sora(18, weight: .semibold))
-                            .foregroundStyle(Color.stxMuted.opacity(0.55))
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 8)
-                            .allowsHitTesting(false)
-                    }
-                }
-
-                HStack(spacing: 10) {
-                    Button {
-                        store.newConversation(defaultModelID: env.localAI.modelStore.selectedLLMModel.id)
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 16, weight: .medium))
-                            .frame(width: 28, height: 28)
-                    }
-                    .buttonStyle(.plain)
-                    .help("New Chat")
-
-                    projectMenu
-                    modelMenu
-                    settingsMenu
-
-                    Spacer(minLength: 10)
-
-                    if let project = store.selectedProject {
-                        ChatComposerChip(symbol: "folder", text: project.displayName)
-                        ChatComposerChip(symbol: "arrow.triangle.branch", text: project.branchLabel)
-                    }
-                    ChatComposerChip(symbol: "hand.raised", text: String(localized: "Read-only"))
-
-                    Button {
-                        if store.isGenerating {
-                            store.stopGenerating()
-                        } else {
-                            store.send(
-                                endpointProvider: env.localAI,
-                                sessions: env.store.sessions,
-                                sourceIDs: env.preferences.gitWorkspaceSourceIDs
-                            )
-                        }
-                    } label: {
-                        Image(systemName: store.isGenerating ? "stop.fill" : "arrow.up")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(width: 38, height: 38)
-                            .background(sendButtonFill, in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!store.isGenerating && !canSend)
-                    .keyboardShortcut(.return, modifiers: [.command])
-                    .help(store.isGenerating ? "Stop" : "Send")
-                }
-            }
-            .padding(14)
-            .background(AppSurface.panelFill.opacity(0.78), in: RoundedRectangle(cornerRadius: 24))
-            .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(Color.stxStroke.opacity(0.8), lineWidth: 1))
-            .shadow(color: Color.black.opacity(0.08), radius: 16, y: 8)
-            .padding(.horizontal, 20)
-            .padding(.vertical, 16)
+            composerPanel
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
         }
+    }
+
+    private var composerPanel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 8) {
+                composerEditor
+                primaryToolbar
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 14)
+            .padding(.bottom, 12)
+            .background(composerInputFill, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 26, style: .continuous)
+                    .strokeBorder(composerInputStroke, lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.08), radius: 16, y: 8)
+
+            contextToolbar
+                .padding(.horizontal, 26)
+                .padding(.top, 12)
+                .padding(.bottom, 14)
+        }
+        .frame(maxWidth: .infinity)
+        .background(composerShellFill, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
+    }
+
+    private var composerEditor: some View {
+        ZStack(alignment: .topLeading) {
+            TextEditor(text: $store.draft)
+                .font(.sora(15))
+                .scrollContentBackground(.hidden)
+                .background(Color.clear)
+                .frame(height: 70)
+                .disabled(store.isGenerating)
+
+            if store.draft.isEmpty {
+                Text("Ask anything")
+                    .font(.sora(20, weight: .semibold))
+                    .foregroundStyle(Color.stxMuted.opacity(0.46))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 7)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+
+    private var primaryToolbar: some View {
+        HStack(spacing: 10) {
+            Button {
+                store.newConversation(defaultModelID: env.localAI.modelStore.selectedLLMModel.id)
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(Color.stxMuted)
+                    .frame(width: 30, height: 30)
+            }
+            .buttonStyle(.plain)
+            .help("New Chat")
+
+            ChatComposerToolbarLabel(symbol: "hand.raised", text: String(localized: "Read-only"), showsChevron: false)
+
+            Spacer(minLength: 12)
+
+            settingsMenu
+            modelMenu
+
+            Button {
+                if store.isGenerating {
+                    store.stopGenerating()
+                } else {
+                    store.send(
+                        endpointProvider: env.localAI,
+                        sessions: env.store.sessions,
+                        sourceIDs: env.preferences.gitWorkspaceSourceIDs
+                    )
+                }
+            } label: {
+                Image(systemName: store.isGenerating ? "stop.fill" : "arrow.up")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(sendButtonFill, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!store.isGenerating && !canSend)
+            .keyboardShortcut(.return, modifiers: [.command])
+            .help(store.isGenerating ? "Stop" : "Send")
+        }
+    }
+
+    private var contextToolbar: some View {
+        HStack(spacing: 22) {
+            projectMenu
+
+            Button {
+                openLocalAISettings()
+            } label: {
+                ChatComposerToolbarLabel(
+                    symbol: "laptopcomputer",
+                    text: String(localized: "Local mode"),
+                    showsChevron: true,
+                    maxTextWidth: 120
+                )
+            }
+            .buttonStyle(.plain)
+            .help("Local AI")
+
+            if let project = store.selectedProject {
+                ChatComposerToolbarLabel(
+                    symbol: "arrow.triangle.branch",
+                    text: project.branchLabel,
+                    showsChevron: true,
+                    maxTextWidth: 160
+                )
+            }
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var composerInputFill: Color {
+        Color.stxDynamic(light: (0.985, 0.982, 0.976), dark: (0.12, 0.12, 0.13))
+    }
+
+    private var composerShellFill: Color {
+        Color.stxDynamic(light: (0.91, 0.90, 0.875), dark: (0.075, 0.075, 0.082))
+    }
+
+    private var composerInputStroke: Color {
+        Color.stxDynamic(light: (0.78, 0.77, 0.74), dark: (1, 1, 1)).opacity(0.48)
     }
 
     private var canSend: Bool {
@@ -251,7 +317,12 @@ struct ChatWorkspaceView: View {
                 }
             }
         } label: {
-            Label(store.selectedProject?.displayName ?? "No Project", systemImage: "folder")
+            ChatComposerToolbarLabel(
+                symbol: "folder",
+                text: store.selectedProject?.displayName ?? String(localized: "No Project"),
+                showsChevron: true,
+                maxTextWidth: 180
+            )
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
@@ -268,7 +339,13 @@ struct ChatWorkspaceView: View {
                 .disabled(env.localAI.modelStore.installState(for: model.id).phase != .installed)
             }
         } label: {
-            Label(env.localAI.modelStore.selectedLLMModel.displayName, systemImage: "cpu")
+            ChatComposerToolbarLabel(
+                symbol: nil,
+                text: env.localAI.modelStore.selectedLLMModel.displayName,
+                showsChevron: true,
+                maxTextWidth: 160,
+                prominence: .strong
+            )
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
@@ -284,7 +361,13 @@ struct ChatWorkspaceView: View {
             Button("768 tokens") { updateSettings(maxTokens: 768) }
             Button("1024 tokens") { updateSettings(maxTokens: 1024) }
         } label: {
-            Label(settingsLabel, systemImage: "slider.horizontal.3")
+            ChatComposerToolbarLabel(
+                symbol: nil,
+                text: settingsLabel,
+                showsChevron: true,
+                maxTextWidth: 112,
+                prominence: .strong
+            )
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
@@ -351,22 +434,36 @@ private struct ChatMessageBubble: View {
     }
 }
 
-private struct ChatComposerChip: View {
-    let symbol: String
+private struct ChatComposerToolbarLabel: View {
+    enum Prominence {
+        case normal
+        case strong
+    }
+
+    let symbol: String?
     let text: String
+    var showsChevron = false
+    var maxTextWidth: CGFloat?
+    var prominence: Prominence = .normal
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: symbol)
-                .font(.system(size: 11, weight: .semibold))
+            if let symbol {
+                Image(systemName: symbol)
+                    .font(.system(size: 14, weight: .medium))
+            }
             Text(text)
-                .font(.sora(11, weight: .medium))
+                .font(.sora(prominence == .strong ? 16 : 15, weight: prominence == .strong ? .semibold : .medium))
                 .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: maxTextWidth, alignment: .leading)
+            if showsChevron {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 12, weight: .semibold))
+            }
         }
-        .foregroundStyle(Color.stxMuted)
-        .padding(.horizontal, 9)
-        .padding(.vertical, 5)
-        .background(Color.primary.opacity(0.055), in: Capsule())
+        .foregroundStyle(prominence == .strong ? Color.primary.opacity(0.82) : Color.stxMuted.opacity(0.82))
+        .contentShape(Rectangle())
     }
 }
 

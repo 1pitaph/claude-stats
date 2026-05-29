@@ -41,9 +41,6 @@ struct MemoryWorkspaceSidebar: View {
                 .contentShape(Rectangle())
                 .onTapGesture { clearFocus() }
         }
-        .task {
-            await store.loadIfNeeded()
-        }
     }
 
     private var statusCard: some View {
@@ -61,7 +58,7 @@ struct MemoryWorkspaceSidebar: View {
             }
 
             HStack(spacing: 10) {
-                AIConfigsMiniStat(value: "\(store.codeHealth?.memoryCount ?? 0)", label: "code")
+                AIConfigsMiniStat(value: "\(store.codeHealth?.memoryCount ?? 0)", label: "active")
                 Spacer(minLength: 0)
                 Button {
                     Task { await store.refreshCodeMemoryStatus() }
@@ -92,52 +89,37 @@ struct MemoryWorkspaceSidebar: View {
 
     private func title(for section: MemoryWorkspaceSection) -> String {
         switch section {
-        case .overview: "Overview"
         case .search: "Search"
-        case .context: "Context"
-        case .projects: "Projects"
-        case .modules: "Modules"
+        case .memories: "Memories"
         case .graph: "Graph"
-        case .trace: "Trace"
-        case .proposals: "Proposals"
+        case .review: "Review"
         case .settings: "Settings"
         }
     }
 
     private func symbol(for section: MemoryWorkspaceSection) -> String {
         switch section {
-        case .overview: "gauge.with.dots.needle.67percent"
         case .search: "magnifyingglass"
-        case .context: "doc.text.magnifyingglass"
-        case .projects: "folder"
-        case .modules: "square.stack.3d.up"
+        case .memories: "folder"
         case .graph: "point.3.connected.trianglepath.dotted"
-        case .trace: "list.bullet.clipboard"
-        case .proposals: "checklist"
+        case .review: "checklist"
         case .settings: "gearshape"
         }
     }
 
     private func count(for section: MemoryWorkspaceSection) -> Int? {
         switch section {
-        case .overview:
-            store.codeHealth.map { ($0.proposalCount ?? 0) + ($0.projectionPending ?? 0) }
         case .search:
-            store.codeSearchResults.isEmpty ? nil : store.codeSearchResults.count
-        case .context:
-            store.codeContextPack.map { $0.context.rules.count + $0.context.facts.count + $0.context.risks.count + $0.context.commands.count + $0.context.decisions.count }
-        case .projects:
-            store.codeProjects.count
-        case .modules:
-            store.codeModules.count
+            let total = store.codeSearchResults.count + store.codeGraphResults.count + store.codeSourceResults.count
+            return total > 0 ? total : nil
+        case .memories:
+            return store.codeHealth?.memoryCount
         case .graph:
-            store.codeGraph?.nodes.count
-        case .trace:
-            store.codeTrace?.memoryUsage.count
-        case .proposals:
-            store.codeProposals.count
+            return store.codeGraph?.nodes.count
+        case .review:
+            return store.review.totalCount
         case .settings:
-            nil
+            return nil
         }
     }
 

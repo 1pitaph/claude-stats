@@ -479,6 +479,9 @@ class GraphitiAdapter:
                         "metadata": {
                             "adapter": "graphiti",
                             "edge_uuid": edge_uuid,
+                            "relation": str(getattr(edge, "name", "") or "RELATES_TO"),
+                            "source": str(getattr(edge, "source_node_uuid", "") or ""),
+                            "target": str(getattr(edge, "target_node_uuid", "") or ""),
                             "valid_at": valid_at.isoformat() if hasattr(valid_at, "isoformat") else str(valid_at or ""),
                         },
                         "scopes": [{"id": f"project:{resolved_project}", "kind": "project", "key": resolved_project, "title": resolved_project, "metadata": {}, "primary": True}],

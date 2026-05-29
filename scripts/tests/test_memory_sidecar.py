@@ -45,7 +45,7 @@ class MemorySidecarTests(unittest.TestCase):
 
             self.assertIsNone(first["prev_hash"])
             self.assertEqual(second["prev_hash"], first["hash"])
-            self.assertEqual(store.health()["api_version"], 4)
+            self.assertEqual(store.health()["api_version"], 5)
 
             hits = store.search("run-debug", project_id="claude-stats")
             self.assertEqual(len(hits["results"]), 1)
@@ -57,6 +57,43 @@ class MemorySidecarTests(unittest.TestCase):
             self.assertIn("memory", node_kinds)
             self.assertIn("event", node_kinds)
             self.assertIn("SCOPED_TO", edge_kinds)
+
+    def test_projects_modules_and_health_count_active_only(self):
+        from memoryd.store import MemoryStore
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = MemoryStore(Path(tmp))
+            store.append_event(
+                {
+                    "project_id": "p",
+                    "event_type": "memory.observed",
+                    "after": {
+                        "title": "Active",
+                        "body": "Active memory.",
+                        "type": "fact",
+                        "scope": {"kind": "module", "key": "p:Core", "title": "Core"},
+                    },
+                    "source_refs": [{"kind": "manual", "uri": "active"}],
+                }
+            )
+            store.propose_memory(
+                {
+                    "project_id": "p",
+                    "title": "Proposal",
+                    "body": "Proposed memory.",
+                    "scope": {"kind": "module", "key": "p:Core", "title": "Core"},
+                }
+            )
+
+            self.assertEqual(store.health()["memory_count"], 1)
+            self.assertEqual(store.health()["total_memory_count"], 2)
+            project = store.projects()[0]
+            self.assertEqual(project["memory_count"], 1)
+            self.assertEqual(project["total_memory_count"], 2)
+            self.assertEqual(project["proposal_count"], 1)
+            module = store.modules(project_id="p")["modules"][0]
+            self.assertEqual(module["memory_count"], 1)
+            self.assertEqual(module["total_memory_count"], 2)
 
     def test_accept_marks_proposed_memory_active(self):
         from memoryd.store import MemoryStore
@@ -310,6 +347,98 @@ class MemorySidecarTests(unittest.TestCase):
             store = MemoryStore(Path(tmp), adapters=FakeAdapters())
             hits = store.search("adapter-only", project_id="p")
             self.assertEqual(hits["results"], [])
+
+    def test_graphiti_adapter_only_results_are_graph_facts(self):
+        from memoryd.store import MemoryStore
+
+        class FakeAdapters:
+            def names(self):
+                return []
+
+            def health(self):
+                return {"graphiti": "enabled"}
+
+            def index_memory(self, memory, event, *, adapter_name=None):
+                return {}
+
+            def infer_memories(self, source):
+                return []
+
+            def search(self, query, *, project_id, limit):
+                return [
+                    {
+                        "rank": 1,
+                        "score": 0.74,
+                        "memory": {
+                            "id": "graphiti:edge-1",
+                            "project_id": project_id or "p",
+                            "type": "fact",
+                            "status": "active",
+                            "title": "Graph fact",
+                            "body": "Module A depends on Module B.",
+                            "normalized_claim": "edge-1",
+                            "confidence": 0.74,
+                            "importance": 0.5,
+                            "source_refs": [{"kind": "graphiti", "uri": "edge-1"}],
+                            "metadata": {
+                                "adapter": "graphiti",
+                                "edge_uuid": "edge-1",
+                                "relation": "DEPENDS_ON",
+                                "source": "A",
+                                "target": "B",
+                                "valid_at": "2026-05-01T00:00:00+00:00",
+                            },
+                            "scopes": [],
+                            "created_at": 0,
+                            "updated_at": 0,
+                        },
+                        "match_kind": "graphiti",
+                    }
+                ]
+
+            def graph(self, project_id, *, limit=80):
+                return {"nodes": [], "edges": []}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = MemoryStore(Path(tmp), adapters=FakeAdapters())
+            canonical = store.search("depends", project_id="p")
+            unified = store.unified_search({"query": "depends", "filters": {"project_id": "p"}})
+
+            self.assertEqual(canonical["results"], [])
+            self.assertEqual(unified["memory_results"], [])
+            self.assertEqual(len(unified["graph_results"]), 1)
+            self.assertEqual(unified["graph_results"][0]["relation"], "DEPENDS_ON")
+
+            promoted = store.promote_graph_fact(unified["graph_results"][0])
+            self.assertEqual(promoted["memory"]["status"], "proposed")
+            self.assertEqual(promoted["memory"]["review_reason"], "graph_fact_promotion")
+
+    def test_context_pack_and_provenance_episode_persistence(self):
+        from memoryd.store import MemoryStore
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = MemoryStore(Path(tmp))
+            result = store.ingest_source(
+                {
+                    "project_id": "p",
+                    "title": "AGENTS.md",
+                    "body": "Always run bash scripts/run-debug.sh after changing code.",
+                    "kind": "AGENTS.md",
+                    "path": "/repo/AGENTS.md",
+                    "infer": False,
+                }
+            )
+            memory = result["created"][0]
+            pack = store.context_pack("run-debug", project_id="p")
+            graph = store.graph("p")
+
+            self.assertEqual(pack["context"]["rules"][0]["id"], memory["id"])
+            self.assertEqual(len(pack["sources"]), 1)
+            self.assertIn("source_id", memory["source_refs"][0])
+            self.assertIn("episode_id", memory["source_refs"][0])
+            episode_ids = {node["id"] for node in graph["nodes"] if node["kind"] == "episode"}
+            self.assertIn(memory["source_refs"][0]["episode_id"], episode_ids)
+            self.assertIn("HAS_PROVENANCE", {edge["kind"] for edge in graph["edges"]})
 
     def test_adapter_graph_is_merged_into_project_graph(self):
         from memoryd.store import MemoryStore

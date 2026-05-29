@@ -4,16 +4,22 @@ protocol CodeMemoryBackend: Sendable {
     func health() async throws -> CodeMemoryHealth
     func projects() async throws -> [CodeMemoryProject]
     func modules(projectID: String?) async throws -> [CodeMemoryModule]
+    func memories(filter: CodeMemoryQueryFilter) async throws -> [CodeMemoryMemory]
     func search(query: String, projectID: String?, limit: Int) async throws -> CodeMemorySearchResponse
+    func unifiedSearch(query: String, filter: CodeMemoryQueryFilter) async throws -> CodeMemoryUnifiedSearchResponse
     func contextPack(query: String, projectID: String?, limit: Int) async throws -> CodeMemoryContextPack
     func graph(projectID: String) async throws -> CodeMemoryGraph
     func trace(runID: String) async throws -> CodeMemoryRunTrace
     func events(projectID: String?, afterSeq: Int?, limit: Int) async throws -> [CodeMemoryEvent]
     func proposals(projectID: String?, limit: Int) async throws -> [CodeMemoryMemory]
+    func reviewItems(projectID: String?, limit: Int) async throws -> CodeMemoryReviewItemsResponse
     func accept(memoryID: String) async throws
     func reject(memoryID: String) async throws
     func deprecate(memoryID: String) async throws
+    func update(memoryID: String, memory: CodeMemoryMemoryUpdate) async throws
+    func promoteGraphFact(_ fact: CodeMemoryGraphFact) async throws -> CodeMemoryMemory
     func drainProjections() async throws -> CodeMemoryProjectionDrainResponse
+    func drainProjections(includeFailed: Bool) async throws -> CodeMemoryProjectionDrainResponse
     func reindex(projectID: String?) async throws -> CodeMemoryProjectionDrainResponse
     func ingestSource(_ source: CodeMemorySourceInput) async throws -> CodeMemorySyncSourceResponse
     func recordEvent(_ event: CodeMemoryEventInput) async throws
@@ -21,6 +27,17 @@ protocol CodeMemoryBackend: Sendable {
 
 extension CodeMemoryBackend {
     func modules(projectID: String?) async throws -> [CodeMemoryModule] { [] }
+    func memories(filter: CodeMemoryQueryFilter) async throws -> [CodeMemoryMemory] { [] }
+    func unifiedSearch(query: String, filter: CodeMemoryQueryFilter) async throws -> CodeMemoryUnifiedSearchResponse {
+        let response = try await search(query: query, projectID: filter.projectID, limit: filter.limit)
+        return CodeMemoryUnifiedSearchResponse(
+            query: response.query,
+            traceID: response.traceID,
+            memoryResults: response.results,
+            graphResults: [],
+            sourceResults: []
+        )
+    }
     func contextPack(query: String, projectID: String?, limit: Int) async throws -> CodeMemoryContextPack {
         let response = try await search(query: query, projectID: projectID, limit: limit)
         return CodeMemoryContextPack(
@@ -31,10 +48,37 @@ extension CodeMemoryBackend {
     }
     func events(projectID: String?, afterSeq: Int?, limit: Int) async throws -> [CodeMemoryEvent] { [] }
     func proposals(projectID: String?, limit: Int) async throws -> [CodeMemoryMemory] { [] }
+    func reviewItems(projectID: String?, limit: Int) async throws -> CodeMemoryReviewItemsResponse {
+        CodeMemoryReviewItemsResponse(proposals: try await proposals(projectID: projectID, limit: limit), conflicts: [], lowConfidence: [], graphFacts: [])
+    }
     func accept(memoryID: String) async throws {}
     func reject(memoryID: String) async throws {}
     func deprecate(memoryID: String) async throws {}
+    func update(memoryID: String, memory: CodeMemoryMemoryUpdate) async throws {}
+    func promoteGraphFact(_ fact: CodeMemoryGraphFact) async throws -> CodeMemoryMemory {
+        CodeMemoryMemory(
+            id: fact.id,
+            projectID: fact.projectID,
+            type: "fact",
+            status: "proposed",
+            title: fact.title,
+            body: fact.fact,
+            normalizedClaim: fact.id,
+            confidence: fact.score ?? 0.5,
+            importance: 0.5,
+            scopes: [],
+            sourceRefs: fact.sourceRefs,
+            metadata: fact.metadata,
+            validAt: nil,
+            invalidAt: nil,
+            reviewReason: "graph_fact_promotion",
+            extractedBy: "graphiti",
+            createdAt: 0,
+            updatedAt: 0
+        )
+    }
     func drainProjections() async throws -> CodeMemoryProjectionDrainResponse { CodeMemoryProjectionDrainResponse() }
+    func drainProjections(includeFailed: Bool) async throws -> CodeMemoryProjectionDrainResponse { try await drainProjections() }
     func reindex(projectID: String?) async throws -> CodeMemoryProjectionDrainResponse { CodeMemoryProjectionDrainResponse() }
     func ingestSource(_ source: CodeMemorySourceInput) async throws -> CodeMemorySyncSourceResponse {
         CodeMemorySyncSourceResponse(status: "unsupported", created: nil, proposed: nil)
@@ -67,6 +111,24 @@ struct CodeMemoryHTTPClient: CodeMemoryBackend {
         return response.modules
     }
 
+    func memories(filter: CodeMemoryQueryFilter) async throws -> [CodeMemoryMemory] {
+        var items = [URLQueryItem(name: "limit", value: "\(filter.limit)")]
+        if let projectID = filter.projectID, !projectID.isEmpty {
+            items.append(URLQueryItem(name: "project_id", value: projectID))
+        }
+        if let moduleID = filter.moduleID, !moduleID.isEmpty {
+            items.append(URLQueryItem(name: "module_id", value: moduleID))
+        }
+        if let status = filter.statuses.first, !status.isEmpty {
+            items.append(URLQueryItem(name: "status", value: status))
+        }
+        if let type = filter.types.first, !type.isEmpty {
+            items.append(URLQueryItem(name: "type", value: type))
+        }
+        let response: CodeMemoryMemoriesResponse = try await get("/v1/memories", queryItems: items)
+        return response.memories
+    }
+
     func search(query: String, projectID: String?, limit: Int = 20) async throws -> CodeMemorySearchResponse {
         var items = [
             URLQueryItem(name: "query", value: query),
@@ -76,6 +138,10 @@ struct CodeMemoryHTTPClient: CodeMemoryBackend {
             items.append(URLQueryItem(name: "project_id", value: projectID))
         }
         return try await get("/v1/memories/search", queryItems: items)
+    }
+
+    func unifiedSearch(query: String, filter: CodeMemoryQueryFilter) async throws -> CodeMemoryUnifiedSearchResponse {
+        try await post("/v1/search", body: CodeMemoryUnifiedSearchRequest(query: query, filters: filter, limit: filter.limit))
     }
 
     func contextPack(query: String, projectID: String?, limit: Int = 10) async throws -> CodeMemoryContextPack {
@@ -111,6 +177,14 @@ struct CodeMemoryHTTPClient: CodeMemoryBackend {
         return response.memories
     }
 
+    func reviewItems(projectID: String?, limit: Int = 100) async throws -> CodeMemoryReviewItemsResponse {
+        var items = [URLQueryItem(name: "limit", value: "\(limit)")]
+        if let projectID, !projectID.isEmpty {
+            items.append(URLQueryItem(name: "project_id", value: projectID))
+        }
+        return try await get("/v1/review/items", queryItems: items)
+    }
+
     func accept(memoryID: String) async throws {
         let _: EmptyResponse = try await post("/v1/memories/\(Self.pathSegment(memoryID))/accept", body: CodeMemoryActorRequest(actor: ["kind": "human", "id": NSUserName()]))
     }
@@ -123,8 +197,27 @@ struct CodeMemoryHTTPClient: CodeMemoryBackend {
         let _: EmptyResponse = try await post("/v1/memories/\(Self.pathSegment(memoryID))/deprecate", body: CodeMemoryActorRequest(actor: ["kind": "human", "id": NSUserName()]))
     }
 
+    func update(memoryID: String, memory: CodeMemoryMemoryUpdate) async throws {
+        let _: EmptyResponse = try await post("/v1/memories/\(Self.pathSegment(memoryID))/update", body: memory)
+    }
+
+    func promoteGraphFact(_ fact: CodeMemoryGraphFact) async throws -> CodeMemoryMemory {
+        struct PromoteResponse: Decodable {
+            var memory: CodeMemoryMemory?
+        }
+        let response: PromoteResponse = try await post("/v1/graph-facts/promote", body: fact)
+        if let memory = response.memory {
+            return memory
+        }
+        throw CodeMemoryHTTPError.status(-1, "Graph fact promotion returned no memory")
+    }
+
     func drainProjections() async throws -> CodeMemoryProjectionDrainResponse {
-        try await post("/v1/projections/drain", body: CodeMemoryProjectionDrainRequest(limit: 10, includeFailed: false))
+        try await drainProjections(includeFailed: false)
+    }
+
+    func drainProjections(includeFailed: Bool) async throws -> CodeMemoryProjectionDrainResponse {
+        try await post("/v1/projections/drain", body: CodeMemoryProjectionDrainRequest(limit: 10, includeFailed: includeFailed))
     }
 
     func reindex(projectID: String?) async throws -> CodeMemoryProjectionDrainResponse {
@@ -196,6 +289,32 @@ private struct CodeMemoryContextRequest: Encodable {
 
 private struct CodeMemoryActorRequest: Encodable {
     var actor: [String: String]
+}
+
+struct CodeMemoryMemoryUpdate: Codable, Sendable, Hashable {
+    var title: String?
+    var body: String?
+    var type: String?
+    var status: String?
+    var confidence: Double?
+    var importance: Double?
+    var validAt: Double?
+    var invalidAt: Double?
+    var reviewReason: String?
+    var extractedBy: String?
+
+    enum CodingKeys: String, CodingKey {
+        case title
+        case body
+        case type
+        case status
+        case confidence
+        case importance
+        case validAt = "valid_at"
+        case invalidAt = "invalid_at"
+        case reviewReason = "review_reason"
+        case extractedBy = "extracted_by"
+    }
 }
 
 private struct CodeMemoryProjectRequest: Encodable {
