@@ -18,7 +18,12 @@ enum LocalAISemanticSearchError: Error, LocalizedError {
 final class LocalAIStore {
     let modelStore: LocalAIModelStore
     var completeLocalModeEnabled: Bool {
-        didSet { defaults.set(completeLocalModeEnabled, forKey: Keys.completeLocalModeEnabled) }
+        didSet {
+            defaults.set(completeLocalModeEnabled, forKey: Keys.completeLocalModeEnabled)
+            if completeLocalModeEnabled {
+                resetHelperRecoveryState()
+            }
+        }
     }
     private(set) var isIndexing = false
     private(set) var localAPIEndpoint: LocalAIOpenAIEndpoint?
@@ -28,15 +33,22 @@ final class LocalAIStore {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let embeddingIndex: TranscriptEmbeddingIndex
     @ObservationIgnored private let engineFactory: LocalAIEmbeddingEngineFactory
-    @ObservationIgnored private let helperManager: LocalAIHelperManager
+    @ObservationIgnored private let helperManager: any LocalAIHelperManaging
+    @ObservationIgnored private let now: () -> Date
+    @ObservationIgnored private var helperFailureDates: [Date] = []
+    @ObservationIgnored private var helperCooldownUntil: Date?
 
     private static let chunkerVersion = "semantic-chunker-v1"
+    private static let helperFailureLimit = 3
+    private static let helperFailureWindow: TimeInterval = 5 * 60
+    private static let helperCooldownDuration: TimeInterval = 10 * 60
 
     init(
         modelStore: LocalAIModelStore = LocalAIModelStore(),
         embeddingIndex: TranscriptEmbeddingIndex = TranscriptEmbeddingIndex(),
         engineFactory: LocalAIEmbeddingEngineFactory = LocalAIEmbeddingEngineFactory(),
-        helperManager: LocalAIHelperManager = LocalAIHelperManager(),
+        helperManager: any LocalAIHelperManaging = LocalAIHelperManager(),
+        now: @escaping () -> Date = Date.init,
         defaults: UserDefaults = .standard
     ) {
         self.modelStore = modelStore
@@ -44,6 +56,7 @@ final class LocalAIStore {
         self.embeddingIndex = embeddingIndex
         self.engineFactory = engineFactory
         self.helperManager = helperManager
+        self.now = now
         self.completeLocalModeEnabled = (defaults.object(forKey: Keys.completeLocalModeEnabled) as? Bool) ?? false
     }
 
@@ -179,34 +192,25 @@ final class LocalAIStore {
 
     @discardableResult
     func startOpenAICompatibleServer() -> LocalAIOpenAIEndpoint? {
-        do {
-            let config = currentRuntimeConfig()
-            let endpoint = try helperManager.start(config: config)
-            localAPIEndpoint = endpoint
-            localAPIError = nil
-            return endpoint
-        } catch {
-            localAPIEndpoint = nil
-            localAPIError = error.localizedDescription
-            return nil
-        }
+        startOpenAICompatibleServer(resetRecoveryState: true)
     }
 
     func stopOpenAICompatibleServer() {
         _ = try? helperManager.stop()
+        resetHelperRecoveryState()
         localAPIEndpoint = nil
         localAPIError = nil
     }
 
     func restartOpenAICompatibleServerIfNeeded() {
         guard completeLocalModeEnabled else { return }
-        _ = startOpenAICompatibleServer()
+        let config = currentRuntimeConfig()
+        _ = reconcileOpenAICompatibleServer(config: config, allowRestart: true)
     }
 
     func localAIEnvironment() -> CodeMemoryLocalAIEnvironment? {
         let config = currentRuntimeConfig()
-        guard let localAPIEndpoint,
-              helperManager.existingProcessCanServe(config: config)
+        guard let localAPIEndpoint = reconcileOpenAICompatibleServer(config: config, allowRestart: completeLocalModeEnabled)
         else { return nil }
         return CodeMemoryLocalAIEnvironment(
             baseURL: localAPIEndpoint.baseURL,
@@ -217,6 +221,99 @@ final class LocalAIStore {
             configurationHash: config.configHash,
             adaptersEnabled: completeLocalModeEnabled
         )
+    }
+
+    @discardableResult
+    private func startOpenAICompatibleServer(
+        resetRecoveryState: Bool,
+        config: LocalAIHelperRuntimeConfig? = nil
+    ) -> LocalAIOpenAIEndpoint? {
+        if resetRecoveryState {
+            resetHelperRecoveryState()
+        }
+        let attemptDate = now()
+        if let message = activeHelperCooldownMessage(at: attemptDate) {
+            localAPIEndpoint = nil
+            localAPIError = message
+            return nil
+        }
+        do {
+            let config = config ?? currentRuntimeConfig()
+            let endpoint = try helperManager.start(config: config)
+            localAPIEndpoint = endpoint
+            localAPIError = nil
+            resetHelperRecoveryState()
+            return endpoint
+        } catch {
+            localAPIEndpoint = nil
+            recordHelperStartFailure(error, at: attemptDate)
+            return nil
+        }
+    }
+
+    private func reconcileOpenAICompatibleServer(
+        config: LocalAIHelperRuntimeConfig,
+        allowRestart: Bool
+    ) -> LocalAIOpenAIEndpoint? {
+        let checkDate = now()
+        if let message = activeHelperCooldownMessage(at: checkDate) {
+            localAPIEndpoint = nil
+            localAPIError = message
+            return nil
+        }
+
+        if let localAPIEndpoint,
+           helperManager.existingProcessCanServe(config: config) {
+            localAPIError = nil
+            resetHelperRecoveryState()
+            return localAPIEndpoint
+        }
+
+        if helperManager.existingProcessCanServe(config: config) {
+            let endpoint = LocalAIOpenAIEndpoint(baseURL: config.baseURL, token: config.token)
+            localAPIEndpoint = endpoint
+            localAPIError = nil
+            resetHelperRecoveryState()
+            return endpoint
+        }
+
+        localAPIEndpoint = nil
+        guard allowRestart else { return nil }
+        return startOpenAICompatibleServer(resetRecoveryState: false, config: config)
+    }
+
+    private func resetHelperRecoveryState() {
+        helperFailureDates.removeAll()
+        helperCooldownUntil = nil
+    }
+
+    private func recordHelperStartFailure(_ error: Error, at date: Date) {
+        let cutoff = date.addingTimeInterval(-Self.helperFailureWindow)
+        helperFailureDates = helperFailureDates.filter { $0 >= cutoff }
+        helperFailureDates.append(date)
+
+        if helperFailureDates.count >= Self.helperFailureLimit {
+            helperCooldownUntil = date.addingTimeInterval(Self.helperCooldownDuration)
+            localAPIError = helperCooldownMessage(at: date)
+        } else {
+            localAPIError = error.localizedDescription
+        }
+    }
+
+    private func activeHelperCooldownMessage(at date: Date) -> String? {
+        guard let helperCooldownUntil else { return nil }
+        guard helperCooldownUntil > date else {
+            self.helperCooldownUntil = nil
+            helperFailureDates.removeAll()
+            return nil
+        }
+        return helperCooldownMessage(at: date)
+    }
+
+    private func helperCooldownMessage(at date: Date) -> String {
+        guard let helperCooldownUntil else { return "Local AI helper is paused after repeated crashes." }
+        let remainingMinutes = max(1, Int(ceil(helperCooldownUntil.timeIntervalSince(date) / 60)))
+        return "Local AI helper is paused after repeated crashes. Retry in \(remainingMinutes) min."
     }
 
     private func currentRuntimeConfig() -> LocalAIHelperRuntimeConfig {

@@ -27,6 +27,7 @@ static void EnsureLlamaChatBackend() {
 @property(nonatomic, assign) struct llama_model * model;
 @property(nonatomic, assign) struct llama_context * context;
 @property(nonatomic, assign) NSInteger maxContextTokens;
+@property(nonatomic, assign) NSInteger decodeBatchTokenLimit;
 @end
 
 @implementation LlamaChatBridge
@@ -40,6 +41,7 @@ static void EnsureLlamaChatBackend() {
 
     EnsureLlamaChatBackend();
     _maxContextTokens = std::max<NSInteger>(512, maxContextTokens);
+    _decodeBatchTokenLimit = std::min<NSInteger>(_maxContextTokens, 2048);
 
     llama_model_params modelParams = llama_model_default_params();
     modelParams.n_gpu_layers = useMetal ? -1 : 0;
@@ -53,7 +55,7 @@ static void EnsureLlamaChatBackend() {
 
     llama_context_params contextParams = llama_context_default_params();
     contextParams.n_ctx = (uint32_t)_maxContextTokens;
-    contextParams.n_batch = (uint32_t)std::min<NSInteger>(_maxContextTokens, 2048);
+    contextParams.n_batch = (uint32_t)_decodeBatchTokenLimit;
     contextParams.n_ubatch = (uint32_t)std::min<NSInteger>(_maxContextTokens, 512);
     contextParams.n_seq_max = 1;
     contextParams.n_threads = (int32_t)std::max(2u, std::thread::hardware_concurrency() / 2);
@@ -186,10 +188,17 @@ static void EnsureLlamaChatBackend() {
 
     llama_memory_clear(llama_get_memory(_context), true);
 
-    llama_batch batch = llama_batch_get_one(promptTokens.data(), (int32_t)promptTokens.size());
-    if (llama_decode(_context, batch) != 0) {
-        if (error) { *error = LlamaChatError(7, @"llama_decode failed while evaluating chat prompt."); }
-        return nil;
+    int32_t decodeLimit = std::max<int32_t>(1, (int32_t)_decodeBatchTokenLimit);
+    for (size_t offset = 0; offset < promptTokens.size(); offset += (size_t)decodeLimit) {
+        int32_t chunkTokenCount = (int32_t)std::min<size_t>(
+            (size_t)decodeLimit,
+            promptTokens.size() - offset
+        );
+        llama_batch batch = llama_batch_get_one(promptTokens.data() + offset, chunkTokenCount);
+        if (llama_decode(_context, batch) != 0) {
+            if (error) { *error = LlamaChatError(7, @"llama_decode failed while evaluating chat prompt."); }
+            return nil;
+        }
     }
 
     llama_sampler * sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
@@ -232,4 +241,3 @@ static void EnsureLlamaChatBackend() {
 }
 
 @end
-

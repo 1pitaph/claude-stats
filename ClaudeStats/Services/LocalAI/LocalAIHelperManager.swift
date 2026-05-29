@@ -1,6 +1,13 @@
 import Darwin
 import Foundation
 
+protocol LocalAIHelperManaging: Sendable {
+    @discardableResult
+    func start(config: LocalAIHelperRuntimeConfig) throws -> LocalAIOpenAIEndpoint
+    func stop() throws -> Bool
+    func existingProcessCanServe(config: LocalAIHelperRuntimeConfig) -> Bool
+}
+
 struct LocalAIHelperManager: Sendable {
     var helperPath: String
     var configURL: URL
@@ -149,6 +156,8 @@ struct LocalAIHelperManager: Sendable {
         return box.body
     }
 }
+
+extension LocalAIHelperManager: LocalAIHelperManaging {}
 
 enum LocalAIHelperError: Error, LocalizedError {
     case invalidPID(String)

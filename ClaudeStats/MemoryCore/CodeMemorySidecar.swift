@@ -173,6 +173,9 @@ struct CodeMemorySidecarManager: Sendable {
                 "No module named 'graphiti_core'",
                 "No module named \"graphiti_core\"",
                 "validation error for GraphitiClients",
+                "endpoint unavailable",
+                "local AI helper stopped or unreachable",
+                "Connection refused",
             ]
             if missingAdapterMarkers.contains(where: { healthBody.contains($0) }) {
                 return false
