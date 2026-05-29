@@ -1,10 +1,20 @@
 import Darwin
 import Foundation
 
+struct CodeMemoryLocalAIEnvironment: Sendable, Hashable {
+    var baseURL: URL
+    var token: String
+    var llmModelID: String
+    var embeddingModelID: String
+    var embeddingDimensions: Int
+    var adaptersEnabled: Bool
+}
+
 struct CodeMemorySidecarConfiguration: Sendable, Hashable {
     var host: String = "127.0.0.1"
     var port: Int = 8765
     var rootDirectory: URL = MemoryPaths.rootDirectory()
+    var localAI: CodeMemoryLocalAIEnvironment?
 
     var baseURL: URL {
         URL(string: "http://\(host):\(port)")!
@@ -60,10 +70,14 @@ struct CodeMemorySidecarManager: Sendable {
 
     func start(helperPath: String) throws -> Int32 {
         if let pid = try? readPID(), processIsRunning(pid) {
-            return pid
+            if existingProcessCanServeCurrentContract() {
+                return pid
+            }
+            terminateProcess(pid)
+            try? FileManager.default.removeItem(at: pidURL)
         }
 
-        let sidecarPath = resolveSidecarPath(helperPath: helperPath)
+        let resolvedPaths = resolvePythonPaths(helperPath: helperPath)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = [
@@ -80,7 +94,19 @@ struct CodeMemorySidecarManager: Sendable {
         ]
         var environment = ProcessInfo.processInfo.environment
         let existing = environment["PYTHONPATH"]
-        environment["PYTHONPATH"] = existing.map { "\(sidecarPath.path):\($0)" } ?? sidecarPath.path
+        let pythonPath = resolvedPaths.map(\.path).joined(separator: ":")
+        environment["PYTHONPATH"] = existing.map { "\(pythonPath):\($0)" } ?? pythonPath
+        environment["MEM0_TELEMETRY"] = "false"
+        environment["GRAPHITI_TELEMETRY_ENABLED"] = "false"
+        if let localAI = configuration.localAI {
+            environment["CLAUDE_STATS_LOCAL_AI_BASE_URL"] = localAI.baseURL.absoluteString
+            environment["CLAUDE_STATS_LOCAL_AI_TOKEN"] = localAI.token
+            environment["CLAUDE_STATS_LOCAL_LLM_MODEL"] = localAI.llmModelID
+            environment["CLAUDE_STATS_LOCAL_EMBEDDING_MODEL"] = localAI.embeddingModelID
+            environment["CLAUDE_STATS_LOCAL_EMBEDDING_DIMS"] = "\(localAI.embeddingDimensions)"
+            environment["CLAUDE_STATS_MEM0_ENABLED"] = localAI.adaptersEnabled ? "1" : "0"
+            environment["CLAUDE_STATS_GRAPHITI_ENABLED"] = localAI.adaptersEnabled ? "1" : "0"
+        }
         process.environment = environment
         if let devNull = FileHandle(forWritingAtPath: "/dev/null") {
             process.standardOutput = devNull
@@ -113,6 +139,56 @@ struct CodeMemorySidecarManager: Sendable {
         Darwin.kill(pid, 0) == 0
     }
 
+    private func terminateProcess(_ pid: Int32) {
+        Darwin.kill(pid, SIGTERM)
+        for _ in 0..<20 {
+            if !processIsRunning(pid) { return }
+            usleep(50_000)
+        }
+        Darwin.kill(pid, SIGKILL)
+    }
+
+    private func existingProcessCanServeCurrentContract() -> Bool {
+        guard httpStatus(path: "/health") == 200 else { return false }
+        guard httpStatus(path: "/v1/modules") == 200 else { return false }
+        guard httpStatus(path: "/v1/memories/proposals") == 200 else { return false }
+        return true
+    }
+
+    private func httpStatus(path: String) -> Int? {
+        let trimmedPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let url = configuration.baseURL.appendingPathComponent(trimmedPath)
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 0.4
+
+        let semaphore = DispatchSemaphore(value: 0)
+        let statusBox = CodeMemoryHTTPStatusBox()
+        let task = URLSession.shared.dataTask(with: request) { _, response, _ in
+            statusBox.set((response as? HTTPURLResponse)?.statusCode)
+            semaphore.signal()
+        }
+        task.resume()
+        if semaphore.wait(timeout: .now() + 0.5) == .timedOut {
+            task.cancel()
+            return nil
+        }
+        return statusBox.value
+    }
+
+    private func resolvePythonPaths(helperPath: String) -> [URL] {
+        let sidecarPath = resolveSidecarPath(helperPath: helperPath)
+        let repoRoot = sidecarPath.deletingLastPathComponent()
+        let thirdParty = repoRoot.appendingPathComponent("ThirdParty", isDirectory: true)
+        var paths = [sidecarPath]
+        for child in ["mem0", "graphiti"] {
+            let url = thirdParty.appendingPathComponent(child, isDirectory: true)
+            if FileManager.default.fileExists(atPath: url.path) {
+                paths.append(url)
+            }
+        }
+        return paths
+    }
+
     private func resolveSidecarPath(helperPath: String) -> URL {
         if let env = ProcessInfo.processInfo.environment["CLAUDE_STATS_MEMORYD_PATH"], !env.isEmpty {
             return URL(fileURLWithPath: env, isDirectory: true)
@@ -132,6 +208,21 @@ struct CodeMemorySidecarManager: Sendable {
     }
 }
 
+private final class CodeMemoryHTTPStatusBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var statusCode: Int?
+
+    var value: Int? {
+        lock.withLock { statusCode }
+    }
+
+    func set(_ nextStatusCode: Int?) {
+        lock.withLock {
+            statusCode = nextStatusCode
+        }
+    }
+}
+
 enum CodeMemorySidecarError: Error, LocalizedError {
     case invalidPID(String)
 
@@ -145,6 +236,27 @@ enum CodeMemorySidecarError: Error, LocalizedError {
 
 struct CodeMemoryTerminalRecorder: Sendable {
     var client: CodeMemoryHTTPClient = CodeMemoryHTTPClient()
+    var recordHandler: (@Sendable (CodeMemoryEventInput) async -> Bool)?
+
+    init(
+        client: CodeMemoryHTTPClient = CodeMemoryHTTPClient(),
+        recordHandler: (@Sendable (CodeMemoryEventInput) async -> Bool)? = nil
+    ) {
+        self.client = client
+        self.recordHandler = recordHandler
+    }
+
+    func record(_ event: CodeMemoryEventInput) async -> Bool {
+        if let recordHandler {
+            return await recordHandler(event)
+        }
+        do {
+            try await client.recordEvent(event)
+            return true
+        } catch {
+            return false
+        }
+    }
 
     func record(
         title: String,
@@ -154,8 +266,28 @@ struct CodeMemoryTerminalRecorder: Sendable {
         ref: String,
         sourceKind: String = "terminal_capture"
     ) async -> Bool {
+        await record(
+            event(
+                title: title,
+                body: body,
+                kind: kind,
+                cwd: cwd,
+                ref: ref,
+                sourceKind: sourceKind
+            )
+        )
+    }
+
+    func event(
+        title: String,
+        body: String,
+        kind: MemoryRecordKind,
+        cwd: String?,
+        ref: String,
+        sourceKind: String = "terminal_capture"
+    ) -> CodeMemoryEventInput {
         let projectID = projectID(cwd: cwd)
-        let event = CodeMemoryEventInput(
+        return CodeMemoryEventInput(
             projectID: projectID,
             eventType: "memory.observed",
             actor: ["kind": "tool", "id": "claude-stats-memory"],
@@ -169,12 +301,6 @@ struct CodeMemoryTerminalRecorder: Sendable {
             ),
             sourceRefs: [["kind": sourceKind, "uri": ref]]
         )
-        do {
-            try await client.recordEvent(event)
-            return true
-        } catch {
-            return false
-        }
     }
 
     private func projectID(cwd: String?) -> String {

@@ -10,9 +10,23 @@ enum LocalAIModelRuntime: String, Codable, Sendable, Hashable, CaseIterable {
     }
 }
 
-enum LocalAIModelKind: String, Codable, Sendable, Hashable {
+enum LocalAIModelKind: String, Codable, Sendable, Hashable, CaseIterable {
     case embedding
     case llm
+
+    var displayName: String {
+        switch self {
+        case .embedding: "Embedding"
+        case .llm: "LLM"
+        }
+    }
+
+    var storageDirectoryName: String {
+        switch self {
+        case .embedding: "Embeddings"
+        case .llm: "LLMs"
+        }
+    }
 }
 
 enum LocalAIModelSourceKind: String, Codable, Sendable, Hashable {

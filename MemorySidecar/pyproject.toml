@@ -12,8 +12,8 @@ dependencies = [
 
 [project.optional-dependencies]
 adapters = [
-    "mem0ai==0.1.118",
-    "graphiti-core==0.20.1",
+    "mem0ai==2.0.4",
+    "graphiti-core==0.29.1",
 ]
 
 [project.scripts]

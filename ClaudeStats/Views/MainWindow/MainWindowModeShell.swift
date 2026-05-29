@@ -3,6 +3,7 @@ import SwiftUI
 enum MainWindowMode: String, Sendable {
     case app
     case linuxDo
+    case sessions
     case configs
     case memory
     case settings
@@ -13,6 +14,7 @@ enum MainWindowMode: String, Sendable {
 enum MainWindowMotion {
     static let appSidebarWidth: CGFloat = 240
     static let linuxDoSidebarWidth: CGFloat = 240
+    static let sessionsSidebarWidth: CGFloat = 240
     static let configsSidebarWidth: CGFloat = 240
     static let memorySidebarWidth: CGFloat = 240
     static let settingsSidebarWidth: CGFloat = 220
@@ -47,6 +49,13 @@ enum MainWindowMotion {
     }
 
     static var linuxDoDetailTransition: AnyTransition {
+        .asymmetric(
+            insertion: .offset(x: detailOffset).combined(with: .opacity),
+            removal: .offset(x: detailOffset).combined(with: .opacity)
+        )
+    }
+
+    static var sessionsDetailTransition: AnyTransition {
         .asymmetric(
             insertion: .offset(x: detailOffset).combined(with: .opacity),
             removal: .offset(x: detailOffset).combined(with: .opacity)
@@ -90,16 +99,17 @@ enum MainWindowMotion {
 }
 
 /// Stable two-column shell for the main window. The sidebar column transitions
-/// directly between app, LinuxDo, configs, memory, settings, network, and ops
+/// directly between app, LinuxDo, sessions, configs, memory, settings, network, and ops
 /// navigation while the detail panel stays mounted so its leading boundary can
 /// move with the sidebar width.
-struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, ConfigsSidebar: View, MemorySidebar: View, SettingsSidebar: View, NetworkSidebar: View, OpsSidebar: View, AppDetail: View, LinuxDoDetail: View, ConfigsDetail: View, MemoryDetail: View, SettingsDetail: View, NetworkDetail: View, OpsDetail: View>: View {
+struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSidebar: View, ConfigsSidebar: View, MemorySidebar: View, SettingsSidebar: View, NetworkSidebar: View, OpsSidebar: View, AppDetail: View, LinuxDoDetail: View, SessionsDetail: View, ConfigsDetail: View, MemoryDetail: View, SettingsDetail: View, NetworkDetail: View, OpsDetail: View>: View {
     let mode: MainWindowMode
     let sidebarVisible: Bool
     let boundaryFalloffEnabled: Bool
 
     private let appSidebar: AppSidebar
     private let linuxDoSidebar: LinuxDoSidebar
+    private let sessionsSidebar: SessionsSidebar
     private let configsSidebar: ConfigsSidebar
     private let memorySidebar: MemorySidebar
     private let settingsSidebar: SettingsSidebar
@@ -107,6 +117,7 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, ConfigsSideba
     private let opsSidebar: OpsSidebar
     private let appDetail: AppDetail
     private let linuxDoDetail: LinuxDoDetail
+    private let sessionsDetail: SessionsDetail
     private let configsDetail: ConfigsDetail
     private let memoryDetail: MemoryDetail
     private let settingsDetail: SettingsDetail
@@ -119,6 +130,7 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, ConfigsSideba
         boundaryFalloffEnabled: Bool,
         @ViewBuilder appSidebar: () -> AppSidebar,
         @ViewBuilder linuxDoSidebar: () -> LinuxDoSidebar,
+        @ViewBuilder sessionsSidebar: () -> SessionsSidebar,
         @ViewBuilder configsSidebar: () -> ConfigsSidebar,
         @ViewBuilder memorySidebar: () -> MemorySidebar,
         @ViewBuilder settingsSidebar: () -> SettingsSidebar,
@@ -126,6 +138,7 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, ConfigsSideba
         @ViewBuilder opsSidebar: () -> OpsSidebar,
         @ViewBuilder appDetail: () -> AppDetail,
         @ViewBuilder linuxDoDetail: () -> LinuxDoDetail,
+        @ViewBuilder sessionsDetail: () -> SessionsDetail,
         @ViewBuilder configsDetail: () -> ConfigsDetail,
         @ViewBuilder memoryDetail: () -> MemoryDetail,
         @ViewBuilder settingsDetail: () -> SettingsDetail,
@@ -137,6 +150,7 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, ConfigsSideba
         self.boundaryFalloffEnabled = boundaryFalloffEnabled
         self.appSidebar = appSidebar()
         self.linuxDoSidebar = linuxDoSidebar()
+        self.sessionsSidebar = sessionsSidebar()
         self.configsSidebar = configsSidebar()
         self.memorySidebar = memorySidebar()
         self.settingsSidebar = settingsSidebar()
@@ -144,6 +158,7 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, ConfigsSideba
         self.opsSidebar = opsSidebar()
         self.appDetail = appDetail()
         self.linuxDoDetail = linuxDoDetail()
+        self.sessionsDetail = sessionsDetail()
         self.configsDetail = configsDetail()
         self.memoryDetail = memoryDetail()
         self.settingsDetail = settingsDetail()
@@ -172,6 +187,8 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, ConfigsSideba
             sidebarVisible ? MainWindowMotion.appSidebarWidth : 0
         case .linuxDo:
             sidebarVisible ? MainWindowMotion.linuxDoSidebarWidth : 0
+        case .sessions:
+            sidebarVisible ? MainWindowMotion.sessionsSidebarWidth : 0
         case .configs:
             sidebarVisible ? MainWindowMotion.configsSidebarWidth : 0
         case .memory:
@@ -190,6 +207,8 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, ConfigsSideba
         case .app:
             return sidebarVisible
         case .linuxDo:
+            return sidebarVisible
+        case .sessions:
             return sidebarVisible
         case .configs:
             return sidebarVisible
@@ -210,6 +229,10 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, ConfigsSideba
 
     private var linuxDoSidebarIsActive: Bool {
         mode == .linuxDo && sidebarVisible
+    }
+
+    private var sessionsSidebarIsActive: Bool {
+        mode == .sessions && sidebarVisible
     }
 
     private var configsSidebarIsActive: Bool {
@@ -248,6 +271,13 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, ConfigsSideba
                     .opacity(sidebarVisible ? 1 : 0)
                     .allowsHitTesting(linuxDoSidebarIsActive)
                     .accessibilityHidden(!linuxDoSidebarIsActive)
+                    .transition(MainWindowMotion.secondarySidebarTransition)
+            case .sessions:
+                sessionsSidebar
+                    .frame(width: MainWindowMotion.sessionsSidebarWidth)
+                    .opacity(sidebarVisible ? 1 : 0)
+                    .allowsHitTesting(sessionsSidebarIsActive)
+                    .accessibilityHidden(!sessionsSidebarIsActive)
                     .transition(MainWindowMotion.secondarySidebarTransition)
             case .configs:
                 configsSidebar
@@ -299,6 +329,10 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, ConfigsSideba
                 linuxDoDetail
                     .transition(MainWindowMotion.linuxDoDetailTransition)
                     .zIndex(1)
+            case .sessions:
+                sessionsDetail
+                    .transition(MainWindowMotion.sessionsDetailTransition)
+                    .zIndex(1)
             case .configs:
                 configsDetail
                     .transition(MainWindowMotion.configsDetailTransition)
@@ -341,6 +375,13 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, ConfigsSideba
             Spacer()
         }
         .padding()
+    } sessionsSidebar: {
+        VStack(alignment: .leading) {
+            Text("Back")
+            Text("Sessions")
+            Spacer()
+        }
+        .padding()
     } configsSidebar: {
         VStack(alignment: .leading) {
             Text("Back")
@@ -380,6 +421,8 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, ConfigsSideba
         Color.stxBackground.overlay(Text("App Detail"))
     } linuxDoDetail: {
         Color.stxBackground.overlay(Text("LinuxDo Detail"))
+    } sessionsDetail: {
+        Color.stxBackground.overlay(Text("Sessions Detail"))
     } configsDetail: {
         Color.stxBackground.overlay(Text("Config Detail"))
     } memoryDetail: {

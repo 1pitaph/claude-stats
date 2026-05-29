@@ -12,10 +12,12 @@ struct SidebarColumn: View {
     @Binding var page: MainPage
     var availablePages: [MainPage]
     var isLinuxDoActive = false
+    var isSessionsActive = false
     var isConfigsActive = false
     var isMemoryActive = false
     var onOpenSettings: () -> Void
     var onOpenLinuxDo: () -> Void
+    var onOpenSessions: () -> Void
     var onOpenConfigs: () -> Void
     var onOpenMemory: () -> Void
     var onOpenNetwork: () -> Void
@@ -39,6 +41,16 @@ struct SidebarColumn: View {
             ) {
                 clearTextFocus()
                 onOpenLinuxDo()
+            }
+            SidebarRow(
+                title: "Sessions",
+                symbol: "doc.text.magnifyingglass",
+                isSelected: isSessionsActive,
+                trailingSymbol: "chevron.right",
+                showsTrailingOnHover: true
+            ) {
+                clearTextFocus()
+                onOpenSessions()
             }
 
             sectionHeader("STATS")
@@ -217,10 +229,12 @@ struct SidebarRow: View {
         page: $page,
         availablePages: [.dashboard, .usage, .activity, .git],
         isLinuxDoActive: false,
+        isSessionsActive: false,
         isConfigsActive: false,
         isMemoryActive: false,
         onOpenSettings: {},
         onOpenLinuxDo: {},
+        onOpenSessions: {},
         onOpenConfigs: {},
         onOpenMemory: {},
         onOpenNetwork: {},

@@ -2,16 +2,17 @@ import Foundation
 
 struct MemoryTerminalCaptureWriter: Sendable {
     static let maxCapturedBytes = 2 * 1024 * 1024
+    private static let terminalSourceID = "terminal:sidecar"
 
-    let storage: MemorySQLiteStore
-    let jsonlURL: URL
+    let outbox: CodeMemoryEventOutbox
+    let recorder: CodeMemoryTerminalRecorder
 
     init(
-        storage: MemorySQLiteStore = MemorySQLiteStore(),
-        jsonlURL: URL = MemoryPaths.terminalCapturesURL()
+        outbox: CodeMemoryEventOutbox = CodeMemoryEventOutbox(),
+        recorder: CodeMemoryTerminalRecorder = CodeMemoryTerminalRecorder()
     ) {
-        self.storage = storage
-        self.jsonlURL = jsonlURL
+        self.outbox = outbox
+        self.recorder = recorder
     }
 
     func saveRunCapture(
@@ -28,7 +29,7 @@ struct MemoryTerminalCaptureWriter: Sendable {
         let title = ([command] + arguments).joined(separator: " ")
         let record = MemoryRecord(
             id: "terminal:\(UUID().uuidString)",
-            sourceID: MemoryDefaults.terminalSourceID,
+            sourceID: Self.terminalSourceID,
             kind: .terminalRun,
             title: title.isEmpty ? "Command" : title,
             subtitle: cwd,
@@ -44,18 +45,17 @@ struct MemoryTerminalCaptureWriter: Sendable {
             ])
         )
         let blocks = terminalBlocks(record: record, stdout: stdout, stderr: stderr)
-        if await CodeMemoryTerminalRecorder().record(
+        let event = recorder.event(
             title: record.title,
             body: blocks.map(\.text).joined(separator: "\n\n"),
             kind: record.kind,
             cwd: cwd,
             ref: blocks.first?.ref ?? record.id
-        ) {
+        )
+        if await recorder.record(event) {
             return record
         }
-        try await ensureTerminalSource()
-        try await storage.upsertRecord(record, blocks: blocks)
-        try await appendJSONL(record: record, blocks: blocks)
+        try await outbox.enqueue(event)
         return record
     }
 
@@ -67,7 +67,7 @@ struct MemoryTerminalCaptureWriter: Sendable {
     ) async throws -> MemoryRecord {
         let record = MemoryRecord(
             id: "terminal:\(UUID().uuidString)",
-            sourceID: MemoryDefaults.terminalSourceID,
+            sourceID: Self.terminalSourceID,
             kind: .terminalPipe,
             title: "Pipe capture",
             subtitle: cwd,
@@ -85,20 +85,19 @@ struct MemoryTerminalCaptureWriter: Sendable {
             role: .text,
             text: text,
             ref: MemoryRef.terminal(recordID: record.id, blockID: blockID),
-            textHash: MemorySQLiteStore.textHash(text)
+            textHash: MemoryHash.textHash(text)
         )
-        if await CodeMemoryTerminalRecorder().record(
+        let event = recorder.event(
             title: record.title,
             body: text,
             kind: record.kind,
             cwd: cwd,
             ref: block.ref
-        ) {
+        )
+        if await recorder.record(event) {
             return record
         }
-        try await ensureTerminalSource()
-        try await storage.upsertRecord(record, blocks: [block])
-        try await appendJSONL(record: record, blocks: [block])
+        try await outbox.enqueue(event)
         return record
     }
 
@@ -113,7 +112,7 @@ struct MemoryTerminalCaptureWriter: Sendable {
         let title = command.trimmingCharacters(in: .whitespacesAndNewlines)
         let record = MemoryRecord(
             id: "terminal:\(UUID().uuidString)",
-            sourceID: MemoryDefaults.terminalSourceID,
+            sourceID: Self.terminalSourceID,
             kind: .shellMetadata,
             title: title.isEmpty ? "Shell command" : title,
             subtitle: cwd,
@@ -134,20 +133,19 @@ struct MemoryTerminalCaptureWriter: Sendable {
             role: .metadata,
             text: text,
             ref: MemoryRef.terminal(recordID: record.id, blockID: blockID),
-            textHash: MemorySQLiteStore.textHash(text)
+            textHash: MemoryHash.textHash(text)
         )
-        if await CodeMemoryTerminalRecorder().record(
+        let event = recorder.event(
             title: record.title,
             body: text,
             kind: record.kind,
             cwd: cwd,
             ref: block.ref
-        ) {
+        )
+        if await recorder.record(event) {
             return record
         }
-        try await ensureTerminalSource()
-        try await storage.upsertRecord(record, blocks: [block])
-        try await appendJSONL(record: record, blocks: [block])
+        try await outbox.enqueue(event)
         return record
     }
 
@@ -164,7 +162,7 @@ struct MemoryTerminalCaptureWriter: Sendable {
                     role: .stdout,
                     text: stdout,
                     ref: MemoryRef.terminal(recordID: record.id, blockID: blockID),
-                    textHash: MemorySQLiteStore.textHash(stdout)
+                    textHash: MemoryHash.textHash(stdout)
                 )
             )
         }
@@ -179,7 +177,7 @@ struct MemoryTerminalCaptureWriter: Sendable {
                     role: .stderr,
                     text: stderr,
                     ref: MemoryRef.terminal(recordID: record.id, blockID: blockID),
-                    textHash: MemorySQLiteStore.textHash(stderr)
+                    textHash: MemoryHash.textHash(stderr)
                 )
             )
         }
@@ -195,50 +193,15 @@ struct MemoryTerminalCaptureWriter: Sendable {
                     role: .metadata,
                     text: text,
                     ref: MemoryRef.terminal(recordID: record.id, blockID: blockID),
-                    textHash: MemorySQLiteStore.textHash(text)
+                    textHash: MemoryHash.textHash(text)
                 )
             )
         }
         return blocks
     }
 
-    private func ensureTerminalSource() async throws {
-        let source = MemorySource(
-            id: MemoryDefaults.terminalSourceID,
-            kind: .terminal,
-            providerRaw: nil,
-            title: "Terminal captures",
-            path: MemoryPaths.terminalCapturesURL().path,
-            isDefault: true
-        )
-        try await storage.upsertSources([source])
-    }
-
-    private func appendJSONL(record: MemoryRecord, blocks: [MemoryBlock]) async throws {
-        let url = jsonlURL
-        let envelope = MemoryTerminalCaptureEnvelope(record: record, blocks: blocks)
-        try await Task.detached(priority: .utility) {
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            var data = try JSONEncoder.memoryEncoder.encode(envelope)
-            data.append(Data("\n".utf8))
-            if FileManager.default.fileExists(atPath: url.path) {
-                let handle = try FileHandle(forWritingTo: url)
-                try handle.seekToEnd()
-                try handle.write(contentsOf: data)
-                try handle.close()
-            } else {
-                try data.write(to: url, options: .atomic)
-            }
-        }.value
-    }
-
     private func metadataJSON(_ values: [String: String]) -> String? {
         guard let data = try? JSONEncoder.memoryEncoder.encode(values) else { return nil }
         return String(data: data, encoding: .utf8)
     }
-}
-
-struct MemoryTerminalCaptureEnvelope: Codable, Sendable, Hashable {
-    let record: MemoryRecord
-    let blocks: [MemoryBlock]
 }

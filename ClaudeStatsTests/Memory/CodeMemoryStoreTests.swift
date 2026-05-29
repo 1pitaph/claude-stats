@@ -18,57 +18,21 @@ struct CodeMemoryStoreTests {
     }
 
     @MainActor
-    @Test("Legacy import maps SQLite records into backend import request")
-    func legacyImportMapsRecords() async throws {
-        let root = try TempDir.make()
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let storage = MemorySQLiteStore(url: root.appendingPathComponent("memory.sqlite3"))
-        let source = MemorySource(
-            id: MemoryDefaults.terminalSourceID,
-            kind: .terminal,
-            providerRaw: nil,
-            title: "Terminal",
-            path: root.path,
-            isDefault: true
-        )
-        try await storage.upsertSources([source])
-        let record = MemoryRecord(
-            id: "terminal:test",
-            sourceID: source.id,
-            kind: .terminalRun,
-            title: "bash scripts/run-debug.sh",
-            cwd: root.path
-        )
-        let block = MemoryBlock(
-            id: "terminal:test:stdout",
-            recordID: record.id,
-            sourceID: source.id,
-            ordinal: 0,
-            role: .stdout,
-            text: "build ok",
-            ref: MemoryRef.terminal(recordID: record.id, blockID: "stdout"),
-            textHash: MemorySQLiteStore.textHash("build ok")
-        )
-        try await storage.upsertRecord(record, blocks: [block])
-
+    @Test("Search stores sidecar results")
+    func searchStoresSidecarResults() async throws {
         let backend = FakeCodeMemoryBackend()
-        let store = MemoryStore(
-            storage: storage,
-            sourceStore: MemorySourceFileStore(url: root.appendingPathComponent("sources.json")),
-            codeBackend: backend
-        )
-        await store.importLegacyRecords(kind: .terminalRun)
+        let store = MemoryStore(codeBackend: backend)
 
-        let request = try #require(backend.importRequests.first)
-        #expect(request.records.count == 1)
-        #expect(request.records.first?.title == "bash scripts/run-debug.sh")
-        #expect(store.codeLastImportResult?.imported == 1)
+        store.searchText = "run-debug"
+        await store.performSearch()
+
+        #expect(backend.searchQueries == ["run-debug"])
+        #expect(store.codeSearchResults.first?.memory.title == "Use run-debug")
     }
 }
 
 private final class FakeCodeMemoryBackend: CodeMemoryBackend, @unchecked Sendable {
-    var importRequests: [CodeMemoryLegacyImportRequest] = []
+    var searchQueries: [String] = []
 
     func health() async throws -> CodeMemoryHealth {
         CodeMemoryHealth(
@@ -85,7 +49,34 @@ private final class FakeCodeMemoryBackend: CodeMemoryBackend, @unchecked Sendabl
     }
 
     func search(query: String, projectID: String?, limit: Int) async throws -> CodeMemorySearchResponse {
-        CodeMemorySearchResponse(query: query, traceID: "run:test", results: [])
+        searchQueries.append(query)
+        return CodeMemorySearchResponse(
+            query: query,
+            traceID: "run:test",
+            results: [
+                CodeMemorySearchResult(
+                    rank: 1,
+                    score: 1,
+                    memory: CodeMemoryMemory(
+                        id: "memory:test",
+                        projectID: "claude-stats",
+                        type: "command",
+                        status: "active",
+                        title: "Use run-debug",
+                        body: "After changing code, run bash scripts/run-debug.sh.",
+                        normalizedClaim: "run debug after code changes",
+                        confidence: 1,
+                        importance: 1,
+                        scopes: [],
+                        sourceRefs: [],
+                        metadata: nil,
+                        createdAt: 0,
+                        updatedAt: 0
+                    ),
+                    matchKind: "text"
+                ),
+            ]
+        )
     }
 
     func graph(projectID: String) async throws -> CodeMemoryGraph {
@@ -97,9 +88,4 @@ private final class FakeCodeMemoryBackend: CodeMemoryBackend, @unchecked Sendabl
     }
 
     func recordEvent(_ event: CodeMemoryEventInput) async throws {}
-
-    func importLegacy(_ request: CodeMemoryLegacyImportRequest) async throws -> CodeMemoryLegacyImportResponse {
-        importRequests.append(request)
-        return CodeMemoryLegacyImportResponse(imported: request.records.count, skipped: 0)
-    }
 }

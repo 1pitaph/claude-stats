@@ -6,27 +6,22 @@ struct LocalAIModelsSettingsView: View {
     @State private var hfFile = ""
     @State private var hfRevision = "main"
     @State private var hfToken = ""
+    @State private var hfKind: LocalAIModelKind = .embedding
     @State private var advancedImportExpanded = false
 
     var body: some View {
-        @Bindable var modelStore = env.localAI.modelStore
+        @Bindable var localAI = env.localAI
+        let modelStore = env.localAI.modelStore
 
         VStack(alignment: .leading, spacing: 28) {
-            SettingGroup(title: "Models", caption: "Installed models add semantic search and similar-session matching without replacing the existing transcript analysis.") {
-                VStack(alignment: .leading, spacing: 12) {
-                    ForEach(modelStore.allModels) { model in
-                        LocalAIModelInstallCard(
-                            model: model,
-                            state: modelStore.installState(for: model.id),
-                            isRecommended: model.id == modelStore.recommendedModelID,
-                            isSelected: model.id == modelStore.selectedModelID,
-                            onSelect: { modelStore.selectedModelID = model.id },
-                            onDownload: { modelStore.download(modelID: model.id) },
-                            onDelete: { modelStore.delete(modelID: model.id) }
-                        )
-                    }
-                }
-            }
+            completeLocalModeGroup(localAI: localAI)
+
+            modelGroup(
+                title: "Embedding Models",
+                caption: "Installed embedding models add semantic search and similar-session matching.",
+                kind: .embedding,
+                modelStore: modelStore
+            )
 
             SettingGroup(title: "Vector Cache") {
                 VStack(spacing: 0) {
@@ -45,17 +40,35 @@ struct LocalAIModelsSettingsView: View {
                 .settingCard()
             }
 
+            modelGroup(
+                title: "LLM Models",
+                caption: "Installed language models are kept separate from embedding models and download from Hugging Face.",
+                kind: .llm,
+                modelStore: modelStore
+            )
+
             SettingGroup(title: "Advanced Import", caption: "Import a single GGUF file from Hugging Face when you want to test a model outside the built-in catalog.") {
                 DisclosureGroup(isExpanded: $advancedImportExpanded) {
                     VStack(spacing: 0) {
-                        SettingRow(title: "Repository", description: "For example: Qwen/Qwen3-Embedding-0.6B-GGUF") {
+                        SettingRow(title: "Model type") {
+                            Picker("Model type", selection: $hfKind) {
+                                ForEach(LocalAIModelKind.allCases, id: \.self) { kind in
+                                    Text(kind.displayName).tag(kind)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.segmented)
+                            .frame(width: 190)
+                        }
+                        SettingRowDivider()
+                        SettingRow(title: "Repository", description: importRepositoryExample) {
                             TextField("owner/repo", text: $hfRepo)
                                 .textFieldStyle(.roundedBorder)
                                 .frame(maxWidth: 260)
                         }
                         SettingRowDivider()
                         SettingRow(title: "GGUF file", description: "The exact file name to download.") {
-                            TextField("model-Q8_0.gguf", text: $hfFile)
+                            TextField(importFilePlaceholder, text: $hfFile)
                                 .textFieldStyle(.roundedBorder)
                                 .frame(maxWidth: 260)
                         }
@@ -78,6 +91,7 @@ struct LocalAIModelsSettingsView: View {
                                     repo: hfRepo,
                                     file: hfFile,
                                     revision: hfRevision,
+                                    kind: hfKind,
                                     token: hfToken
                                 )
                                 hfToken = ""
@@ -105,6 +119,117 @@ struct LocalAIModelsSettingsView: View {
             }
         }
     }
+
+    private func completeLocalModeGroup(localAI: LocalAIStore) -> some View {
+        @Bindable var localAI = localAI
+        return SettingGroup(title: "Complete Local Mode", caption: "Runs the local OpenAI-compatible endpoint and memory sidecar on loopback for mem0 and Graphiti.") {
+            VStack(spacing: 0) {
+                SettingRow(title: "Enable complete local mode", description: "Starts local services automatically after launch. Model downloads still require confirmation.") {
+                    Toggle("", isOn: $localAI.completeLocalModeEnabled)
+                        .labelsHidden()
+                        .toggleStyle(.appSwitch)
+                }
+                .onChange(of: localAI.completeLocalModeEnabled) { _, enabled in
+                    if enabled {
+                        startCompleteLocalMode(localAI: localAI)
+                    } else {
+                        localAI.stopOpenAICompatibleServer()
+                    }
+                }
+                SettingRowDivider()
+                SettingRow(title: "Local API", description: "OpenAI-compatible /v1 endpoint for local chat and embeddings.") {
+                    HStack(spacing: 8) {
+                        Text(localAI.localAPIStatusText)
+                            .font(.sora(10).monospaced())
+                            .foregroundStyle(localAI.localAPIEndpoint == nil ? Color.stxMuted : Color.green)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .frame(maxWidth: 260, alignment: .trailing)
+                        Button {
+                            startCompleteLocalMode(localAI: localAI)
+                        } label: {
+                            Label("Start", systemImage: "play.fill")
+                        }
+                        .controlSize(.small)
+                        Button {
+                            localAI.stopOpenAICompatibleServer()
+                        } label: {
+                            Label("Stop", systemImage: "stop.fill")
+                        }
+                        .controlSize(.small)
+                        .disabled(localAI.localAPIEndpoint == nil)
+                    }
+                }
+                SettingRowDivider()
+                SettingRow(title: "Memory sidecar", description: "Receives events, drains local outbox, and exposes Code Memory search/graph APIs.") {
+                    HStack(spacing: 8) {
+                        Text(env.memory.codeHealth.map { "\($0.status) · \($0.memoryCount) memories" } ?? "Stopped")
+                            .font(.sora(10).monospaced())
+                            .foregroundStyle(env.memory.codeHealth == nil ? Color.stxMuted : Color.green)
+                        Button {
+                            startCompleteLocalMode(localAI: localAI)
+                        } label: {
+                            Label("Start", systemImage: "play.fill")
+                        }
+                        .controlSize(.small)
+                    }
+                }
+                SettingRowDivider()
+                SettingRow(title: "Readiness", description: "Both selected models must be installed before mem0 and Graphiti can use full local extraction.") {
+                    HStack(spacing: 6) {
+                        LocalAIStatusPill(text: localAI.semanticSearchAvailable ? "Embedding ready" : "Embedding missing", tone: localAI.semanticSearchAvailable ? .accent : .warning)
+                        LocalAIStatusPill(text: localAI.localLLMAvailable ? "LLM ready" : "LLM missing", tone: localAI.localLLMAvailable ? .accent : .warning)
+                    }
+                }
+            }
+            .settingCard()
+        }
+    }
+
+    private func startCompleteLocalMode(localAI: LocalAIStore) {
+        localAI.completeLocalModeEnabled = true
+        localAI.restartOpenAICompatibleServerIfNeeded()
+        Task {
+            await env.memory.startCodeMemorySidecar(localAIEnvironment: localAI.localAIEnvironment())
+        }
+    }
+
+    private func modelGroup(
+        title: String,
+        caption: String,
+        kind: LocalAIModelKind,
+        modelStore: LocalAIModelStore
+    ) -> some View {
+        SettingGroup(title: title, caption: caption) {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(modelStore.models(kind: kind)) { model in
+                    LocalAIModelInstallCard(
+                        model: model,
+                        state: modelStore.installState(for: model.id),
+                        isRecommended: model.id == modelStore.recommendedModelID(for: kind),
+                        isSelected: model.id == modelStore.selectedModelID(for: kind),
+                        onSelect: { modelStore.select(modelID: model.id, kind: kind) },
+                        onDownload: { modelStore.download(modelID: model.id) },
+                        onDelete: { modelStore.delete(modelID: model.id) }
+                    )
+                }
+            }
+        }
+    }
+
+    private var importRepositoryExample: String {
+        switch hfKind {
+        case .embedding: "For example: Qwen/Qwen3-Embedding-0.6B-GGUF"
+        case .llm: "For example: bartowski/Qwen_Qwen3-30B-A3B-Instruct-2507-GGUF"
+        }
+    }
+
+    private var importFilePlaceholder: String {
+        switch hfKind {
+        case .embedding: "model-Q8_0.gguf"
+        case .llm: "model-Q4_K_M.gguf"
+        }
+    }
 }
 
 private struct LocalAIModelInstallCard: View {
@@ -119,9 +244,9 @@ private struct LocalAIModelInstallCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
-                Image(systemName: model.isExperimental ? "flask" : "brain")
+                Image(systemName: iconName)
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(model.isExperimental ? Color.orange : Color.stxAccent)
+                    .foregroundStyle(iconColor)
                     .frame(width: 24, height: 24)
 
                 VStack(alignment: .leading, spacing: 5) {
@@ -133,7 +258,7 @@ private struct LocalAIModelInstallCard: View {
                             LocalAIStatusPill(text: "Recommended", tone: .accent)
                         }
                         if model.isExperimental {
-                            LocalAIStatusPill(text: "Phase 3", tone: .warning)
+                            LocalAIStatusPill(text: experimentalLabel, tone: .warning)
                         }
                         if isSelected {
                             LocalAIStatusPill(text: "Selected", tone: .neutral)
@@ -169,8 +294,12 @@ private struct LocalAIModelInstallCard: View {
     private var metadata: some View {
         HStack(spacing: 8) {
             LocalAIMetadataItem(text: model.runtime.displayName)
-            LocalAIMetadataItem(text: "\(model.dimensions)d")
-            LocalAIMetadataItem(text: model.pooling.displayName)
+            if model.kind == .embedding {
+                LocalAIMetadataItem(text: "\(model.dimensions)d")
+                LocalAIMetadataItem(text: model.pooling.displayName)
+            } else {
+                LocalAIMetadataItem(text: "\(Format.tokens(model.maxTokens)) ctx")
+            }
             LocalAIMetadataItem(text: model.parameterCount)
             LocalAIMetadataItem(text: model.recommendedTier)
             LocalAIMetadataItem(text: model.licenseName)
@@ -229,6 +358,29 @@ private struct LocalAIModelInstallCard: View {
         case .githubRelease: "GitHub"
         case .huggingFace: "Hugging Face"
         }
+    }
+
+    private var iconName: String {
+        switch model.kind {
+        case .embedding:
+            model.isExperimental ? "flask" : "brain"
+        case .llm:
+            "cpu"
+        }
+    }
+
+    private var iconColor: Color {
+        if model.isExperimental {
+            return .orange
+        }
+        switch model.kind {
+        case .embedding: return .stxAccent
+        case .llm: return .teal
+        }
+    }
+
+    private var experimentalLabel: String {
+        model.id.hasPrefix("hf-") ? "Custom" : "Phase 3"
     }
 }
 

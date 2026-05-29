@@ -57,7 +57,7 @@ class MemorySidecarTests(unittest.TestCase):
             self.assertIn("event", node_kinds)
             self.assertIn("SCOPED_TO", edge_kinds)
 
-    def test_accept_and_legacy_import_are_idempotent(self):
+    def test_accept_marks_proposed_memory_active(self):
         from memoryd.store import MemoryStore
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -74,22 +74,69 @@ class MemorySidecarTests(unittest.TestCase):
             active = store.search("review", project_id="p")
             self.assertEqual(active["results"][0]["memory"]["status"], "active")
 
-            payload = {
-                "project_id": "p",
-                "records": [
+    def test_source_ingest_modules_and_projection_jobs(self):
+        from memoryd.store import MemoryStore
+
+        class FakeAdapters:
+            def __init__(self):
+                self.indexed = []
+
+            def names(self):
+                return ["fake"]
+
+            def health(self):
+                return {"fake": "enabled"}
+
+            def index_memory(self, memory, event, *, adapter_name=None):
+                self.indexed.append((memory["id"], event["event_id"], adapter_name))
+                return {"fake": "ok:fake-id"}
+
+            def infer_memories(self, source):
+                return [
                     {
-                        "id": "legacy:1",
-                        "ref": "memory://terminal/1/stdout",
-                        "title": "Legacy terminal",
-                        "body": "legacy command output",
+                        "project_id": source["project_id"],
+                        "title": "Inferred fact",
+                        "body": "mem0-style inferred facts stay proposed.",
                         "type": "fact",
+                        "status": "proposed",
+                        "source_refs": [{"kind": "fake", "uri": source["id"]}],
                     }
-                ],
-            }
-            first = store.legacy_import(payload)
-            second = store.legacy_import(payload)
-            self.assertEqual(first["imported"], 1)
-            self.assertEqual(second["skipped"], 1)
+                ]
+
+            def search(self, query, *, project_id, limit):
+                return []
+
+            def graph(self, project_id, *, limit=80):
+                return {"nodes": [], "edges": []}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            adapters = FakeAdapters()
+            store = MemoryStore(Path(tmp), adapters=adapters)
+            result = store.ingest_source(
+                {
+                    "project_id": "claude-stats",
+                    "title": "AGENTS.md",
+                    "body": "After code changes run tests.",
+                    "kind": "AGENTS.md",
+                    "path": "/repo/claude-stats/ClaudeStats/MemoryCore/AGENTS.md",
+                    "infer": True,
+                }
+            )
+
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(len(result["created"]), 1)
+            self.assertEqual(len(result["proposed"]), 1)
+            self.assertTrue(adapters.indexed)
+
+            modules = store.modules(project_id="claude-stats")["modules"]
+            self.assertEqual(modules[0]["title"], "ClaudeStats")
+
+            proposals = store.proposals(project_id="claude-stats")["memories"]
+            self.assertEqual(proposals[0]["status"], "proposed")
+
+            reindex = store.reindex(project_id="claude-stats")
+            self.assertGreaterEqual(reindex["enqueued"], 1)
+            self.assertGreaterEqual(reindex["drained"]["delivered"], 1)
 
 
 if __name__ == "__main__":

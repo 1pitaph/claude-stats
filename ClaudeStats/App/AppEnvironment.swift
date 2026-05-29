@@ -132,13 +132,18 @@ final class AppEnvironment {
         LegacyFeatureDataCleaner().cleanRemovedFeatureData()
         LaunchAtLogin.enableByDefaultIfNeeded()
         store.onRefresh = { [weak self] in
-            self?.leaderboards.scheduleSilentSyncAfterDataRefresh()
+            guard let self else { return }
+            self.leaderboards.scheduleSilentSyncAfterDataRefresh()
+            Task { [weak self] in
+                await self?.syncMemorySourcesFromCurrentState()
+            }
         }
         leaderboards.start()
         Task {
             await apiProviders.loadIfNeeded(keyStorageMode: preferences.apiProviderKeyStorageMode)
             await configurationProfiles.loadIfNeeded()
             await store.refresh()
+            await aiConfigs.reload(sessions: store.sessions)
         }
         claudeStatus.start()
         openAIStatus.start()
@@ -149,10 +154,23 @@ final class AppEnvironment {
         if !Self.isRunningUnitTests {
             notchIsland.start(environment: self)
         }
+        if localAI.completeLocalModeEnabled {
+            Task { [weak self, localAI, memory] in
+                localAI.restartOpenAICompatibleServerIfNeeded()
+                await memory.startCodeMemorySidecar(localAIEnvironment: localAI.localAIEnvironment())
+                guard let self else { return }
+                await memory.syncAvailableSources(sessions: self.store.sessions, configProjects: self.aiConfigs.snapshot.projects)
+            }
+        }
     }
 
     func applyAutoRefreshSetting() {
         store.startAutoRefresh(every: TimeInterval(preferences.autoRefreshMinutes) * 60)
+    }
+
+    private func syncMemorySourcesFromCurrentState() async {
+        await aiConfigs.reload(sessions: store.sessions)
+        await memory.syncAvailableSources(sessions: store.sessions, configProjects: aiConfigs.snapshot.projects)
     }
 
     private static var isRunningUnitTests: Bool {

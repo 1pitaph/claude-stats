@@ -12,15 +12,13 @@ import AppKit
 struct SessionDetailView: View {
     @Environment(AppEnvironment.self) private var env
     let session: Session
-    let memoryBlocks: [MemoryBlock]
     @State private var transcriptMessages: [SessionTranscriptMessage] = []
     @State private var transcriptIsLoading = false
     @State private var similarSessions: [SemanticSessionSearchResult] = []
     @State private var similarSessionsLoading = false
 
-    init(session: Session, memoryBlocks: [MemoryBlock] = []) {
+    init(session: Session) {
         self.session = session
-        self.memoryBlocks = memoryBlocks
     }
 
     var body: some View {
@@ -154,8 +152,7 @@ struct SessionDetailView: View {
                             message: row.message,
                             modelDisplayName: row.message.model.map {
                                 env.store.displayName(forModel: $0, provider: session.provider)
-                            },
-                            memoryBlock: row.memoryBlock
+                            }
                         )
                     }
                 }
@@ -167,21 +164,8 @@ struct SessionDetailView: View {
         transcriptMessages.enumerated().map { offset, message in
             TranscriptMemoryRow(
                 id: "\(offset)-\(message.id)",
-                message: message,
-                memoryBlock: memoryBlock(for: message, ordinal: offset)
+                message: message
             )
-        }
-    }
-
-    private func memoryBlock(for message: SessionTranscriptMessage, ordinal: Int) -> MemoryBlock? {
-        let role = MemoryBlockRole(rawValue: message.role.rawValue)
-        let trimmed = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let role,
-           let exact = memoryBlocks.first(where: { $0.ordinal == ordinal && $0.role == role }) {
-            return exact
-        }
-        return memoryBlocks.first { block in
-            block.ordinal == ordinal || block.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed
         }
     }
 
@@ -399,13 +383,11 @@ private struct SimilarSessionResultRow: View {
 private struct TranscriptMemoryRow: Identifiable {
     let id: String
     let message: SessionTranscriptMessage
-    let memoryBlock: MemoryBlock?
 }
 
 private struct TranscriptMessageRow: View {
     let message: SessionTranscriptMessage
     let modelDisplayName: String?
-    let memoryBlock: MemoryBlock?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -435,16 +417,6 @@ private struct TranscriptMessageRow: View {
                 }
                 .controlSize(.small)
                 .help("Copy text")
-
-                if let memoryBlock {
-                    Button {
-                        copyToPasteboard(memoryBlock.ref)
-                    } label: {
-                        Image(systemName: "link")
-                    }
-                    .controlSize(.small)
-                    .help("Copy Memory ref")
-                }
             }
 
             Text(message.text)

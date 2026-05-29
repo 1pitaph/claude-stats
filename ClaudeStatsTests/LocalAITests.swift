@@ -26,6 +26,24 @@ struct LocalAIModelCatalogTests {
     func recommendedModelForLargeMemory() {
         #expect(LocalAIModelCatalog.recommendedModelID(memoryBytes: 16 * 1_073_741_824) == "multilingual-e5-base-gguf-q8")
     }
+
+    @Test("Built-in LLM manifests download from Hugging Face")
+    func llmManifestsDownloadFromHuggingFace() throws {
+        let model = try #require(LocalAIModelCatalog.builtInLLMModels.first)
+
+        #expect(model.kind == .llm)
+        #expect(model.artifact.sourceKind == .huggingFace)
+        #expect(model.artifact.huggingFaceRepo?.isEmpty == false)
+        #expect(model.artifact.huggingFaceFile?.hasSuffix(".gguf") == true)
+    }
+
+    @Test("LLM recommendation scales to larger Macs")
+    func recommendedLLMForLargeMemory() {
+        #expect(
+            LocalAIModelCatalog.recommendedLLMModelID(memoryBytes: 64 * 1_073_741_824)
+                == "qwen3-30b-a3b-instruct-2507-q5-k-m"
+        )
+    }
 }
 
 @Suite("Local AI file verification")
@@ -40,6 +58,77 @@ struct LocalAIModelFileVerifierTests {
         #expect(throws: LocalAIModelStoreError.self) {
             try LocalAIModelFileVerifier.verifySHA256(fileURL: file, expected: String(repeating: "0", count: 64))
         }
+    }
+}
+
+@MainActor
+@Suite("Local AI model store")
+struct LocalAIModelStoreTests {
+    @Test("Interrupted persisted downloads become retryable on launch")
+    func interruptedPersistedDownloadsBecomeRetryable() throws {
+        let root = try TempDir.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let suiteName = "LocalAIModelStoreTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let model = Self.customModel(id: "test-interrupted-\(UUID().uuidString)")
+        let stateURL = root.appendingPathComponent("models-state.json")
+        let payload = PersistedLocalAIState(
+            customModels: [model],
+            installStates: [
+                LocalModelInstallState(
+                    modelID: model.id,
+                    phase: .downloading,
+                    installedPath: nil,
+                    bytesReceived: 0,
+                    byteCount: 42,
+                    errorMessage: nil,
+                    installedAt: nil
+                ),
+            ]
+        )
+        try FileManager.default.createDirectory(at: stateURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONEncoder().encode(payload).write(to: stateURL)
+
+        let store = LocalAIModelStore(defaults: defaults, stateURL: stateURL)
+        let recovered = store.installState(for: model.id)
+
+        #expect(recovered.phase == .failed)
+        #expect(recovered.errorMessage == "Download was interrupted. Click Retry to resume.")
+        #expect(recovered.byteCount == 42)
+
+        let saved = try JSONDecoder().decode(PersistedLocalAIState.self, from: Data(contentsOf: stateURL))
+        #expect(saved.installStates.first?.phase == .failed)
+    }
+
+    private static func customModel(id: String) -> LocalAIModelManifest {
+        LocalAIModelManifest(
+            id: id,
+            displayName: "Test Model",
+            subtitle: "Fixture",
+            kind: .embedding,
+            runtime: .llamaGGUF,
+            modelRevision: "test-v1",
+            sourceRepo: "fixture/model",
+            sourceRevision: "main",
+            artifact: .github(url: URL(string: "https://example.com/model.gguf")!, sha256: nil, byteCount: 42),
+            licenseName: "MIT",
+            licenseURL: nil,
+            dimensions: 3,
+            maxTokens: 16,
+            minMemoryGB: 1,
+            parameterCount: "Fixture",
+            pooling: .mean,
+            recommendedTier: "Fixture",
+            isExperimental: true
+        )
+    }
+
+    private struct PersistedLocalAIState: Codable {
+        let customModels: [LocalAIModelManifest]
+        let installStates: [LocalModelInstallState]
     }
 }
 

@@ -8,7 +8,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .models import DETERMINISTIC_SOURCE_KINDS, MEMORY_STATUSES, MemoryInput, Scope
+from .adapters import MemoryAdapters, build_adapters
+from .models import DETERMINISTIC_SOURCE_KINDS, MEMORY_STATUSES, MemoryInput, Scope, string_map
 
 
 def canonical_json(value: Any) -> str:
@@ -16,12 +17,13 @@ def canonical_json(value: Any) -> str:
 
 
 class MemoryStore:
-    schema_version = 1
+    schema_version = 2
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, adapters: MemoryAdapters | None = None):
         self.root = root
         self.root.mkdir(parents=True, exist_ok=True)
         self.db_path = self.root / "code-memory.sqlite3"
+        self.adapters = adapters if adapters is not None else build_adapters(root)
         self.conn = sqlite3.connect(self.db_path)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
@@ -35,15 +37,23 @@ class MemoryStore:
     def health(self) -> dict[str, Any]:
         row = self.conn.execute("SELECT COUNT(*) AS count FROM memory_events").fetchone()
         memories = self.conn.execute("SELECT COUNT(*) AS count FROM memories").fetchone()
+        pending = self.conn.execute("SELECT COUNT(*) AS count FROM projection_jobs WHERE status = 'pending'").fetchone()
+        failed = self.conn.execute("SELECT COUNT(*) AS count FROM projection_jobs WHERE status = 'failed'").fetchone()
+        proposals = self.conn.execute("SELECT COUNT(*) AS count FROM memories WHERE status = 'proposed'").fetchone()
+        modules = self.conn.execute("SELECT COUNT(*) AS count FROM modules").fetchone()
         return {
             "status": "ok",
             "store": str(self.db_path),
             "event_count": int(row["count"]),
             "memory_count": int(memories["count"]),
-            "adapters": {
-                "mem0": "disabled",
-                "graphiti": "disabled",
-                "graph_backend": "kuzu",
+            "proposal_count": int(proposals["count"]),
+            "module_count": int(modules["count"]),
+            "projection_pending": int(pending["count"]),
+            "projection_failed": int(failed["count"]),
+            "adapters": self.adapters.health()
+            | {
+                "projection_pending": str(int(pending["count"])),
+                "projection_failed": str(int(failed["count"])),
             },
         }
 
@@ -119,7 +129,8 @@ class MemoryStore:
                     memory_payload = dict(memory_payload)
                     memory_payload["source_refs"] = source_refs
                 default_status = self._default_status(source_refs, event_type)
-                memory = self._upsert_memory(MemoryInput.from_json(memory_payload, project_id=project_id, default_status=default_status), event_id=event_id)
+                memory_input = MemoryInput.from_json(memory_payload, project_id=project_id, default_status=default_status)
+                memory = self._upsert_memory(self._with_module_scope(memory_input), event_id=event_id)
         elif event_type in {"memory.deprecated", "memory.retracted", "memory.superseded", "memory.conflict_detected"} and memory_id:
             status = {
                 "memory.deprecated": "deprecated",
@@ -128,9 +139,18 @@ class MemoryStore:
                 "memory.conflict_detected": "conflicted",
             }[event_type]
             self.conn.execute("UPDATE memories SET status = ?, updated_at = ? WHERE id = ?", (status, timestamp, memory_id))
+        elif event_type in {"memory.source_observed", "memory.extraction_requested"}:
+            source_payload = after or delta or payload
+            if isinstance(source_payload, dict):
+                self._upsert_source(project_id, source_payload)
 
         self.conn.commit()
-        return self.event(event_id) | ({"memory": memory} if memory else {})
+        event = self.event(event_id)
+        if memory:
+            self._enqueue_projection_jobs(memory, event)
+            self.conn.commit()
+            self.drain_projection_jobs()
+        return event | ({"memory": memory} if memory else {})
 
     def propose_memory(self, payload: dict[str, Any]) -> dict[str, Any]:
         project_id = str(payload.get("project_id") or "unknown")
@@ -163,6 +183,249 @@ class MemoryStore:
             }
         )
 
+    def reject_memory(self, memory_id: str, actor: dict[str, Any] | None = None) -> dict[str, Any]:
+        row = self.conn.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)).fetchone()
+        if row is None:
+            raise KeyError(memory_id)
+        return self.append_event(
+            {
+                "project_id": row["project_id"],
+                "event_type": "memory.retracted",
+                "actor": actor or {"kind": "human"},
+                "memory_id": memory_id,
+                "before": self._memory_row(row),
+                "source_refs": json.loads(row["source_refs_json"] or "[]"),
+            }
+        )
+
+    def deprecate_memory(self, memory_id: str, actor: dict[str, Any] | None = None) -> dict[str, Any]:
+        row = self.conn.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)).fetchone()
+        if row is None:
+            raise KeyError(memory_id)
+        return self.append_event(
+            {
+                "project_id": row["project_id"],
+                "event_type": "memory.deprecated",
+                "actor": actor or {"kind": "human"},
+                "memory_id": memory_id,
+                "before": self._memory_row(row),
+                "source_refs": json.loads(row["source_refs_json"] or "[]"),
+            }
+        )
+
+    def update_memory(self, memory_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        row = self.conn.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)).fetchone()
+        if row is None:
+            raise KeyError(memory_id)
+        before = self._memory_row(row)
+        after = before | {key: value for key, value in payload.items() if key in {
+            "title", "body", "type", "status", "normalized_claim", "confidence", "importance", "source_refs", "metadata", "scope", "scopes"
+        }}
+        after["id"] = memory_id
+        after["project_id"] = before["project_id"]
+        return self.append_event(
+            {
+                "project_id": before["project_id"],
+                "event_type": "memory.updated",
+                "actor": payload.get("actor") if isinstance(payload.get("actor"), dict) else {"kind": "human"},
+                "memory_id": memory_id,
+                "before": before,
+                "after": after,
+                "source_refs": after.get("source_refs", []),
+            }
+        )
+
+    def proposals(self, *, project_id: str | None = None, limit: int = 100) -> dict[str, Any]:
+        params: list[Any] = ["proposed"]
+        where = ["status = ?"]
+        if project_id:
+            where.append("project_id = ?")
+            params.append(project_id)
+        params.append(limit)
+        rows = self.conn.execute(
+            f"""
+            SELECT * FROM memories
+            WHERE {' AND '.join(where)}
+            ORDER BY updated_at DESC
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+        return {"memories": [self._memory_row(row) for row in rows]}
+
+    def events(self, *, project_id: str | None = None, after_seq: int | None = None, limit: int = 100) -> dict[str, Any]:
+        params: list[Any] = []
+        where = []
+        if project_id:
+            where.append("project_id = ?")
+            params.append(project_id)
+        if after_seq is not None:
+            where.append("seq > ?")
+            params.append(after_seq)
+        sql_where = f"WHERE {' AND '.join(where)}" if where else ""
+        params.append(limit)
+        rows = self.conn.execute(
+            f"SELECT * FROM memory_events {sql_where} ORDER BY seq DESC LIMIT ?",
+            params,
+        ).fetchall()
+        return {"events": [self._event_row(row) for row in rows]}
+
+    def modules(self, *, project_id: str | None = None) -> dict[str, Any]:
+        params: list[Any] = []
+        where = []
+        if project_id:
+            where.append("m.project_id = ?")
+            params.append(project_id)
+        sql_where = f"WHERE {' AND '.join(where)}" if where else ""
+        rows = self.conn.execute(
+            f"""
+            SELECT m.*, COUNT(ms.memory_id) AS memory_count, MAX(mem.updated_at) AS updated_at
+            FROM modules m
+            LEFT JOIN memory_scopes ms ON ms.scope_id = m.scope_id
+            LEFT JOIN memories mem ON mem.id = ms.memory_id
+            {sql_where}
+            GROUP BY m.id
+            ORDER BY memory_count DESC, m.title ASC
+            """,
+            params,
+        ).fetchall()
+        return {"modules": [dict(row) for row in rows]}
+
+    def ingest_source(self, payload: dict[str, Any]) -> dict[str, Any]:
+        project_id = str(payload.get("project_id") or "unknown")
+        body = str(payload.get("body") or payload.get("text") or "").strip()
+        title = str(payload.get("title") or payload.get("path") or payload.get("uri") or "Source").strip()[:160]
+        kind = str(payload.get("kind") or "source")
+        path = str(payload.get("path") or "")
+        uri = str(payload.get("uri") or path or payload.get("id") or title)
+        content_hash = str(payload.get("content_hash") or hashlib.sha256(body.encode("utf-8")).hexdigest())
+        source_id = str(payload.get("id") or "src:" + hashlib.sha256(canonical_json({
+            "project_id": project_id,
+            "kind": kind,
+            "uri": uri,
+            "hash": content_hash,
+        }).encode("utf-8")).hexdigest()[:24])
+        source = {
+            "id": source_id,
+            "project_id": project_id,
+            "kind": kind,
+            "title": title,
+            "body": body,
+            "uri": uri,
+            "path": path,
+            "content_hash": content_hash,
+            "metadata": payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {},
+        }
+        existing = self.conn.execute("SELECT content_hash FROM sources WHERE id = ?", (source_id,)).fetchone()
+        if existing and existing["content_hash"] == content_hash:
+            return {"status": "skipped", "source": source, "created": [], "proposed": []}
+
+        observed = self.append_event(
+            {
+                "event_id": f"event:{source_id}:observed:{content_hash[:12]}",
+                "project_id": project_id,
+                "event_type": "memory.source_observed",
+                "actor": payload.get("actor") if isinstance(payload.get("actor"), dict) else {"kind": "sync"},
+                "after": source,
+                "source_refs": [{"kind": kind, "uri": uri, "path": path, "content_hash": content_hash}],
+            }
+        )
+        created: list[dict[str, Any]] = []
+        proposed: list[dict[str, Any]] = []
+        if body and kind in DETERMINISTIC_SOURCE_KINDS:
+            memory = self.append_event(
+                {
+                    "project_id": project_id,
+                    "event_type": "memory.observed",
+                    "actor": {"kind": "sync", "id": "claude-stats-memory"},
+                    "after": {
+                        "project_id": project_id,
+                        "title": title,
+                        "body": _excerpt(body, 6000),
+                        "type": _memory_type_for_source(kind),
+                        "status": "active",
+                        "scope": self._source_scope(project_id, path=path, uri=uri).to_json(),
+                        "source_refs": [{"kind": kind, "uri": uri, "path": path, "content_hash": content_hash}],
+                        "metadata": string_map(source["metadata"] | {"source_id": source_id, "source_hash": content_hash}),
+                    },
+                    "source_refs": [{"kind": kind, "uri": uri, "path": path, "content_hash": content_hash}],
+                }
+            )
+            if "memory" in memory:
+                created.append(memory["memory"])
+        if bool(payload.get("infer")) and body:
+            for candidate in self.adapters.infer_memories(source | {"scope": self._source_scope(project_id, path=path, uri=uri).to_json()}):
+                proposed_event = self.propose_memory(candidate)
+                if "memory" in proposed_event:
+                    proposed.append(proposed_event["memory"])
+        return {"status": "ok", "event": observed, "source": source, "created": created, "proposed": proposed}
+
+    def reindex(self, *, project_id: str | None = None) -> dict[str, Any]:
+        params: list[Any] = []
+        where = ["status = 'active'"]
+        if project_id:
+            where.append("project_id = ?")
+            params.append(project_id)
+        rows = self.conn.execute(f"SELECT * FROM memories WHERE {' AND '.join(where)}", params).fetchall()
+        enqueued = 0
+        for row in rows:
+            memory = self._memory_row(row)
+            event_id = memory.get("metadata", {}).get("last_event_id")
+            event = self.event(event_id) if event_id else {"event_id": f"reindex:{memory['id']}", "timestamp": time.time()}
+            enqueued += self._enqueue_projection_jobs(memory, event, force=True)
+        self.conn.commit()
+        drained = self.drain_projection_jobs(limit=max(100, enqueued))
+        return {"enqueued": enqueued, "drained": drained}
+
+    def drain_projection_jobs(self, *, limit: int = 100) -> dict[str, Any]:
+        rows = self.conn.execute(
+            """
+            SELECT * FROM projection_jobs
+            WHERE status IN ('pending', 'failed')
+            ORDER BY updated_at ASC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        delivered = 0
+        failed = 0
+        for job in rows:
+            memory_row = self.conn.execute("SELECT * FROM memories WHERE id = ?", (job["memory_id"],)).fetchone()
+            event_row = self.conn.execute("SELECT * FROM memory_events WHERE event_id = ?", (job["event_id"],)).fetchone()
+            if memory_row is None:
+                continue
+            memory = self._memory_row(memory_row)
+            event = self._event_row(event_row) if event_row is not None else {"event_id": job["event_id"], "timestamp": time.time()}
+            status = self.adapters.index_memory(memory, event, adapter_name=job["adapter"])
+            detail = status.get(job["adapter"], "")
+            now = time.time()
+            if detail.startswith("ok"):
+                adapter_id = detail.split(":", 1)[1] if ":" in detail else ""
+                self.conn.execute(
+                    "UPDATE projection_jobs SET status = 'done', last_error = NULL, updated_at = ?, attempt_count = attempt_count + 1 WHERE id = ?",
+                    (now, job["id"]),
+                )
+                self.conn.execute(
+                    """
+                    INSERT INTO adapter_mappings (memory_id, adapter, adapter_id, metadata_json, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(memory_id, adapter) DO UPDATE SET
+                        adapter_id = excluded.adapter_id,
+                        metadata_json = excluded.metadata_json,
+                        updated_at = excluded.updated_at
+                    """,
+                    (memory["id"], job["adapter"], adapter_id, canonical_json({"event_id": event.get("event_id")}), now),
+                )
+                delivered += 1
+            else:
+                self.conn.execute(
+                    "UPDATE projection_jobs SET status = 'failed', last_error = ?, updated_at = ?, attempt_count = attempt_count + 1 WHERE id = ?",
+                    (detail or "adapter unavailable", now, job["id"]),
+                )
+                failed += 1
+        self.conn.commit()
+        return {"delivered": delivered, "failed": failed, "remaining": self._projection_count("pending") + self._projection_count("failed")}
+
     def search(self, query: str, *, project_id: str | None = None, limit: int = 20, status: str | None = "active") -> dict[str, Any]:
         like = f"%{query.lower()}%"
         params: list[Any] = [like, like]
@@ -187,7 +450,33 @@ class MemoryStore:
         for rank, row in enumerate(rows, start=1):
             memory = self._memory_row(row)
             score = self._lexical_score(query, memory)
-            results.append({"rank": rank, "score": score, "memory": memory, "match_kind": "text"})
+            results.append(
+                {
+                    "rank": rank,
+                    "score": score,
+                    "memory": memory,
+                    "match_kind": "text",
+                    "evidence": [{"adapter": "sqlite", "score": score, "detail": "title/body lexical match"}],
+                }
+            )
+        seen = {result["memory"]["id"] for result in results}
+        for result in self.adapters.search(query, project_id=project_id, limit=limit):
+            memory = result.get("memory") if isinstance(result, dict) else None
+            if not isinstance(memory, dict):
+                continue
+            memory_id = memory.get("id")
+            if not memory_id or memory_id in seen:
+                continue
+            canonical = self.conn.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)).fetchone()
+            if canonical is not None:
+                result = dict(result)
+                result["memory"] = self._memory_row(canonical)
+            seen.add(memory_id)
+            results.append(result)
+            if len(results) >= limit:
+                break
+        for rank, result in enumerate(results, start=1):
+            result["rank"] = rank
         trace_id = self._record_retrieval_trace(query=query, project_id=project_id, results=results)
         return {"query": query, "trace_id": trace_id, "results": results}
 
@@ -236,7 +525,16 @@ class MemoryStore:
 
         for memory in self.conn.execute("SELECT * FROM memories WHERE project_id = ?", (project_id,)):
             memory_node = f"memory:{memory['id']}"
-            nodes[memory_node] = {"id": memory_node, "kind": "memory", "title": memory["title"], "type": memory["type"], "status": memory["status"]}
+            nodes[memory_node] = {
+                "id": memory_node,
+                "kind": "memory",
+                "title": memory["title"],
+                "type": memory["type"],
+                "status": memory["status"],
+                "body": memory["body"],
+                "source_refs": json.loads(memory["source_refs_json"] or "[]"),
+                "metadata": json.loads(memory["metadata_json"] or "{}"),
+            }
             for link in self.conn.execute("SELECT scope_id, primary_scope FROM memory_scopes WHERE memory_id = ?", (memory["id"],)):
                 edges.append({"source": memory_node, "target": link["scope_id"], "kind": "SCOPED_TO", "primary": bool(link["primary_scope"])})
 
@@ -245,6 +543,14 @@ class MemoryStore:
             nodes[event_node] = {"id": event_node, "kind": "event", "title": event["event_type"], "seq": event["seq"]}
             if event["memory_id"]:
                 edges.append({"source": event_node, "target": f"memory:{event['memory_id']}", "kind": "AFFECTS"})
+
+        adapter_graph = self.adapters.graph(project_id)
+        for node in adapter_graph.get("nodes", []):
+            if isinstance(node, dict) and node.get("id"):
+                nodes[str(node["id"])] = node
+        for edge in adapter_graph.get("edges", []):
+            if isinstance(edge, dict) and edge.get("source") and edge.get("target"):
+                edges.append(edge)
 
         return {"project_id": project_id, "nodes": list(nodes.values()), "edges": edges}
 
@@ -268,50 +574,146 @@ class MemoryStore:
             "memory_usage": usage,
         }
 
-    def legacy_import(self, payload: dict[str, Any]) -> dict[str, Any]:
-        project_id = str(payload.get("project_id") or "legacy")
-        records = payload.get("records") if isinstance(payload.get("records"), list) else []
-        imported = 0
-        skipped = 0
-        for record in records:
-            if not isinstance(record, dict):
-                continue
-            source_ref = str(record.get("ref") or record.get("id") or uuid.uuid4())
-            exists = self.conn.execute("SELECT 1 FROM legacy_imports WHERE source_ref = ?", (source_ref,)).fetchone()
-            if exists:
-                skipped += 1
-                continue
-            body = str(record.get("body") or record.get("text") or "")
-            title = str(record.get("title") or source_ref)
-            event = self.append_event(
-                {
-                    "project_id": project_id,
-                    "event_type": "memory.observed",
-                    "actor": {"kind": "tool", "id": "legacy-import"},
-                    "after": {
-                        "project_id": project_id,
-                        "title": title,
-                        "body": body,
-                        "type": record.get("type") or "fact",
-                        "scope": record.get("scope") or {"kind": "project", "key": project_id},
-                        "source_refs": [{"kind": "legacy_import", "uri": source_ref}],
-                    },
-                    "source_refs": [{"kind": "legacy_import", "uri": source_ref}],
-                }
-            )
-            self.conn.execute(
-                "INSERT INTO legacy_imports (source_ref, event_id, imported_at) VALUES (?, ?, ?)",
-                (source_ref, event["event_id"], time.time()),
-            )
-            imported += 1
-        self.conn.commit()
-        return {"imported": imported, "skipped": skipped}
-
     def event(self, event_id: str) -> dict[str, Any]:
         row = self.conn.execute("SELECT * FROM memory_events WHERE event_id = ?", (event_id,)).fetchone()
         if row is None:
             raise KeyError(event_id)
         return self._event_row(row)
+
+    def _projection_count(self, status: str) -> int:
+        row = self.conn.execute("SELECT COUNT(*) AS count FROM projection_jobs WHERE status = ?", (status,)).fetchone()
+        return int(row["count"])
+
+    def _enqueue_projection_jobs(self, memory: dict[str, Any], event: dict[str, Any], *, force: bool = False) -> int:
+        adapters = self.adapters.names()
+        now = time.time()
+        count = 0
+        for adapter in adapters:
+            job_id = "job:" + hashlib.sha256(canonical_json({
+                "adapter": adapter,
+                "memory_id": memory["id"],
+                "event_id": event.get("event_id"),
+            }).encode("utf-8")).hexdigest()[:24]
+            if force:
+                self.conn.execute("DELETE FROM projection_jobs WHERE id = ?", (job_id,))
+            cursor = self.conn.execute(
+                """
+                INSERT OR IGNORE INTO projection_jobs (
+                    id, adapter, memory_id, event_id, status, attempt_count,
+                    last_error, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, 'pending', 0, NULL, ?, ?)
+                """,
+                (job_id, adapter, memory["id"], event.get("event_id") or "", now, now),
+            )
+            count += max(0, cursor.rowcount)
+        return count
+
+    def _upsert_source(self, project_id: str, payload: dict[str, Any]) -> None:
+        body = str(payload.get("body") or payload.get("text") or "")
+        content_hash = str(payload.get("content_hash") or hashlib.sha256(body.encode("utf-8")).hexdigest())
+        source_id = str(payload.get("id") or "src:" + hashlib.sha256(canonical_json({
+            "project_id": project_id,
+            "kind": payload.get("kind"),
+            "uri": payload.get("uri") or payload.get("path"),
+            "hash": content_hash,
+        }).encode("utf-8")).hexdigest()[:24])
+        self.conn.execute(
+            """
+            INSERT INTO sources (
+                id, project_id, kind, uri, path, commit_sha, content_hash, excerpt
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                kind = excluded.kind,
+                uri = excluded.uri,
+                path = excluded.path,
+                commit_sha = excluded.commit_sha,
+                content_hash = excluded.content_hash,
+                excerpt = excluded.excerpt
+            """,
+            (
+                source_id,
+                project_id,
+                str(payload.get("kind") or "source"),
+                str(payload.get("uri") or payload.get("path") or source_id),
+                payload.get("path"),
+                payload.get("commit_sha"),
+                content_hash,
+                _excerpt(body, 800),
+            ),
+        )
+
+    def _source_scope(self, project_id: str, *, path: str = "", uri: str = "") -> Scope:
+        module = self._infer_module(project_id, [{"path": path, "uri": uri}])
+        if module:
+            return module
+        return Scope(kind="project", key=project_id, title=project_id)
+
+    def _with_module_scope(self, memory: MemoryInput) -> MemoryInput:
+        if any(scope.kind == "module" for scope in memory.scopes):
+            self._upsert_modules(memory.project_id, memory.scopes)
+            return memory
+        module = self._infer_module(memory.project_id, memory.source_refs)
+        if module is None:
+            self._upsert_modules(memory.project_id, memory.scopes)
+            return memory
+        next_scopes = list(memory.scopes)
+        if not any(scope.id == module.id for scope in next_scopes):
+            next_scopes.append(module)
+        self._upsert_modules(memory.project_id, next_scopes)
+        return MemoryInput(
+            project_id=memory.project_id,
+            title=memory.title,
+            body=memory.body,
+            type=memory.type,
+            status=memory.status,
+            memory_id=memory.memory_id,
+            normalized_claim=memory.normalized_claim,
+            confidence=memory.confidence,
+            importance=memory.importance,
+            scopes=next_scopes,
+            source_refs=memory.source_refs,
+            metadata=memory.metadata,
+        )
+
+    def _infer_module(self, project_id: str, source_refs: list[dict[str, Any]]) -> Scope | None:
+        for ref in source_refs:
+            raw_path = str(ref.get("path") or ref.get("uri") or "")
+            if not raw_path:
+                continue
+            normalized = raw_path.replace("\\", "/")
+            parts = [part for part in normalized.split("/") if part and part not in {".", "~"}]
+            if not parts:
+                continue
+            module = _module_name(parts, project_id)
+            if module:
+                return Scope(kind="module", key=f"{project_id}:{module}", title=module, metadata={"classifier": "path"})
+        return None
+
+    def _upsert_modules(self, project_id: str, scopes: list[Scope]) -> None:
+        for scope in scopes:
+            if scope.kind != "module":
+                continue
+            self.conn.execute(
+                """
+                INSERT INTO modules (id, project_id, scope_id, title, classifier, metadata_json, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    title = excluded.title,
+                    classifier = excluded.classifier,
+                    metadata_json = excluded.metadata_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    scope.id,
+                    project_id,
+                    scope.id,
+                    scope.title or scope.key,
+                    str(scope.metadata.get("classifier") or "path"),
+                    canonical_json(scope.metadata),
+                    time.time(),
+                    time.time(),
+                ),
+            )
 
     def _default_status(self, source_refs: list[Any], event_type: str) -> str:
         if event_type == "memory.proposed":
@@ -402,7 +804,7 @@ class MemoryStore:
                     "retrieved",
                     result["rank"],
                     result["score"],
-                    canonical_json({"match_kind": result["match_kind"]}),
+                    canonical_json({"match_kind": result["match_kind"], "evidence": result.get("evidence", [])}),
                 ),
             )
         self.conn.commit()
@@ -415,6 +817,7 @@ class MemoryStore:
                 "type": memory.type,
                 "claim": memory.normalized_claim or memory.body,
                 "scopes": [scope.id for scope in memory.scopes],
+                "sources": [ref.get("content_hash") or ref.get("uri") or ref.get("path") for ref in memory.source_refs],
             }
         )
         return "mem:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
@@ -471,7 +874,7 @@ class MemoryStore:
             "confidence": row["confidence"],
             "importance": row["importance"],
             "source_refs": json.loads(row["source_refs_json"] or "[]"),
-            "metadata": json.loads(row["metadata_json"] or "{}"),
+            "metadata": string_map(json.loads(row["metadata_json"] or "{}")),
             "scopes": scopes,
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
@@ -483,7 +886,7 @@ class MemoryStore:
             "kind": row["kind"],
             "key": row["key"],
             "title": row["title"],
-            "metadata": json.loads(row["metadata_json"] or "{}"),
+            "metadata": string_map(json.loads(row["metadata_json"] or "{}")),
             "primary": bool(row["primary_scope"]) if "primary_scope" in row.keys() else False,
         }
 
@@ -576,6 +979,45 @@ class MemoryStore:
                 excerpt TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS modules (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                scope_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                classifier TEXT NOT NULL,
+                metadata_json TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS projection_jobs (
+                id TEXT PRIMARY KEY,
+                adapter TEXT NOT NULL,
+                memory_id TEXT NOT NULL,
+                event_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                attempt_count INTEGER NOT NULL,
+                last_error TEXT,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS adapter_mappings (
+                memory_id TEXT NOT NULL,
+                adapter TEXT NOT NULL,
+                adapter_id TEXT NOT NULL,
+                metadata_json TEXT NOT NULL,
+                updated_at REAL NOT NULL,
+                PRIMARY KEY(memory_id, adapter)
+            );
+
+            CREATE TABLE IF NOT EXISTS sync_cursors (
+                source_id TEXT PRIMARY KEY,
+                source_kind TEXT NOT NULL,
+                cursor_json TEXT NOT NULL,
+                updated_at REAL NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS run_traces (
                 run_id TEXT PRIMARY KEY,
                 project_id TEXT,
@@ -593,12 +1035,47 @@ class MemoryStore:
                 features_json TEXT NOT NULL
             );
 
-            CREATE TABLE IF NOT EXISTS legacy_imports (
-                source_ref TEXT PRIMARY KEY,
-                event_id TEXT NOT NULL,
-                imported_at REAL NOT NULL
-            );
             """
         )
         self.conn.execute(f"PRAGMA user_version={self.schema_version}")
         self.conn.commit()
+
+
+def _excerpt(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "\n..."
+
+
+def _memory_type_for_source(kind: str) -> str:
+    if kind in {"AGENTS.md", "CLAUDE.md", "ai_config", "repo_config"}:
+        return "convention"
+    if kind in {"codex_transcript", "claude_transcript", "terminal_capture"}:
+        return "workflow"
+    return "fact"
+
+
+def _module_name(parts: list[str], project_id: str) -> str | None:
+    ignored = {
+        "Users",
+        "private",
+        "tmp",
+        "var",
+        "folders",
+        "Library",
+        "Application Support",
+        "Claude Stats",
+        "Memory",
+    }
+    preferred = {"ClaudeStats", "MemorySidecar", "ClaudeStatsMemoryCLI", "ClaudeStatsTests", "scripts", "ThirdParty"}
+    for part in parts:
+        if part in preferred:
+            return part
+    project_leaf = Path(project_id).name if "/" in project_id else project_id
+    for index, part in enumerate(parts):
+        if part == project_leaf and index + 1 < len(parts):
+            return parts[index + 1]
+    for part in parts:
+        if part not in ignored and not part.startswith(".") and not part.endswith(".jsonl"):
+            return part
+    return None

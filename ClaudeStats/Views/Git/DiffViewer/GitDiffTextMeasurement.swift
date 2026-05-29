@@ -23,7 +23,11 @@ struct GitDiffTextMeasurement {
     }
 
     private var characterAdvance: CGFloat {
-        ceil(("M" as NSString).size(withAttributes: [.font: font]).width)
+        let width = font.maximumAdvancement.width
+        if width.isFinite, width > 0 {
+            return ceil(width)
+        }
+        return ceil(max(font.pointSize * 0.62, 1))
     }
 
     private func expandedCharacterCount(in text: String) -> Int {

@@ -3,9 +3,7 @@ import SwiftUI
 
 struct MemoryWorkspaceView: View {
     @Bindable var store: MemoryStore
-    @Binding var aiDestination: MemoryAIDestination
 
-    @Environment(AppEnvironment.self) private var env
     private let horizontalInset: CGFloat = 20
 
     var body: some View {
@@ -16,13 +14,7 @@ struct MemoryWorkspaceView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .task {
-            await store.loadIfNeeded(sessionStore: env.store)
-            if store.counts.blockCount == 0 {
-                await store.index(sessionStore: env.store)
-            }
-        }
-        .onChange(of: env.store.lastRefreshedAt) { _, _ in
-            Task { await store.index(sessionStore: env.store) }
+            await store.loadIfNeeded()
         }
     }
 
@@ -43,21 +35,21 @@ struct MemoryWorkspaceView: View {
             }
             Spacer(minLength: 12)
             HStack(spacing: 10) {
-                Text("\(store.counts.recordCount) records · \(store.counts.blockCount) blocks · \(store.counts.sourceCount) sources")
+                Text("\(store.codeHealth?.memoryCount ?? 0) memories · \(store.codeHealth?.eventCount ?? 0) events")
                     .font(.sora(11))
                     .foregroundStyle(Color.stxMuted)
                     .lineLimit(1)
-                if store.isIndexing || store.isSearching {
+                if store.isCodeMemoryLoading || store.isSearching {
                     ProgressView()
                         .controlSize(.small)
                 }
                 Button {
-                    Task { await store.index(sessionStore: env.store) }
+                    Task { await store.refreshCodeMemoryStatus() }
                 } label: {
-                    Label("Index", systemImage: "arrow.triangle.2.circlepath")
+                    Label("Refresh", systemImage: "arrow.triangle.2.circlepath")
                 }
                 .controlSize(.small)
-                .disabled(store.isIndexing)
+                .disabled(store.isCodeMemoryLoading)
             }
         }
         .padding(.horizontal, horizontalInset)
@@ -68,8 +60,12 @@ struct MemoryWorkspaceView: View {
     @ViewBuilder
     private var content: some View {
         switch store.section {
+        case .overview:
+            CodeMemoryOverviewView(store: store)
         case .search:
             MemorySearchView(store: store)
+        case .context:
+            CodeMemoryContextView(store: store)
         case .projects:
             CodeMemoryProjectsView(store: store)
         case .modules:
@@ -80,49 +76,33 @@ struct MemoryWorkspaceView: View {
             CodeMemoryTraceView(store: store)
         case .proposals:
             CodeMemoryProposalsView(store: store)
-        case .legacyHistory:
-            MemoryLegacyHistoryView(store: store, aiDestination: $aiDestination)
         case .settings:
             CodeMemorySettingsView(store: store)
-        case .aiSessions:
-            MemoryAISessionsView(store: store, destination: $aiDestination)
-        case .terminalHistory:
-            MemoryRecordsBrowser(
-                records: store.terminalRecords,
-                selectedRecord: store.selectedRecord,
-                selectedBlocks: store.selectedBlocks,
-                emptyTitle: "No terminal captures yet",
-                emptyMessage: "Use the CLI helper's run or pipe commands to save terminal output.",
-                select: { record in Task { await store.selectRecord(record) } }
-            )
-        case .sources:
-            MemorySourcesView(store: store)
-        case .setup:
-            MemorySetupView(store: store)
         }
     }
 
     private func title(for section: MemoryWorkspaceSection) -> String {
         switch section {
+        case .overview: "Overview"
         case .search: "Code Memory Search"
+        case .context: "Context Pack"
         case .projects: "Projects"
         case .modules: "Modules"
         case .graph: "Graph"
         case .trace: "Trace"
         case .proposals: "Proposals"
-        case .legacyHistory: "Legacy History"
         case .settings: "Settings"
-        case .aiSessions: "AI Sessions"
-        case .terminalHistory: "Terminal History"
-        case .sources: "Sources"
-        case .setup: "Setup"
         }
     }
 
     private func description(for section: MemoryWorkspaceSection) -> String {
         switch section {
+        case .overview:
+            "Monitor sync, projection health, proposals, modules, and local adapter status."
         case .search:
-            "Search project, module, path, and workflow memories from the sidecar."
+            "Search deterministic, mem0, and Graphiti memories from the local sidecar."
+        case .context:
+            "Preview the grouped memory context that an agent can receive."
         case .projects:
             "Review projects known to Code Memory and their active memory counts."
         case .modules:
@@ -133,25 +113,67 @@ struct MemoryWorkspaceView: View {
             "Inspect retrieval traces that explain what memory was selected for an agent run."
         case .proposals:
             "Review candidate memories before they can affect future agent context."
-        case .legacyHistory:
-            "Keep existing AI session and terminal history available, with manual import."
         case .settings:
-            "Check sidecar health, adapters, local-first defaults, and migration actions."
-        case .aiSessions:
-            "Browse sessions with stats, analysis, transcript refs, and reusable indexed blocks."
-        case .terminalHistory:
-            "Review run, pipe, and shell metadata captures."
-        case .sources:
-            "Manage Memory-only roots and source health."
-        case .setup:
-            "Install the CLI helper and explicit shell metadata integration."
+            "Check sidecar health, adapters, local-first defaults, and shell capture."
+        }
+    }
+}
+
+private struct CodeMemoryOverviewView: View {
+    @Bindable var store: MemoryStore
+
+    var body: some View {
+        AppScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 10) {
+                    AIConfigsMiniStat(value: "\(store.codeHealth?.memoryCount ?? 0)", label: "memories")
+                    AIConfigsMiniStat(value: "\(store.codeHealth?.proposalCount ?? store.codeProposals.count)", label: "proposals")
+                    AIConfigsMiniStat(value: "\(store.codeHealth?.moduleCount ?? store.codeModules.count)", label: "modules")
+                    AIConfigsMiniStat(value: "\(store.codeHealth?.projectionPending ?? 0)", label: "pending")
+                }
+                .padding(12)
+                .appSurface(.compactCard(radius: 8, fillOpacity: 0.58, cornerStyle: .circular, maxWidth: nil), padding: nil)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Sync")
+                        .font(.sora(14, weight: .semibold))
+                    Text(store.codeLastSyncSummary ?? "Automatic local sync runs after session/config refresh when memoryd is available.")
+                        .font(.sora(12))
+                        .foregroundStyle(Color.stxMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(14)
+                .appSurface(.compactCard(radius: 8, fillOpacity: 0.52, cornerStyle: .circular, maxWidth: nil), padding: nil)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Adapters")
+                        .font(.sora(14, weight: .semibold))
+                    ForEach((store.codeHealth?.adapters ?? [:]).sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
+                        HStack(spacing: 8) {
+                            Text(key)
+                                .font(.sora(11, weight: .medium))
+                                .frame(width: 120, alignment: .leading)
+                            Text(value)
+                                .font(.sora(11))
+                                .foregroundStyle(Color.stxMuted)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                    }
+                }
+                .padding(14)
+                .appSurface(.compactCard(radius: 8, fillOpacity: 0.52, cornerStyle: .circular, maxWidth: nil), padding: nil)
+            }
+            .padding(18)
+        }
+        .task {
+            await store.refreshCodeMemoryStatus()
         }
     }
 }
 
 private struct MemorySearchView: View {
     @Bindable var store: MemoryStore
-    @Environment(AppEnvironment.self) private var env
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -180,15 +202,6 @@ private struct MemorySearchView: View {
                 .padding(.vertical, 7)
                 .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
 
-                Picker("", selection: $store.searchMode) {
-                    Text("Text").tag(MemorySearchMode.text)
-                    Text("Semantic").tag(MemorySearchMode.semantic)
-                    Text("Hybrid").tag(MemorySearchMode.hybrid)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 240)
-                .disabled(!env.localAI.semanticSearchAvailable && store.searchMode != .text)
-
                 Button {
                     search()
                 } label: {
@@ -207,8 +220,8 @@ private struct MemorySearchView: View {
                         AIConfigsEmptyState(
                             title: store.searchText.isEmpty ? "Search memory" : "No matches",
                             message: store.codeHealth == nil
-                                ? "Start memoryd to search Code Agent memory. Legacy history remains available separately."
-                                : "Code Memory text search is ready. Local semantic search can be enabled later.",
+                                ? "Start memoryd to search local Code Memory."
+                                : "Code Memory search fuses deterministic, mem0, and Graphiti results when those adapters are enabled.",
                             symbol: "magnifyingglass"
                         )
                         .frame(minHeight: 320)
@@ -225,7 +238,7 @@ private struct MemorySearchView: View {
 
     private func search() {
         Task {
-            await store.performSearch(localAI: env.localAI, sessionStore: env.store)
+            await store.performSearch()
         }
     }
 }
@@ -239,7 +252,7 @@ private struct CodeMemoryProjectsView: View {
                 if store.codeProjects.isEmpty {
                     AIConfigsEmptyState(
                         title: store.codeHealth == nil ? "Sidecar offline" : "No projects yet",
-                        message: store.codeHealth == nil ? "Start memoryd from Settings or the CLI helper." : "Record or import memories to create the first project graph.",
+                        message: store.codeHealth == nil ? "Start memoryd from Settings or the CLI helper." : "Record memories to create the first project graph.",
                         symbol: "folder.badge.questionmark"
                     )
                     .frame(minHeight: 320)
@@ -252,6 +265,92 @@ private struct CodeMemoryProjectsView: View {
                 }
             }
             .padding(18)
+        }
+    }
+}
+
+private struct CodeMemoryContextView: View {
+    @Bindable var store: MemoryStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                TextField("Build context for...", text: $store.contextText)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.sora(12))
+                    .onSubmit { load() }
+                Button {
+                    load()
+                } label: {
+                    Label("Build", systemImage: "doc.text.magnifyingglass")
+                }
+                .controlSize(.small)
+                .disabled((store.contextText.isEmpty && store.searchText.isEmpty) || store.isCodeMemoryLoading)
+            }
+            .padding(14)
+            StxRule()
+            AppScrollView {
+                if let pack = store.codeContextPack {
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack {
+                            fact("Trace", pack.traceID)
+                            Spacer()
+                            Button {
+                                copy(pack.traceID)
+                            } label: {
+                                Label("Copy Trace", systemImage: "link")
+                            }
+                            .controlSize(.small)
+                        }
+                        contextGroup("Rules", pack.context.rules)
+                        contextGroup("Facts", pack.context.facts)
+                        contextGroup("Risks", pack.context.risks)
+                        contextGroup("Commands", pack.context.commands)
+                        contextGroup("Decisions", pack.context.decisions)
+                    }
+                    .padding(18)
+                } else {
+                    AIConfigsEmptyState(title: "No context built", message: "Build a context pack to see grouped active memory for an agent run.", symbol: "doc.text.magnifyingglass")
+                        .frame(minHeight: 320)
+                }
+            }
+        }
+    }
+
+    private func load() {
+        Task { await store.loadContextPack() }
+    }
+
+    private func contextGroup(_ title: String, _ memories: [CodeMemoryMemory]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.sora(13, weight: .semibold))
+            if memories.isEmpty {
+                Text("No \(title.lowercased()) selected.")
+                    .font(.sora(11))
+                    .foregroundStyle(Color.stxMuted)
+            } else {
+                ForEach(memories) { memory in
+                    Text("• \(memory.title): \(memory.body)")
+                        .font(.sora(11))
+                        .foregroundStyle(Color.stxMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .padding(12)
+        .appSurface(.compactCard(radius: 8, fillOpacity: 0.48, cornerStyle: .circular, maxWidth: nil), padding: nil)
+    }
+
+    private func fact(_ label: String, _ value: String) -> some View {
+        HStack(spacing: 8) {
+            Text(label)
+                .font(.sora(11, weight: .medium))
+                .foregroundStyle(Color.stxMuted)
+            Text(value)
+                .font(.sora(10).monospaced())
+                .lineLimit(1)
+                .truncationMode(.middle)
         }
     }
 }
@@ -289,33 +388,25 @@ private struct CodeMemoryProjectRow: View {
 private struct CodeMemoryModulesView: View {
     @Bindable var store: MemoryStore
 
-    private var moduleScopes: [CodeMemoryScope] {
-        let scopes = store.codeGraph?.nodes.compactMap { node -> CodeMemoryScope? in
-            guard node.kind == "module" else { return nil }
-            return CodeMemoryScope(id: node.id, kind: node.kind, key: node.id, title: node.title, metadata: nil, primary: nil)
-        } ?? []
-        return scopes.sorted { $0.title < $1.title }
-    }
-
     var body: some View {
         AppScrollView {
             LazyVStack(alignment: .leading, spacing: 10) {
-                if moduleScopes.isEmpty {
+                if store.codeModules.isEmpty {
                     AIConfigsEmptyState(
                         title: "No module graph yet",
-                        message: "Module classification starts with project events and path-scoped memories. Import or record code memories first.",
+                        message: "Module classification starts with project events and path-scoped memories.",
                         symbol: "square.stack.3d.up"
                     )
                     .frame(minHeight: 320)
                 } else {
-                    ForEach(moduleScopes) { scope in
+                    ForEach(store.codeModules) { module in
                         HStack(spacing: 10) {
                             Image(systemName: "shippingbox")
                                 .foregroundStyle(Color.stxAccent)
                             VStack(alignment: .leading, spacing: 3) {
-                                Text(scope.title)
+                                Text(module.title)
                                     .font(.sora(13, weight: .semibold))
-                                Text(scope.id)
+                                Text("\(module.memoryCount) memories · \(module.classifier)")
                                     .font(.sora(10).monospaced())
                                     .foregroundStyle(Color.stxMuted)
                                     .lineLimit(1)
@@ -331,9 +422,7 @@ private struct CodeMemoryModulesView: View {
             .padding(18)
         }
         .task {
-            if let project = store.codeSelectedProjectID {
-                await store.loadCodeGraph(projectID: project)
-            }
+            await store.loadCodeModules()
         }
     }
 }
@@ -363,10 +452,10 @@ private struct CodeMemoryGraphView: View {
                     let graph = store.codeGraph
                     if let graph {
                         graphStats(graph)
-                        graphList(title: "Nodes", items: graph.nodes.map { "\($0.kind): \($0.title)" })
+                        graphList(title: "Nodes", items: graph.nodes.map { nodeSummary($0) })
                         graphList(title: "Edges", items: graph.edges.map { "\($0.source) -[\($0.kind)]-> \($0.target)" })
                     } else {
-                        AIConfigsEmptyState(title: "No graph loaded", message: "Select a project or import legacy records to build the graph projection.", symbol: "point.3.connected.trianglepath.dotted")
+                        AIConfigsEmptyState(title: "No graph loaded", message: "Select a project to load its memory graph projection.", symbol: "point.3.connected.trianglepath.dotted")
                             .frame(minHeight: 320)
                     }
                 }
@@ -406,6 +495,12 @@ private struct CodeMemoryGraphView: View {
         }
         .padding(12)
         .appSurface(.compactCard(radius: 8, fillOpacity: 0.48, cornerStyle: .circular, maxWidth: nil), padding: nil)
+    }
+
+    private func nodeSummary(_ node: CodeMemoryGraphNode) -> String {
+        let body = node.body.map { " — \($0.prefix(160))" } ?? ""
+        let type = node.type.map { " [\($0)]" } ?? ""
+        return "\(node.kind): \(node.title)\(type)\(body)"
     }
 }
 
@@ -468,88 +563,59 @@ private struct CodeMemoryProposalsView: View {
     @Bindable var store: MemoryStore
 
     var body: some View {
-        AIConfigsEmptyState(
-            title: "Proposal review is staged",
-            message: "The sidecar records proposed memories today. Accept/reject controls will be wired after proposal listing is exposed.",
-            symbol: "checklist"
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-private struct MemoryLegacyHistoryView: View {
-    @Bindable var store: MemoryStore
-    @Binding var aiDestination: MemoryAIDestination
-
-    var body: some View {
         AppScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 10) {
-                    legacyCard(
-                        title: "AI Sessions",
-                        count: store.aiRecords.count,
-                        symbol: "text.bubble",
-                        open: { store.select(.aiSessions) },
-                        importAction: { Task { await store.importLegacyRecords(kind: .aiSession) } }
+            LazyVStack(alignment: .leading, spacing: 10) {
+                if store.codeProposals.isEmpty {
+                    AIConfigsEmptyState(
+                        title: "No proposals",
+                        message: "mem0 inference and source sync proposals will appear here for review.",
+                        symbol: "checklist"
                     )
-                    legacyCard(
-                        title: "Terminal History",
-                        count: store.terminalRecords.count,
-                        symbol: "terminal",
-                        open: { store.select(.terminalHistory) },
-                        importAction: { Task { await store.importLegacyRecords(kind: nil) } }
-                    )
+                    .frame(minHeight: 320)
+                } else {
+                    ForEach(store.codeProposals) { memory in
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 8) {
+                                Text(memory.title)
+                                    .font(.sora(13, weight: .semibold))
+                                    .lineLimit(1)
+                                AIConfigsBadge(text: memory.type, color: Color.stxMuted)
+                                Spacer(minLength: 8)
+                                Button {
+                                    Task { await store.acceptProposal(memory) }
+                                } label: {
+                                    Label("Accept", systemImage: "checkmark")
+                                }
+                                .controlSize(.small)
+                                Button {
+                                    Task { await store.rejectProposal(memory) }
+                                } label: {
+                                    Label("Reject", systemImage: "xmark")
+                                }
+                                .controlSize(.small)
+                            }
+                            Text(memory.body)
+                                .font(.sora(11))
+                                .foregroundStyle(Color.stxMuted)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(12)
+                        .appSurface(.compactCard(radius: 8, fillOpacity: 0.62, cornerStyle: .circular, maxWidth: nil), padding: nil)
+                    }
                 }
-                if let result = store.codeLastImportResult {
-                    Text("Last import: \(result.imported) imported, \(result.skipped) skipped")
-                        .font(.sora(11))
-                        .foregroundStyle(Color.stxMuted)
-                }
-                Text("Legacy records stay read-only until you explicitly import them into Code Memory. Imported records become event-sourced graph memories and keep their original memory:// refs as source references.")
-                    .font(.sora(12))
-                    .foregroundStyle(Color.stxMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(14)
-                    .appSurface(.compactCard(radius: 8, fillOpacity: 0.48, cornerStyle: .circular, maxWidth: nil), padding: nil)
             }
             .padding(18)
         }
-    }
-
-    private func legacyCard(title: String, count: Int, symbol: String, open: @escaping () -> Void, importAction: @escaping () -> Void) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                Image(systemName: symbol)
-                    .foregroundStyle(Color.stxAccent)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title)
-                        .font(.sora(13, weight: .semibold))
-                    Text("\(count) records")
-                        .font(.sora(11))
-                        .foregroundStyle(Color.stxMuted)
-                }
-                Spacer(minLength: 8)
-            }
-            HStack(spacing: 8) {
-                Button(action: open) {
-                    Label("Open", systemImage: "sidebar.leading")
-                }
-                .controlSize(.small)
-                Button(action: importAction) {
-                    Label("Import", systemImage: "square.and.arrow.down")
-                }
-                .controlSize(.small)
-                .disabled(count == 0 || store.codeHealth == nil)
-            }
+        .task {
+            await store.loadCodeProposals()
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .appSurface(.compactCard(radius: 8, fillOpacity: 0.58, cornerStyle: .circular, maxWidth: nil), padding: nil)
     }
 }
 
 private struct CodeMemorySettingsView: View {
     @Bindable var store: MemoryStore
+
+    @Environment(AppEnvironment.self) private var env
 
     private var helperPath: String {
         CodeMemorySidecarManager.defaultHelperPath()
@@ -563,65 +629,10 @@ private struct CodeMemorySettingsView: View {
         CenteredPaneContainer(maxWidth: 900, topPadding: 18) {
             AppScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Sidecar")
-                            .font(.sora(15, weight: .semibold))
-                        fact("Endpoint", "http://127.0.0.1:8765")
-                        fact("Status", store.codeHealth?.status ?? "offline")
-                        fact("Store", store.codeHealth?.store ?? "-")
-                        fact("Events", "\(store.codeHealth?.eventCount ?? 0)")
-                        fact("Memories", "\(store.codeHealth?.memoryCount ?? 0)")
-                        fact("Helper", helperPath)
-                        fact("Command", startCommand)
-                        HStack(spacing: 8) {
-                            Button {
-                                Task { await store.startCodeMemorySidecar() }
-                            } label: {
-                                Label("Start", systemImage: "play.fill")
-                            }
-                            .controlSize(.small)
-                            .disabled(store.isCodeMemoryLoading)
-                            Button {
-                                Task { await store.stopCodeMemorySidecar() }
-                            } label: {
-                                Label("Stop", systemImage: "stop.fill")
-                            }
-                            .controlSize(.small)
-                            .disabled(store.isCodeMemoryLoading)
-                            Button {
-                                Task { await store.refreshCodeMemoryStatus() }
-                            } label: {
-                                Label("Refresh", systemImage: "arrow.clockwise")
-                            }
-                            .controlSize(.small)
-                            .disabled(store.isCodeMemoryLoading)
-                            Button {
-                                copy(startCommand)
-                            } label: {
-                                Label("Copy Start Command", systemImage: "doc.on.doc")
-                            }
-                            .controlSize(.small)
-                        }
-                        if let message = store.setupMessage {
-                            Text(message)
-                                .font(.sora(11))
-                                .foregroundStyle(Color.stxMuted)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                    .padding(16)
-                    .appSurface(.compactCard(radius: 8, fillOpacity: 0.55, cornerStyle: .circular, maxWidth: nil), padding: nil)
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Adapters")
-                            .font(.sora(15, weight: .semibold))
-                        Text("mem0 and Graphiti are sidecar projections behind feature flags. Default mode is deterministic and local-first; cloud LLMs are never enabled implicitly.")
-                            .font(.sora(12))
-                            .foregroundStyle(Color.stxMuted)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .padding(16)
-                    .appSurface(.compactCard(radius: 8, fillOpacity: 0.55, cornerStyle: .circular, maxWidth: nil), padding: nil)
+                    sidecarCard
+                    adaptersCard
+                    shellCard
+                    privacyCard
                 }
                 .padding(.bottom, 24)
             }
@@ -629,6 +640,158 @@ private struct CodeMemorySettingsView: View {
         .task {
             await store.refreshCodeMemoryStatus()
         }
+    }
+
+    private var sidecarCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Sidecar")
+                .font(.sora(15, weight: .semibold))
+            fact("Endpoint", "http://127.0.0.1:8765")
+            fact("Status", store.codeHealth?.status ?? "offline")
+            fact("Store", store.codeHealth?.store ?? "-")
+            fact("Events", "\(store.codeHealth?.eventCount ?? 0)")
+            fact("Memories", "\(store.codeHealth?.memoryCount ?? 0)")
+            fact("Helper", helperPath)
+            fact("Command", startCommand)
+            HStack(spacing: 8) {
+                Button {
+                    Task {
+                        env.localAI.restartOpenAICompatibleServerIfNeeded()
+                        await store.startCodeMemorySidecar(localAIEnvironment: env.localAI.localAIEnvironment())
+                    }
+                } label: {
+                    Label("Start", systemImage: "play.fill")
+                }
+                .controlSize(.small)
+                .disabled(store.isCodeMemoryLoading)
+                Button {
+                    Task { await store.stopCodeMemorySidecar() }
+                } label: {
+                    Label("Stop", systemImage: "stop.fill")
+                }
+                .controlSize(.small)
+                .disabled(store.isCodeMemoryLoading)
+                Button {
+                    Task { await store.refreshCodeMemoryStatus() }
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }
+                .controlSize(.small)
+                .disabled(store.isCodeMemoryLoading)
+                Button {
+                    Task { await store.reindexCodeMemory() }
+                } label: {
+                    Label("Reindex", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .controlSize(.small)
+                .disabled(store.isCodeMemoryLoading)
+                Button {
+                    copy(startCommand)
+                } label: {
+                    Label("Copy Start Command", systemImage: "doc.on.doc")
+                }
+                .controlSize(.small)
+            }
+            if let result = store.codeOutboxLastDrainResult {
+                Text("Outbox: \(result.delivered) delivered, \(result.remaining) pending")
+                    .font(.sora(11))
+                    .foregroundStyle(Color.stxMuted)
+            }
+            if let result = store.codeLastReindexResult {
+                Text("Reindex: \(result.enqueued ?? 0) enqueued, \(result.drained?.delivered ?? result.delivered ?? 0) delivered, \(result.drained?.failed ?? result.failed ?? 0) failed")
+                    .font(.sora(11))
+                    .foregroundStyle(Color.stxMuted)
+            }
+            if let sync = store.codeLastSyncSummary {
+                Text(sync)
+                    .font(.sora(11))
+                    .foregroundStyle(Color.stxMuted)
+            }
+            if let message = store.setupMessage {
+                Text(message)
+                    .font(.sora(11))
+                    .foregroundStyle(Color.stxMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(16)
+        .appSurface(.compactCard(radius: 8, fillOpacity: 0.55, cornerStyle: .circular, maxWidth: nil), padding: nil)
+    }
+
+    private var adaptersCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Adapters")
+                .font(.sora(15, weight: .semibold))
+            if let adapters = store.codeHealth?.adapters, !adapters.isEmpty {
+                ForEach(adapters.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
+                    HStack(spacing: 10) {
+                        Text(key)
+                            .font(.sora(11, weight: .medium))
+                            .frame(width: 90, alignment: .leading)
+                        AIConfigsBadge(text: value, color: value == "ok" ? Color.stxAccent : Color.stxMuted)
+                        Spacer(minLength: 0)
+                    }
+                }
+            } else {
+                Text("mem0 and Graphiti health appears here after memoryd starts with complete local mode enabled.")
+                    .font(.sora(12))
+                    .foregroundStyle(Color.stxMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(16)
+        .appSurface(.compactCard(radius: 8, fillOpacity: 0.55, cornerStyle: .circular, maxWidth: nil), padding: nil)
+    }
+
+    private var shellCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Shell Capture")
+                .font(.sora(15, weight: .semibold))
+            ForEach(MemoryShell.allCases) { shell in
+                let status = MemoryShellIntegrationManager().status(shell: shell)
+                HStack(spacing: 10) {
+                    Image(systemName: status.isInstalled ? "checkmark.circle" : "circle")
+                        .foregroundStyle(status.isInstalled ? Color.stxAccent : Color.stxMuted)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(shell.rawValue)
+                            .font(.sora(12, weight: .semibold))
+                        Text(status.rcPath.memoryAbbreviatingHomeDirectory)
+                            .font(.sora(10).monospaced())
+                            .foregroundStyle(Color.stxMuted)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    Spacer(minLength: 8)
+                    Button {
+                        store.installShell(shell: shell, helperPath: helperPath)
+                    } label: {
+                        Label("Install", systemImage: "square.and.arrow.down")
+                    }
+                    .controlSize(.small)
+                    Button {
+                        store.uninstallShell(shell: shell)
+                    } label: {
+                        Label("Uninstall", systemImage: "trash")
+                    }
+                    .controlSize(.small)
+                }
+            }
+        }
+        .padding(16)
+        .appSurface(.compactCard(radius: 8, fillOpacity: 0.55, cornerStyle: .circular, maxWidth: nil), padding: nil)
+    }
+
+    private var privacyCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Privacy")
+                .font(.sora(15, weight: .semibold))
+            Text("Terminal output is captured only when you use run or pipe. Shell integration records command metadata only: command, cwd, exit status, and timestamp. Events are written to memoryd or a local outbox when memoryd is offline.")
+                .font(.sora(12))
+                .foregroundStyle(Color.stxMuted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .appSurface(.compactCard(radius: 8, fillOpacity: 0.55, cornerStyle: .circular, maxWidth: nil), padding: nil)
     }
 
     private func fact(_ label: String, _ value: String) -> some View {
@@ -675,6 +838,16 @@ private struct CodeMemorySearchResultRow: View {
                     .foregroundStyle(Color.stxMuted)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                if let evidence = result.evidence, !evidence.isEmpty {
+                    Text(evidence.map(\.adapter).joined(separator: " + "))
+                        .font(.sora(10).monospaced())
+                        .foregroundStyle(Color.stxAccent)
+                        .lineLimit(1)
+                } else {
+                    Text(result.matchKind)
+                        .font(.sora(10).monospaced())
+                        .foregroundStyle(Color.stxMuted)
+                }
                 Spacer(minLength: 8)
                 Button {
                     copy(result.memory.body)
@@ -702,491 +875,6 @@ private struct CodeMemorySearchResultRow: View {
         case "rule", "convention": "checkmark.seal"
         default: "text.badge.checkmark"
         }
-    }
-}
-
-private struct MemoryRecordsBrowser: View {
-    let records: [MemoryRecord]
-    let selectedRecord: MemoryRecord?
-    let selectedBlocks: [MemoryBlock]
-    let emptyTitle: String
-    let emptyMessage: String
-    let select: (MemoryRecord) -> Void
-
-    var body: some View {
-        HoverableSplitView(
-            axis: .vertical,
-            primaryFraction: 0.34,
-            configuration: HoverableSplitViewConfiguration(
-                primaryMinimumPaneLength: 280,
-                primaryMaximumPaneLength: 460,
-                secondaryMinimumPaneLength: 420
-            )
-        ) {
-            recordsList
-        } secondary: {
-            MemoryRecordDetail(record: selectedRecord, blocks: selectedBlocks)
-        }
-    }
-
-    @ViewBuilder
-    private var recordsList: some View {
-        if records.isEmpty {
-            AIConfigsEmptyState(title: emptyTitle, message: emptyMessage, symbol: "tray")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .appSurface(.plainFill)
-        } else {
-            AppScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(records) { record in
-                        MemoryRecordRow(record: record, isSelected: selectedRecord?.id == record.id) {
-                            select(record)
-                        }
-                    }
-                }
-                .padding(.vertical, 8)
-            }
-            .appSurface(.plainFill)
-        }
-    }
-}
-
-private struct MemorySourcesView: View {
-    @Bindable var store: MemoryStore
-    @Environment(AppEnvironment.self) private var env
-
-    var body: some View {
-        AppScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                addSourceCard
-                LazyVStack(alignment: .leading, spacing: 10) {
-                    ForEach(store.sources) { source in
-                        MemorySourceRow(
-                            source: source,
-                            status: store.sourceStatuses[source.id],
-                            refresh: { Task { await store.index(sessionStore: env.store) } },
-                            reveal: { store.revealSource(source) },
-                            remove: { Task { await store.removeSource(source) } }
-                        )
-                    }
-                }
-            }
-            .padding(18)
-        }
-    }
-
-    private var addSourceCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Add AI Session Root")
-                .font(.sora(13, weight: .semibold))
-            HStack(spacing: 10) {
-                Picker("", selection: $store.newSourceProviderRaw) {
-                    ForEach(ProviderKind.allCases) { provider in
-                        Text(provider.shortName).tag(provider.rawValue)
-                    }
-                }
-                .labelsHidden()
-                .frame(width: 150)
-                TextField("Path to .claude, .claude/projects, .codex, or .codex/sessions", text: $store.newSourcePath)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.sora(11))
-                Button {
-                    Task { await store.addSource() }
-                } label: {
-                    Label("Add", systemImage: "plus")
-                }
-                .controlSize(.small)
-            }
-        }
-        .padding(14)
-        .appSurface(.compactCard(radius: 8, fillOpacity: 0.55, cornerStyle: .circular, maxWidth: nil), padding: nil)
-    }
-}
-
-private struct MemorySetupView: View {
-    @Bindable var store: MemoryStore
-
-    private var helperPath: String {
-        CodeMemorySidecarManager.defaultHelperPath()
-    }
-
-    var body: some View {
-        CenteredPaneContainer(maxWidth: 900, topPadding: 18) {
-            AppScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    setupCard
-                    shellCard
-                    privacyCard
-                }
-                .padding(.bottom, 24)
-            }
-        }
-    }
-
-    private var setupCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("CLI Helper")
-                .font(.sora(15, weight: .semibold))
-            fact("Path", value: helperPath)
-            fact("Status", value: FileManager.default.isExecutableFile(atPath: helperPath) ? "Bundled helper available" : "Use installed command on PATH")
-            HStack(spacing: 8) {
-                Button {
-                    copy(helperPath)
-                } label: {
-                    Label("Copy Path", systemImage: "doc.on.doc")
-                }
-                .controlSize(.small)
-                Button(role: .destructive) {
-                    Task { await store.clearIndex() }
-                } label: {
-                    Label("Clear Index", systemImage: "trash")
-                }
-                .controlSize(.small)
-            }
-        }
-        .padding(16)
-        .appSurface(.compactCard(radius: 8, fillOpacity: 0.55, cornerStyle: .circular, maxWidth: nil), padding: nil)
-    }
-
-    private var shellCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Shell Integration")
-                .font(.sora(15, weight: .semibold))
-            ForEach(MemoryShell.allCases) { shell in
-                let status = MemoryShellIntegrationManager().status(shell: shell)
-                HStack(spacing: 10) {
-                    Image(systemName: status.isInstalled ? "checkmark.circle" : "circle")
-                        .foregroundStyle(status.isInstalled ? Color.stxAccent : Color.stxMuted)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(shell.rawValue)
-                            .font(.sora(12, weight: .semibold))
-                        Text(status.rcPath.memoryAbbreviatingHomeDirectory)
-                            .font(.sora(10).monospaced())
-                            .foregroundStyle(Color.stxMuted)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    Spacer(minLength: 8)
-                    Button {
-                        store.installShell(shell: shell, helperPath: helperPath)
-                    } label: {
-                        Label("Install", systemImage: "square.and.arrow.down")
-                    }
-                    .controlSize(.small)
-                    Button {
-                        store.uninstallShell(shell: shell)
-                    } label: {
-                        Label("Uninstall", systemImage: "trash")
-                    }
-                    .controlSize(.small)
-                }
-            }
-            if let message = store.setupMessage {
-                Text(message)
-                    .font(.sora(11))
-                    .foregroundStyle(Color.stxMuted)
-            }
-        }
-        .padding(16)
-        .appSurface(.compactCard(radius: 8, fillOpacity: 0.55, cornerStyle: .circular, maxWidth: nil), padding: nil)
-    }
-
-    private var privacyCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Privacy")
-                .font(.sora(15, weight: .semibold))
-            Text("Terminal output is captured only when you use run or pipe. Shell integration records command metadata only: command, cwd, exit status, and timestamp.")
-                .font(.sora(12))
-                .foregroundStyle(Color.stxMuted)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(16)
-        .appSurface(.compactCard(radius: 8, fillOpacity: 0.55, cornerStyle: .circular, maxWidth: nil), padding: nil)
-    }
-
-    private func fact(_ label: String, value: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(label)
-                .font(.sora(11, weight: .medium))
-                .foregroundStyle(Color.stxMuted)
-                .frame(width: 80, alignment: .leading)
-            Text(value.memoryAbbreviatingHomeDirectory)
-                .font(.sora(11).monospaced())
-                .lineLimit(1)
-                .truncationMode(.middle)
-        }
-    }
-}
-
-private struct MemorySearchResultRow: View {
-    let result: MemorySearchResult
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Image(systemName: result.record.kind == .aiSession ? "text.bubble" : "terminal")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color.stxAccent)
-                    .frame(width: 18)
-                Text(result.record.title)
-                    .font(.sora(13, weight: .semibold))
-                    .lineLimit(1)
-                AIConfigsBadge(text: result.block.role.rawValue, color: Color.stxMuted)
-                AIConfigsBadge(text: result.matchKind.rawValue, color: result.matchKind == .semantic ? Color.stxAccent : Color.stxMuted)
-                Spacer(minLength: 8)
-                if let score = result.score {
-                    Text(String(format: "%.2f", score))
-                        .font(.sora(10).monospacedDigit())
-                        .foregroundStyle(Color.stxMuted)
-                }
-            }
-            Text(result.snippet?.isEmpty == false ? result.snippet! : result.block.excerpt)
-                .font(.sora(11))
-                .foregroundStyle(Color.stxMuted)
-                .lineLimit(3)
-            HStack(spacing: 8) {
-                Text(result.block.ref)
-                    .font(.sora(10).monospaced())
-                    .foregroundStyle(Color.stxMuted)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer(minLength: 8)
-                Button {
-                    copy(result.block.text)
-                } label: {
-                    Label("Copy Text", systemImage: "doc.on.doc")
-                }
-                .controlSize(.small)
-                Button {
-                    copy(result.block.ref)
-                } label: {
-                    Label("Copy Ref", systemImage: "link")
-                }
-                .controlSize(.small)
-            }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .appSurface(.compactCard(radius: 8, fillOpacity: 0.65, cornerStyle: .circular, maxWidth: nil), padding: nil)
-    }
-}
-
-private struct MemoryRecordRow: View {
-    let record: MemoryRecord
-    let isSelected: Bool
-    let action: () -> Void
-
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 7) {
-                    Image(systemName: record.kind == .aiSession ? "text.bubble" : "terminal")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(isSelected ? Color.stxAccent : Color.stxMuted)
-                    Text(record.title)
-                        .font(.sora(12, weight: .semibold))
-                        .foregroundStyle(isSelected ? .primary : Color.stxMuted)
-                        .lineLimit(1)
-                    Spacer(minLength: 4)
-                    if let exit = record.exitCode {
-                        Text("\(exit)")
-                            .font(.sora(9).monospacedDigit())
-                            .foregroundStyle(exit == 0 ? Color.stxAccent : Color(red: 0.85, green: 0.22, blue: 0.18))
-                    }
-                }
-                Text(record.subtitle ?? record.cwd ?? record.projectPath ?? record.id)
-                    .font(.sora(10))
-                    .foregroundStyle(Color.stxMuted.opacity(0.75))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background {
-                if isSelected {
-                    RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.10))
-                } else if hovering {
-                    RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.05))
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 1)
-        .onHover { hovering = $0 }
-    }
-}
-
-struct MemoryRecordDetail: View {
-    let record: MemoryRecord?
-    let blocks: [MemoryBlock]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if let record {
-                HStack(spacing: 10) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(record.title)
-                            .font(.sora(15, weight: .semibold))
-                            .lineLimit(1)
-                        Text(record.filePath ?? record.cwd ?? record.id)
-                            .font(.sora(10).monospaced())
-                            .foregroundStyle(Color.stxMuted)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    Spacer(minLength: 8)
-                    Button {
-                        copy(blocks.map(\.text).joined(separator: "\n\n"))
-                    } label: {
-                        Label("Copy All", systemImage: "doc.on.doc")
-                    }
-                    .controlSize(.small)
-                }
-                .padding(14)
-                StxRule()
-                AppScrollView {
-                    LazyVStack(alignment: .leading, spacing: 10) {
-                        ForEach(blocks) { block in
-                            MemoryBlockCard(block: block)
-                        }
-                    }
-                    .padding(14)
-                }
-            } else {
-                AIConfigsEmptyState(title: "Select a record", message: "Choose a memory record to inspect its indexed blocks.", symbol: "text.bubble")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-        .appSurface(.plainFill)
-    }
-}
-
-private struct MemoryBlockCard: View {
-    let block: MemoryBlock
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                AIConfigsBadge(text: block.role.rawValue, color: Color.stxMuted)
-                if let model = block.model {
-                    AIConfigsBadge(text: model, color: Color.stxMuted)
-                }
-                Spacer(minLength: 8)
-                Button {
-                    copy(block.text)
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                }
-                .controlSize(.small)
-                .help("Copy text")
-                Button {
-                    copy(block.ref)
-                } label: {
-                    Image(systemName: "link")
-                }
-                .controlSize(.small)
-                .help("Copy ref")
-            }
-            Text(block.text)
-                .font(.sora(11))
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-            Text(block.ref)
-                .font(.sora(10).monospaced())
-                .foregroundStyle(Color.stxMuted)
-                .lineLimit(1)
-                .truncationMode(.middle)
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .appSurface(.compactCard(radius: 8, fillOpacity: 0.55, cornerStyle: .circular, maxWidth: nil), padding: nil)
-    }
-}
-
-private struct MemorySourceRow: View {
-    let source: MemorySource
-    let status: MemorySourceStatus?
-    let refresh: () -> Void
-    let reveal: () -> Void
-    let remove: () -> Void
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: source.kind == .terminal ? "terminal" : "text.bubble")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(statusColor)
-                .frame(width: 22)
-                .padding(.top, 3)
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    Text(source.title)
-                        .font(.sora(13, weight: .semibold))
-                    if source.isDefault {
-                        AIConfigsBadge(text: "Default", color: Color.stxMuted)
-                    }
-                    if let provider = source.providerRaw {
-                        AIConfigsBadge(text: ProviderKind(rawValue: provider)?.shortName ?? provider, color: Color.stxMuted)
-                    }
-                    Spacer(minLength: 8)
-                }
-                Text(source.path?.memoryAbbreviatingHomeDirectory ?? "No fixed path")
-                    .font(.sora(10).monospaced())
-                    .foregroundStyle(Color.stxMuted)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                HStack(spacing: 8) {
-                    statusBadge("readable", on: status?.readable == true)
-                    statusBadge("readonly", on: status?.readOnly == true)
-                    statusBadge("indexed", on: status?.indexed == true)
-                    if status?.unsupported == true {
-                        AIConfigsBadge(text: "Unsupported", color: Color(red: 0.92, green: 0.58, blue: 0.16))
-                    }
-                    if let error = status?.error {
-                        Text(error)
-                            .font(.sora(10))
-                            .foregroundStyle(Color(red: 0.85, green: 0.22, blue: 0.18))
-                            .lineLimit(1)
-                    }
-                }
-            }
-            Spacer(minLength: 8)
-            VStack(spacing: 8) {
-                Button(action: refresh) {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .controlSize(.small)
-                .help("Refresh index")
-                Button(action: reveal) {
-                    Image(systemName: "finder")
-                }
-                .controlSize(.small)
-                .disabled(source.path == nil)
-                .help("Reveal source")
-                Button(role: .destructive, action: remove) {
-                    Image(systemName: "trash")
-                }
-                .controlSize(.small)
-                .disabled(source.isDefault)
-                .help("Remove source")
-            }
-        }
-        .padding(12)
-        .appSurface(.compactCard(radius: 8, fillOpacity: 0.65, cornerStyle: .circular, maxWidth: nil), padding: nil)
-    }
-
-    private var statusColor: Color {
-        if status?.unsupported == true || status?.error != nil { return Color(red: 0.92, green: 0.58, blue: 0.16) }
-        if status?.indexed == true { return Color.stxAccent }
-        return Color.stxMuted
-    }
-
-    private func statusBadge(_ title: String, on: Bool) -> some View {
-        AIConfigsBadge(text: title, color: on ? Color.stxAccent : Color.stxMuted)
-            .opacity(on ? 1 : 0.55)
     }
 }
 

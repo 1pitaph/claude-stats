@@ -18,8 +18,6 @@ enum ClaudeStatsMemoryCLI {
                 exit(Int32(exitCode))
             case "pipe":
                 try await pipe()
-            case "history":
-                try await history(arguments)
             case "init":
                 try shellInit(arguments)
             case "memoryd":
@@ -28,10 +26,22 @@ enum ClaudeStatsMemoryCLI {
                 try await codeMemorySearch(arguments)
             case "context":
                 try await codeMemoryContext(arguments)
+            case "proposals":
+                try await codeMemoryProposals(arguments)
+            case "accept":
+                try await codeMemoryAccept(arguments)
+            case "reject":
+                try await codeMemoryReject(arguments)
+            case "graph":
+                try await codeMemoryGraph(arguments)
+            case "trace":
+                try await codeMemoryTrace(arguments)
+            case "reindex":
+                try await codeMemoryReindex(arguments)
+            case "sync":
+                try await codeMemorySync(arguments)
             case "record-event":
                 try await recordCodeMemoryEvent(arguments)
-            case "import-legacy":
-                try await importLegacy(arguments)
             case "record-shell":
                 try await recordShell(arguments)
             case "-h", "--help", "help":
@@ -129,44 +139,6 @@ enum ClaudeStatsMemoryCLI {
         )
     }
 
-    private static func history(_ arguments: [String]) async throws {
-        guard let subcommand = arguments.first else {
-            throw CLIError.message("Usage: claude-stats-memory history list|search|show")
-        }
-        let storage = MemorySQLiteStore()
-        switch subcommand {
-        case "list":
-            let records = try await storage.records(limit: 50)
-            for record in records where record.kind == .terminalRun || record.kind == .terminalPipe || record.kind == .shellMetadata {
-                print("\(record.id)\t\(record.title)\t\(record.exitCode.map(String.init) ?? "-")")
-            }
-        case "search":
-            let query = Array(arguments.dropFirst()).joined(separator: " ")
-            guard !query.isEmpty else { throw CLIError.message("Usage: claude-stats-memory history search <query>") }
-            let results = try await storage.search(query: query, limit: 30)
-            for result in results where result.record.kind == .terminalRun || result.record.kind == .terminalPipe || result.record.kind == .shellMetadata {
-                print("\(result.record.id)\t\(result.record.title)\t\(result.block.excerpt)")
-            }
-        case "show":
-            guard let id = arguments.dropFirst().first else {
-                throw CLIError.message("Usage: claude-stats-memory history show <record-id>")
-            }
-            guard let record = try await storage.record(id: id) else {
-                throw CLIError.message("No history record found for \(id).")
-            }
-            print("\(record.title)")
-            if let cwd = record.cwd { print("cwd: \(cwd)") }
-            if let exitCode = record.exitCode { print("exit: \(exitCode)") }
-            let blocks = try await storage.blocks(recordID: id)
-            for block in blocks {
-                print("\n[\(block.role.rawValue)]")
-                print(block.text)
-            }
-        default:
-            throw CLIError.message("Usage: claude-stats-memory history list|search|show")
-        }
-    }
-
     private static func shellInit(_ arguments: [String]) throws {
         guard let subcommand = arguments.first else {
             throw CLIError.message("Usage: claude-stats-memory init zsh|bash|show|uninstall")
@@ -218,12 +190,20 @@ enum ClaudeStatsMemoryCLI {
         switch subcommand {
         case "start":
             let pid = try manager.start(helperPath: helperPath())
+            let drained = await CodeMemoryEventOutbox().drain()
             print("memoryd started pid=\(pid)")
+            if drained.delivered > 0 || drained.remaining > 0 {
+                print("outbox drained delivered=\(drained.delivered) remaining=\(drained.remaining)")
+            }
         case "stop":
             let stopped = try manager.stop()
             print(stopped ? "memoryd stopped" : "memoryd was not running")
         case "status":
+            let drained = await CodeMemoryEventOutbox().drain()
             print(await manager.status())
+            if drained.delivered > 0 || drained.remaining > 0 {
+                print("outbox delivered=\(drained.delivered) remaining=\(drained.remaining)")
+            }
         default:
             throw CLIError.message("Usage: claude-stats-memory memoryd start|stop|status")
         }
@@ -239,11 +219,74 @@ enum ClaudeStatsMemoryCLI {
     private static func codeMemoryContext(_ arguments: [String]) async throws {
         let query = arguments.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { throw CLIError.message("Usage: claude-stats-memory context <query>") }
-        let response = try await CodeMemoryHTTPClient().search(query: query, projectID: nil, limit: 10)
-        let lines = response.results.map { result in
-            "- [\(result.memory.type)] \(result.memory.title): \(result.memory.body)"
+        let response = try await CodeMemoryHTTPClient().contextPack(query: query, projectID: nil, limit: 10)
+        try printJSON(response)
+    }
+
+    private static func codeMemoryProposals(_ arguments: [String]) async throws {
+        let options = parseOptions(arguments)
+        let response = try await CodeMemoryHTTPClient().proposals(projectID: options["project"] ?? options["project-id"], limit: 100)
+        try printJSON(CodeMemoryMemoriesResponse(memories: response))
+    }
+
+    private static func codeMemoryAccept(_ arguments: [String]) async throws {
+        guard let id = arguments.first else { throw CLIError.message("Usage: claude-stats-memory accept <memory-id>") }
+        try await CodeMemoryHTTPClient().accept(memoryID: id)
+        print("accepted")
+    }
+
+    private static func codeMemoryReject(_ arguments: [String]) async throws {
+        guard let id = arguments.first else { throw CLIError.message("Usage: claude-stats-memory reject <memory-id>") }
+        try await CodeMemoryHTTPClient().reject(memoryID: id)
+        print("rejected")
+    }
+
+    private static func codeMemoryGraph(_ arguments: [String]) async throws {
+        guard let project = arguments.first else { throw CLIError.message("Usage: claude-stats-memory graph <project-id>") }
+        let response = try await CodeMemoryHTTPClient().graph(projectID: project)
+        try printJSON(response)
+    }
+
+    private static func codeMemoryTrace(_ arguments: [String]) async throws {
+        guard let runID = arguments.first else { throw CLIError.message("Usage: claude-stats-memory trace <run-id>") }
+        let response = try await CodeMemoryHTTPClient().trace(runID: runID)
+        try printJSON(response)
+    }
+
+    private static func codeMemoryReindex(_ arguments: [String]) async throws {
+        let options = parseOptions(arguments)
+        let response = try await CodeMemoryHTTPClient().reindex(projectID: options["project"] ?? options["project-id"])
+        try printJSON(response)
+    }
+
+    private static func codeMemorySync(_ arguments: [String]) async throws {
+        let options = parseOptions(arguments)
+        let projectID = options["project"] ?? options["project-id"] ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath).lastPathComponent
+        let path = options["path"] ?? FileManager.default.currentDirectoryPath
+        let body: String
+        if let text = options["body"] {
+            body = text
+        } else {
+            body = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
         }
-        print(lines.joined(separator: "\n"))
+        guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw CLIError.message("Usage: claude-stats-memory sync --project <id> --path <file> [--kind ai_config]")
+        }
+        let kind = options["kind"] ?? "manual"
+        let source = CodeMemorySourceInput(
+            id: options["id"],
+            projectID: projectID,
+            title: options["title"] ?? URL(fileURLWithPath: path).lastPathComponent,
+            body: body,
+            kind: kind,
+            uri: options["uri"] ?? path,
+            path: path,
+            contentHash: MemoryHash.textHash(body),
+            infer: options["infer"] == "1" || options["infer"] == "true",
+            metadata: ["source": "cli"]
+        )
+        let response = try await CodeMemoryHTTPClient().ingestSource(source)
+        try printJSON(response)
     }
 
     private static func recordCodeMemoryEvent(_ arguments: [String]) async throws {
@@ -272,42 +315,6 @@ enum ClaudeStatsMemoryCLI {
         )
         try await CodeMemoryHTTPClient().recordEvent(event)
         print("recorded")
-    }
-
-    private static func importLegacy(_ arguments: [String]) async throws {
-        let options = parseOptions(arguments)
-        let projectID = options["project"] ?? options["project-id"] ?? "legacy"
-        let mode = options["kind"] ?? arguments.first ?? "all"
-        let storage = MemorySQLiteStore()
-        let records: [MemoryRecord]
-        switch mode {
-        case "ai", "aiSession", "ai-sessions":
-            records = try await storage.records(kind: .aiSession, limit: 250)
-        case "terminal":
-            records = try await storage.records(limit: 250).filter { $0.kind == .terminalRun || $0.kind == .terminalPipe || $0.kind == .shellMetadata }
-        case "all":
-            records = try await storage.records(limit: 250)
-        default:
-            throw CLIError.message("Usage: claude-stats-memory import-legacy [all|ai|terminal] [--project <id>]")
-        }
-
-        var legacy: [CodeMemoryLegacyRecord] = []
-        for record in records {
-            let blocks = try await storage.blocks(recordID: record.id, limit: 20)
-            let body = blocks.map(\.text).joined(separator: "\n\n")
-            legacy.append(
-                CodeMemoryLegacyRecord(
-                    id: record.id,
-                    ref: blocks.first?.ref ?? record.id,
-                    title: record.title,
-                    body: body.isEmpty ? record.title : body,
-                    type: record.kind == .aiSession ? "decision" : "fact",
-                    scope: CodeMemoryNewScope(kind: "project", key: projectID, title: record.projectPath ?? record.cwd)
-                )
-            )
-        }
-        let response = try await CodeMemoryHTTPClient().importLegacy(CodeMemoryLegacyImportRequest(projectID: projectID, records: legacy))
-        try printJSON(response)
     }
 
     private static func parseOptions(_ arguments: [String]) -> [String: String] {
@@ -345,13 +352,18 @@ enum ClaudeStatsMemoryCLI {
             Usage:
               claude-stats-memory run <command> [args...]
               claude-stats-memory pipe
-              claude-stats-memory history list|search|show
               claude-stats-memory init zsh|bash|show|uninstall
               claude-stats-memory memoryd start|stop|status
               claude-stats-memory search <query>
               claude-stats-memory context <query>
+              claude-stats-memory proposals [--project <id>]
+              claude-stats-memory accept <memory-id>
+              claude-stats-memory reject <memory-id>
+              claude-stats-memory graph <project-id>
+              claude-stats-memory trace <run-id>
+              claude-stats-memory reindex [--project <id>]
+              claude-stats-memory sync --project <id> --path <file> [--kind ai_config] [--infer true]
               claude-stats-memory record-event --project <id> --title <title> --body <text>
-              claude-stats-memory import-legacy [all|ai|terminal] [--project <id>]
             """
         )
     }

@@ -17,30 +17,56 @@ enum LocalAISemanticSearchError: Error, LocalizedError {
 @Observable
 final class LocalAIStore {
     let modelStore: LocalAIModelStore
+    var completeLocalModeEnabled: Bool {
+        didSet { defaults.set(completeLocalModeEnabled, forKey: Keys.completeLocalModeEnabled) }
+    }
     private(set) var isIndexing = false
+    private(set) var localAPIEndpoint: LocalAIOpenAIEndpoint?
+    private(set) var localAPIError: String?
     private(set) var lastSemanticError: String?
 
+    @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let embeddingIndex: TranscriptEmbeddingIndex
     @ObservationIgnored private let engineFactory: LocalAIEmbeddingEngineFactory
+    @ObservationIgnored private let openAIService: LocalAIOpenAIService
+    @ObservationIgnored private var openAIServer: LocalAIOpenAIServer?
 
     private static let chunkerVersion = "semantic-chunker-v1"
 
     init(
         modelStore: LocalAIModelStore = LocalAIModelStore(),
         embeddingIndex: TranscriptEmbeddingIndex = TranscriptEmbeddingIndex(),
-        engineFactory: LocalAIEmbeddingEngineFactory = LocalAIEmbeddingEngineFactory()
+        engineFactory: LocalAIEmbeddingEngineFactory = LocalAIEmbeddingEngineFactory(),
+        defaults: UserDefaults = .standard
     ) {
         self.modelStore = modelStore
+        self.defaults = defaults
         self.embeddingIndex = embeddingIndex
         self.engineFactory = engineFactory
+        self.openAIService = LocalAIOpenAIService(modelStore: modelStore)
+        self.completeLocalModeEnabled = (defaults.object(forKey: Keys.completeLocalModeEnabled) as? Bool) ?? false
     }
 
     var semanticSearchAvailable: Bool {
-        modelStore.installedModelURL(for: modelStore.selectedModel) != nil
+        modelStore.installedModelURL(for: modelStore.selectedEmbeddingModel) != nil
+    }
+
+    var localLLMAvailable: Bool {
+        modelStore.installedModelURL(for: modelStore.selectedLLMModel) != nil
+    }
+
+    var localAPIStatusText: String {
+        if let localAPIEndpoint {
+            return localAPIEndpoint.baseURL.absoluteString
+        }
+        if let localAPIError {
+            return localAPIError
+        }
+        return "Stopped"
     }
 
     var selectedEmbeddingStatus: EmbeddingModelStatus {
-        let state = modelStore.installState(for: modelStore.selectedModel.id)
+        let state = modelStore.installState(for: modelStore.selectedEmbeddingModel.id)
         switch state.phase {
         case .notInstalled:
             return .notConfigured
@@ -151,8 +177,49 @@ final class LocalAIStore {
         }
     }
 
+    @discardableResult
+    func startOpenAICompatibleServer() -> LocalAIOpenAIEndpoint? {
+        do {
+            let token = localAPIToken()
+            let server = openAIServer ?? LocalAIOpenAIServer(service: openAIService, token: token)
+            let endpoint = try server.start()
+            openAIServer = server
+            localAPIEndpoint = endpoint
+            localAPIError = nil
+            return endpoint
+        } catch {
+            localAPIEndpoint = nil
+            localAPIError = error.localizedDescription
+            return nil
+        }
+    }
+
+    func stopOpenAICompatibleServer() {
+        openAIServer?.stop()
+        openAIServer = nil
+        localAPIEndpoint = nil
+        localAPIError = nil
+    }
+
+    func restartOpenAICompatibleServerIfNeeded() {
+        guard completeLocalModeEnabled else { return }
+        _ = startOpenAICompatibleServer()
+    }
+
+    func localAIEnvironment() -> CodeMemoryLocalAIEnvironment? {
+        guard let localAPIEndpoint else { return nil }
+        return CodeMemoryLocalAIEnvironment(
+            baseURL: localAPIEndpoint.baseURL,
+            token: localAPIEndpoint.token,
+            llmModelID: modelStore.selectedLLMModel.id,
+            embeddingModelID: modelStore.selectedEmbeddingModel.id,
+            embeddingDimensions: modelStore.selectedEmbeddingModel.dimensions,
+            adaptersEnabled: completeLocalModeEnabled
+        )
+    }
+
     private func selectedModelAndEngine() throws -> (model: LocalAIModelManifest, engine: any EmbeddingEngine) {
-        let model = modelStore.selectedModel
+        let model = modelStore.selectedEmbeddingModel
         guard let url = modelStore.installedModelURL(for: model) else {
             throw LocalAISemanticSearchError.modelNotInstalled
         }
@@ -254,5 +321,19 @@ final class LocalAIStore {
         var textHash: String {
             TranscriptEmbeddingIndex.textHash(text)
         }
+    }
+
+    private func localAPIToken() -> String {
+        if let stored = defaults.string(forKey: Keys.localAPIToken), !stored.isEmpty {
+            return stored
+        }
+        let token = "cs-local-\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        defaults.set(token, forKey: Keys.localAPIToken)
+        return token
+    }
+
+    private enum Keys {
+        static let completeLocalModeEnabled = "LocalAI.completeLocalModeEnabled"
+        static let localAPIToken = "LocalAI.openAICompatibleToken"
     }
 }

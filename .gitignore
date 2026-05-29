@@ -28,6 +28,9 @@ Package.resolved
 *.swp
 *~
 
+# === Python === #
+__pycache__/
+
 # === Credentials / env === #
 .env
 .env.*
@@ -43,6 +46,7 @@ Package.resolved
 
 # === Release artifacts === #
 dist/
+*.gguf
 
 # === Generated Ghostty embedding resources === #
 GhosttyEmbed/Resources/*

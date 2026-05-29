@@ -31,11 +31,14 @@ MEMORY_STATUSES = {
 DETERMINISTIC_SOURCE_KINDS = {
     "AGENTS.md",
     "CLAUDE.md",
+    "ai_config",
+    "codex_transcript",
+    "claude_transcript",
+    "manual",
     "repo_config",
     "script",
     "test",
     "user_instruction",
-    "legacy_import",
     "terminal_capture",
 }
 
@@ -119,3 +122,17 @@ class MemoryInput:
             source_refs=[ref for ref in source_refs if isinstance(ref, dict)],
             metadata=metadata,
         )
+
+
+def string_map(value: dict[str, Any] | None) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, str] = {}
+    for key, item in value.items():
+        if item is None:
+            continue
+        if isinstance(item, (dict, list)):
+            result[str(key)] = str(item)
+        else:
+            result[str(key)] = str(item)
+    return result

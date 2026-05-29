@@ -23,6 +23,11 @@ enum LocalAIPaths {
         applicationSupportRoot(fileManager: fileManager).appendingPathComponent("Models", isDirectory: true)
     }
 
+    static func modelsDirectory(for kind: LocalAIModelKind, fileManager: FileManager = .default) -> URL {
+        modelsDirectory(fileManager: fileManager)
+            .appendingPathComponent(kind.storageDirectoryName, isDirectory: true)
+    }
+
     static func stateURL(fileManager: FileManager = .default) -> URL {
         applicationSupportRoot(fileManager: fileManager).appendingPathComponent("models-state.json")
     }

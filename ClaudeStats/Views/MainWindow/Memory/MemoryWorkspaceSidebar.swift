@@ -5,8 +5,6 @@ struct MemoryWorkspaceSidebar: View {
     @Bindable var store: MemoryStore
     var onExit: () -> Void
 
-    @Environment(AppEnvironment.self) private var env
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Color.clear.frame(height: 44)
@@ -44,7 +42,7 @@ struct MemoryWorkspaceSidebar: View {
                 .onTapGesture { clearFocus() }
         }
         .task {
-            await store.loadIfNeeded(sessionStore: env.store)
+            await store.loadIfNeeded()
         }
     }
 
@@ -56,7 +54,7 @@ struct MemoryWorkspaceSidebar: View {
                     .tracking(1.0)
                     .foregroundStyle(Color.stxMuted)
                 Spacer(minLength: 8)
-                if store.isIndexing || store.isLoading {
+                if store.isCodeMemoryLoading || store.isLoading {
                     ProgressView()
                         .controlSize(.mini)
                 }
@@ -64,7 +62,6 @@ struct MemoryWorkspaceSidebar: View {
 
             HStack(spacing: 10) {
                 AIConfigsMiniStat(value: "\(store.codeHealth?.memoryCount ?? 0)", label: "code")
-                AIConfigsMiniStat(value: "\(store.counts.recordCount)", label: "legacy")
                 Spacer(minLength: 0)
                 Button {
                     Task { await store.refreshCodeMemoryStatus() }
@@ -74,8 +71,8 @@ struct MemoryWorkspaceSidebar: View {
                         .frame(width: 24, height: 22)
                 }
                 .buttonStyle(.plain)
-                .disabled(store.isIndexing)
-                .help("Rebuild Memory index")
+                .disabled(store.isCodeMemoryLoading)
+                .help("Refresh Code Memory")
             }
 
             HStack(spacing: 8) {
@@ -95,63 +92,51 @@ struct MemoryWorkspaceSidebar: View {
 
     private func title(for section: MemoryWorkspaceSection) -> String {
         switch section {
+        case .overview: "Overview"
         case .search: "Search"
+        case .context: "Context"
         case .projects: "Projects"
         case .modules: "Modules"
         case .graph: "Graph"
         case .trace: "Trace"
         case .proposals: "Proposals"
-        case .legacyHistory: "Legacy History"
         case .settings: "Settings"
-        case .aiSessions: "AI Sessions"
-        case .terminalHistory: "Terminal History"
-        case .sources: "Sources"
-        case .setup: "Setup"
         }
     }
 
     private func symbol(for section: MemoryWorkspaceSection) -> String {
         switch section {
+        case .overview: "gauge.with.dots.needle.67percent"
         case .search: "magnifyingglass"
+        case .context: "doc.text.magnifyingglass"
         case .projects: "folder"
         case .modules: "square.stack.3d.up"
         case .graph: "point.3.connected.trianglepath.dotted"
         case .trace: "list.bullet.clipboard"
         case .proposals: "checklist"
-        case .legacyHistory: "archivebox"
         case .settings: "gearshape"
-        case .aiSessions: "text.bubble"
-        case .terminalHistory: "terminal"
-        case .sources: "externaldrive.connected.to.line.below"
-        case .setup: "wrench.and.screwdriver"
         }
     }
 
     private func count(for section: MemoryWorkspaceSection) -> Int? {
         switch section {
+        case .overview:
+            store.codeHealth.map { ($0.proposalCount ?? 0) + ($0.projectionPending ?? 0) }
         case .search:
             store.codeSearchResults.isEmpty ? nil : store.codeSearchResults.count
+        case .context:
+            store.codeContextPack.map { $0.context.rules.count + $0.context.facts.count + $0.context.risks.count + $0.context.commands.count + $0.context.decisions.count }
         case .projects:
             store.codeProjects.count
         case .modules:
-            store.codeGraph?.nodes.filter { $0.kind == "module" }.count
+            store.codeModules.count
         case .graph:
             store.codeGraph?.nodes.count
         case .trace:
             store.codeTrace?.memoryUsage.count
         case .proposals:
-            nil
-        case .legacyHistory:
-            store.counts.recordCount
+            store.codeProposals.count
         case .settings:
-            nil
-        case .aiSessions:
-            store.aiRecords.count
-        case .terminalHistory:
-            store.terminalRecords.count
-        case .sources:
-            store.sources.count
-        case .setup:
             nil
         }
     }
