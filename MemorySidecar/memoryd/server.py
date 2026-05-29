@@ -71,9 +71,14 @@ class MemoryHTTPRequestHandler(BaseHTTPRequestHandler):
             elif parsed.path == "/v1/sync/start":
                 self._json({"status": "ok"})
             elif parsed.path in {"/v1/reindex", "/v1/adapters/reindex"}:
-                self._json(self.store.reindex(project_id=body.get("project_id") if isinstance(body, dict) else None))
+                project_id = body.get("project_id") if isinstance(body, dict) else None
+                drain = bool(body.get("drain")) if isinstance(body, dict) else False
+                drain_limit = _bounded_int(body.get("drain_limit"), default=10, minimum=1, maximum=25) if isinstance(body, dict) and body.get("drain_limit") else None
+                self._json(self.store.reindex(project_id=project_id, drain=drain, drain_limit=drain_limit))
             elif parsed.path == "/v1/projections/drain":
-                self._json(self.store.drain_projection_jobs())
+                limit = _bounded_int(body.get("limit") if isinstance(body, dict) else None, default=10, minimum=1, maximum=25)
+                include_failed = _bool_value(body.get("include_failed")) if isinstance(body, dict) else False
+                self._json(self.store.drain_projection_jobs(limit=limit, include_failed=include_failed))
             elif parsed.path == "/v1/memories/propose":
                 self._json(self.store.propose_memory(body))
             elif parsed.path.startswith("/v1/memories/") and parsed.path.endswith("/accept"):
@@ -189,3 +194,19 @@ def _project_id_from_graph_path(path: str) -> str:
     suffix = "/graph"
     raw = path[len(prefix) : -len(suffix)]
     return unquote(raw)
+
+
+def _bounded_int(value: object, *, default: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(minimum, min(parsed, maximum))
+
+
+def _bool_value(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)

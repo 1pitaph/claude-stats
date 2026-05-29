@@ -46,6 +46,56 @@ struct LocalAIModelCatalogTests {
     }
 }
 
+@Suite("Local AI helper runtime")
+struct LocalAIHelperRuntimeTests {
+    @Test("Runtime config hash is stable and changes with selected models")
+    func runtimeConfigHash() {
+        let first = LocalAIHelperRuntimeConfig(
+            token: "token",
+            embeddingModelID: "embedding-a",
+            llmModelID: "llm-a",
+            embeddingDimensions: 384
+        )
+        let same = LocalAIHelperRuntimeConfig(
+            token: "token",
+            embeddingModelID: "embedding-a",
+            llmModelID: "llm-a",
+            embeddingDimensions: 384
+        )
+        let changed = LocalAIHelperRuntimeConfig(
+            token: "token",
+            embeddingModelID: "embedding-b",
+            llmModelID: "llm-a",
+            embeddingDimensions: 384
+        )
+
+        #expect(first.configHash == same.configHash)
+        #expect(first.configHash != changed.configHash)
+        #expect(first.baseURL.absoluteString == "http://127.0.0.1:18765/v1")
+    }
+
+    @Test("Runtime config writes with owner-only permissions and round-trips")
+    func runtimeConfigWriteRoundTrip() throws {
+        let root = try TempDir.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("runtime.json")
+        let config = LocalAIHelperRuntimeConfig(
+            token: "secret",
+            embeddingModelID: "embedding",
+            llmModelID: "llm",
+            embeddingDimensions: 384
+        )
+
+        try config.write(to: url)
+        let decoded = try LocalAIHelperRuntimeConfig.load(from: url)
+        let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
+        let permissions = try #require(attrs[.posixPermissions] as? NSNumber)
+
+        #expect(decoded == config)
+        #expect(permissions.intValue & 0o777 == 0o600)
+    }
+}
+
 @Suite("Local AI file verification")
 struct LocalAIModelFileVerifierTests {
     @Test("SHA-256 verifier reports mismatches")

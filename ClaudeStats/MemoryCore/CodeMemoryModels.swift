@@ -293,6 +293,9 @@ struct CodeMemoryProjectionDrainResponse: Codable, Sendable, Hashable {
     var remaining: Int? = nil
     var enqueued: Int? = nil
     var drained: CodeMemoryProjectionDrainStats? = nil
+    var skipped: Bool? = nil
+    var message: String? = nil
+    var blockers: [String: String]? = nil
 }
 
 struct CodeMemoryProjectionDrainStats: Codable, Sendable, Hashable {

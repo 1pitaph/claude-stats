@@ -32,6 +32,18 @@ enum LocalAIPaths {
         applicationSupportRoot(fileManager: fileManager).appendingPathComponent("models-state.json")
     }
 
+    static func helperRuntimeConfigURL(fileManager: FileManager = .default) -> URL {
+        applicationSupportRoot(fileManager: fileManager).appendingPathComponent("openai-helper-runtime.json")
+    }
+
+    static func helperPIDURL(fileManager: FileManager = .default) -> URL {
+        applicationSupportRoot(fileManager: fileManager).appendingPathComponent("openai-helper.pid")
+    }
+
+    static func helperMetaURL(fileManager: FileManager = .default) -> URL {
+        applicationSupportRoot(fileManager: fileManager).appendingPathComponent("openai-helper-meta.json")
+    }
+
     static func embeddingIndexURL(fileManager: FileManager = .default) -> URL {
         cachesRoot(fileManager: fileManager).appendingPathComponent("embedding-index.sqlite3")
     }

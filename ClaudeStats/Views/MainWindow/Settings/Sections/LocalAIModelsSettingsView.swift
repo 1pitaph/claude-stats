@@ -134,6 +134,9 @@ struct LocalAIModelsSettingsView: View {
                         startCompleteLocalMode(localAI: localAI)
                     } else {
                         localAI.stopOpenAICompatibleServer()
+                        Task {
+                            await env.memory.startCodeMemorySidecar(localAIEnvironment: nil)
+                        }
                     }
                 }
                 SettingRowDivider()
@@ -208,7 +211,12 @@ struct LocalAIModelsSettingsView: View {
                         state: modelStore.installState(for: model.id),
                         isRecommended: model.id == modelStore.recommendedModelID(for: kind),
                         isSelected: model.id == modelStore.selectedModelID(for: kind),
-                        onSelect: { modelStore.select(modelID: model.id, kind: kind) },
+                        onSelect: {
+                            modelStore.select(modelID: model.id, kind: kind)
+                            if env.localAI.completeLocalModeEnabled {
+                                startCompleteLocalMode(localAI: env.localAI)
+                            }
+                        },
                         onDownload: { modelStore.download(modelID: model.id) },
                         onDelete: { modelStore.delete(modelID: model.id) }
                     )

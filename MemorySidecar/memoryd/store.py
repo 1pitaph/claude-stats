@@ -18,6 +18,7 @@ def canonical_json(value: Any) -> str:
 
 class MemoryStore:
     schema_version = 2
+    api_version = 4
 
     def __init__(self, root: Path, adapters: MemoryAdapters | None = None):
         self.root = root
@@ -43,6 +44,7 @@ class MemoryStore:
         modules = self.conn.execute("SELECT COUNT(*) AS count FROM modules").fetchone()
         return {
             "status": "ok",
+            "api_version": self.api_version,
             "store": str(self.db_path),
             "event_count": int(row["count"]),
             "memory_count": int(memories["count"]),
@@ -181,7 +183,7 @@ class MemoryStore:
                 "source_refs": after.get("source_refs", []),
             }
         )
-        result["drained"] = self.drain_projection_jobs(limit=20)
+        result["drained"] = self.drain_projection_jobs(limit=5)
         return result
 
     def reject_memory(self, memory_id: str, actor: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -361,7 +363,7 @@ class MemoryStore:
                     proposed.append(proposed_event["memory"])
         return {"status": "ok", "event": observed, "source": source, "created": created, "proposed": proposed}
 
-    def reindex(self, *, project_id: str | None = None) -> dict[str, Any]:
+    def reindex(self, *, project_id: str | None = None, drain: bool = False, drain_limit: int | None = None) -> dict[str, Any]:
         params: list[Any] = []
         where = ["status = 'active'"]
         if project_id:
@@ -375,18 +377,39 @@ class MemoryStore:
             event = self.event(event_id) if event_id else {"event_id": f"reindex:{memory['id']}", "timestamp": time.time()}
             enqueued += self._enqueue_projection_jobs(memory, event, force=True)
         self.conn.commit()
-        drained = self.drain_projection_jobs(limit=max(100, enqueued))
-        return {"enqueued": enqueued, "drained": drained}
+        result = {"enqueued": enqueued, "remaining": self._projection_count("pending") + self._projection_count("failed")}
+        if drain:
+            result["drained"] = self.drain_projection_jobs(limit=drain_limit or min(max(1, enqueued), 10))
+        return result
 
-    def drain_projection_jobs(self, *, limit: int = 100) -> dict[str, Any]:
+    def drain_projection_jobs(self, *, limit: int = 10, include_failed: bool = False) -> dict[str, Any]:
+        blockers = self._projection_adapter_blockers()
+        if blockers:
+            pending_remaining = self._projection_count("pending")
+            failed_total = self._projection_count("failed")
+            return {
+                "delivered": 0,
+                "failed": 0,
+                "remaining": pending_remaining + failed_total,
+                "pending": pending_remaining,
+                "failed_total": failed_total,
+                "skipped": True,
+                "message": "Projection drain skipped because adapters are unavailable.",
+                "blockers": blockers,
+            }
+
+        statuses = ["pending"]
+        if include_failed:
+            statuses.append("failed")
+        placeholders = ",".join("?" for _ in statuses)
         rows = self.conn.execute(
-            """
+            f"""
             SELECT * FROM projection_jobs
-            WHERE status IN ('pending', 'failed')
+            WHERE status IN ({placeholders})
             ORDER BY updated_at ASC
             LIMIT ?
             """,
-            (limit,),
+            (*statuses, max(1, min(limit, 25))),
         ).fetchall()
         delivered = 0
         failed = 0
@@ -431,7 +454,16 @@ class MemoryStore:
                 )
                 failed += 1
         self.conn.commit()
-        return {"delivered": delivered, "failed": failed, "remaining": self._projection_count("pending") + self._projection_count("failed")}
+        pending_remaining = self._projection_count("pending")
+        failed_total = self._projection_count("failed")
+        return {
+            "delivered": delivered,
+            "failed": failed,
+            "remaining": pending_remaining + failed_total,
+            "pending": pending_remaining,
+            "failed_total": failed_total,
+            "skipped": False,
+        }
 
     def search(self, query: str, *, project_id: str | None = None, limit: int = 20, status: str | None = "active") -> dict[str, Any]:
         like = f"%{query.lower()}%"
@@ -596,6 +628,24 @@ class MemoryStore:
     def _projection_count(self, status: str) -> int:
         row = self.conn.execute("SELECT COUNT(*) AS count FROM projection_jobs WHERE status = ?", (status,)).fetchone()
         return int(row["count"])
+
+    def _projection_adapter_blockers(self) -> dict[str, str]:
+        names = set(self.adapters.names())
+        if not names:
+            return {}
+        health = self.adapters.health()
+        blockers: dict[str, str] = {}
+        for name in sorted(names):
+            status = str(health.get(name, "unavailable")).strip()
+            normalized = status.lower()
+            if (
+                "endpoint unavailable" in normalized
+                or normalized.startswith("unavailable")
+                or normalized.startswith("disabled")
+                or normalized.startswith("error")
+            ):
+                blockers[name] = status
+        return blockers
 
     def _enqueue_projection_jobs(self, memory: dict[str, Any], event: dict[str, Any], *, force: bool = False) -> int:
         if memory.get("status") != "active":

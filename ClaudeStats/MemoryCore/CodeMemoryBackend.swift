@@ -124,7 +124,7 @@ struct CodeMemoryHTTPClient: CodeMemoryBackend {
     }
 
     func drainProjections() async throws -> CodeMemoryProjectionDrainResponse {
-        try await post("/v1/projections/drain", body: CodeMemoryProjectRequest(projectID: nil))
+        try await post("/v1/projections/drain", body: CodeMemoryProjectionDrainRequest(limit: 10, includeFailed: false))
     }
 
     func reindex(projectID: String?) async throws -> CodeMemoryProjectionDrainResponse {
@@ -154,6 +154,7 @@ struct CodeMemoryHTTPClient: CodeMemoryBackend {
         let url = baseURL.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 20
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder.codeMemoryEncoder.encode(body)
         let (data, response) = try await session.data(for: request)
@@ -202,6 +203,16 @@ private struct CodeMemoryProjectRequest: Encodable {
 
     enum CodingKeys: String, CodingKey {
         case projectID = "project_id"
+    }
+}
+
+private struct CodeMemoryProjectionDrainRequest: Encodable {
+    var limit: Int
+    var includeFailed: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case limit
+        case includeFailed = "include_failed"
     }
 }
 

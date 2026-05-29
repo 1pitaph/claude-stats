@@ -8,6 +8,8 @@ import UserNotifications
 final class AppDelegate: GhosttyEmbed.AppDelegate {
     let env: AppEnvironment
     private let linuxDoNotificationDelegate = LinuxDoUserNotificationDelegate()
+    private var residentStatusItem: NSStatusItem?
+    private var userRequestedTermination = false
 
     override init() {
         let terminalStore = MainActor.assumeIsolated {
@@ -21,13 +23,32 @@ final class AppDelegate: GhosttyEmbed.AppDelegate {
 
     override func applicationDidFinishLaunching(_ notification: Notification) {
         super.applicationDidFinishLaunching(notification)
+        ProcessInfo.processInfo.disableAutomaticTermination("Claude Stats is a resident menu bar app.")
+        ProcessInfo.processInfo.disableSuddenTermination()
         linuxDoNotificationDelegate.fallback = self
         UNUserNotificationCenter.current().delegate = linuxDoNotificationDelegate
         MainActor.assumeIsolated {
+            installResidentStatusItem()
             Theme.registerFonts()
             env.start()
             requestMainWindowOnLaunchIfNeeded()
         }
+    }
+
+    @MainActor
+    func requestUserTermination() {
+        userRequestedTermination = true
+        AppLivenessRescue.disarm()
+        ProcessInfo.processInfo.enableSuddenTermination()
+        NSApplication.shared.terminate(nil)
+    }
+
+    @MainActor
+    private func installResidentStatusItem() {
+        guard residentStatusItem == nil else { return }
+        let item = NSStatusBar.system.statusItem(withLength: 0)
+        item.button?.isHidden = true
+        residentStatusItem = item
     }
 
     @MainActor
@@ -58,6 +79,68 @@ final class AppDelegate: GhosttyEmbed.AppDelegate {
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if userRequestedTermination {
+            Log.app.info("Application termination approved after explicit user request")
+            return .terminateNow
+        }
+
+        Log.app.warning("Unexpected application termination request cancelled")
+        return .terminateCancel
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        if userRequestedTermination {
+            Log.app.info("Application will terminate after explicit user request")
+            return
+        }
+
+        guard let reason = AppLivenessRescue.activeReason() else {
+            Log.app.error("Application is terminating without an explicit user request outside the liveness rescue window")
+            return
+        }
+
+        Log.app.error("Application is terminating during liveness rescue window for \(reason, privacy: .public); launching a replacement instance")
+        launchReplacementInstance()
+    }
+
+    private func launchReplacementInstance() {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = ["-n", Bundle.main.bundleURL.path]
+        do {
+            try process.run()
+        } catch {
+            Log.app.error("Failed to launch replacement app instance: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+}
+
+enum AppLivenessRescue {
+    private static let deadlineKey = "ClaudeStats.AppLivenessRescue.deadline"
+    private static let reasonKey = "ClaudeStats.AppLivenessRescue.reason"
+
+    static func arm(reason: String, duration: TimeInterval = 45) {
+        UserDefaults.standard.set(Date().addingTimeInterval(duration).timeIntervalSince1970, forKey: deadlineKey)
+        UserDefaults.standard.set(reason, forKey: reasonKey)
+    }
+
+    static func disarm() {
+        UserDefaults.standard.removeObject(forKey: deadlineKey)
+        UserDefaults.standard.removeObject(forKey: reasonKey)
+    }
+
+    static func activeReason(now: Date = Date()) -> String? {
+        let deadline = UserDefaults.standard.double(forKey: deadlineKey)
+        guard deadline > now.timeIntervalSince1970 else {
+            disarm()
+            return nil
+        }
+        return UserDefaults.standard.string(forKey: reasonKey) ?? "memory action"
+    }
 }
 
 private final class LinuxDoUserNotificationDelegate: NSObject, UNUserNotificationCenterDelegate {

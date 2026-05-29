@@ -45,6 +45,7 @@ class MemorySidecarTests(unittest.TestCase):
 
             self.assertIsNone(first["prev_hash"])
             self.assertEqual(second["prev_hash"], first["hash"])
+            self.assertEqual(store.health()["api_version"], 4)
 
             hits = store.search("run-debug", project_id="claude-stats")
             self.assertEqual(len(hits["results"]), 1)
@@ -148,7 +149,118 @@ class MemorySidecarTests(unittest.TestCase):
 
             reindex = store.reindex(project_id="claude-stats")
             self.assertGreaterEqual(reindex["enqueued"], 1)
-            self.assertGreaterEqual(reindex["drained"]["delivered"], 1)
+            self.assertNotIn("drained", reindex)
+            self.assertGreaterEqual(reindex["remaining"], 1)
+            self.assertEqual(len(adapters.indexed), 2)
+
+            drained_after_reindex = store.drain_projection_jobs()
+            self.assertGreaterEqual(drained_after_reindex["delivered"], 1)
+            self.assertGreaterEqual(len(adapters.indexed), 3)
+
+    def test_projection_drain_skips_failed_jobs_by_default(self):
+        from memoryd.store import MemoryStore
+
+        class FlakyAdapters:
+            def __init__(self):
+                self.fail = True
+                self.indexed = []
+
+            def names(self):
+                return ["fake"]
+
+            def health(self):
+                return {"fake": "enabled"}
+
+            def index_memory(self, memory, event, *, adapter_name=None):
+                if self.fail:
+                    return {"fake": "error: offline"}
+                self.indexed.append(memory["id"])
+                return {"fake": "ok:fake-id"}
+
+            def infer_memories(self, source):
+                return []
+
+            def search(self, query, *, project_id, limit):
+                return []
+
+            def graph(self, project_id, *, limit=80):
+                return {"nodes": [], "edges": []}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            adapters = FlakyAdapters()
+            store = MemoryStore(Path(tmp), adapters=adapters)
+            first = store.append_event(
+                {
+                    "project_id": "claude-stats",
+                    "event_type": "memory.observed",
+                    "after": {"title": "First", "body": "First memory.", "type": "fact"},
+                    "source_refs": [{"kind": "manual", "uri": "first"}],
+                }
+            )
+            second = store.append_event(
+                {
+                    "project_id": "claude-stats",
+                    "event_type": "memory.observed",
+                    "after": {"title": "Second", "body": "Second memory.", "type": "fact"},
+                    "source_refs": [{"kind": "manual", "uri": "second"}],
+                }
+            )
+
+            failed = store.drain_projection_jobs(limit=1)
+            self.assertEqual(failed["failed"], 1)
+            adapters.fail = False
+
+            pending_only = store.drain_projection_jobs(limit=10)
+            self.assertEqual(pending_only["delivered"], 1)
+            self.assertEqual(adapters.indexed, [second["memory"]["id"]])
+            self.assertGreaterEqual(pending_only["failed_total"], 1)
+
+            retried = store.drain_projection_jobs(limit=10, include_failed=True)
+            self.assertEqual(retried["delivered"], 1)
+            self.assertIn(first["memory"]["id"], adapters.indexed)
+
+    def test_projection_drain_skips_when_adapter_endpoint_is_unavailable(self):
+        from memoryd.store import MemoryStore
+
+        class UnavailableAdapters:
+            def names(self):
+                return ["mem0", "graphiti"]
+
+            def health(self):
+                return {
+                    "mem0": "configured but endpoint unavailable: 127.0.0.1:18765 is unreachable",
+                    "graphiti": "configured but endpoint unavailable: 127.0.0.1:18765 is unreachable",
+                }
+
+            def index_memory(self, memory, event, *, adapter_name=None):
+                raise AssertionError("drain should not call unavailable adapters")
+
+            def infer_memories(self, source):
+                return []
+
+            def search(self, query, *, project_id, limit):
+                return []
+
+            def graph(self, project_id, *, limit=80):
+                return {"nodes": [], "edges": []}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = MemoryStore(Path(tmp), adapters=UnavailableAdapters())
+            store.append_event(
+                {
+                    "project_id": "claude-stats",
+                    "event_type": "memory.observed",
+                    "after": {"title": "Queued", "body": "Queued memory.", "type": "fact"},
+                    "source_refs": [{"kind": "manual", "uri": "queued"}],
+                }
+            )
+
+            skipped = store.drain_projection_jobs(limit=10)
+            self.assertTrue(skipped["skipped"])
+            self.assertEqual(skipped["delivered"], 0)
+            self.assertEqual(skipped["failed"], 0)
+            self.assertEqual(skipped["pending"], 2)
+            self.assertEqual(set(skipped["blockers"]), {"mem0", "graphiti"})
 
     def test_adapter_search_must_resolve_to_canonical_memory(self):
         from memoryd.store import MemoryStore

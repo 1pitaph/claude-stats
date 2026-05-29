@@ -235,6 +235,7 @@ final class MemoryStore {
     func reindexCodeMemory() async {
         guard !isCodeMemoryLoading else { return }
         isCodeMemoryLoading = true
+        AppLivenessRescue.arm(reason: "code memory reindex")
         do {
             codeLastReindexResult = try await codeBackend.reindex(projectID: codeSelectedProjectID)
             isCodeMemoryLoading = false
@@ -249,11 +250,16 @@ final class MemoryStore {
     func drainCodeMemoryProjections() async {
         guard !isCodeMemoryLoading else { return }
         isCodeMemoryLoading = true
+        AppLivenessRescue.arm(reason: "code memory projection drain")
         do {
             codeLastProjectionDrainResult = try await codeBackend.drainProjections()
             isCodeMemoryLoading = false
             await refreshCodeMemoryStatus()
-            lastError = nil
+            if codeLastProjectionDrainResult?.skipped == true {
+                lastError = codeLastProjectionDrainResult?.message ?? "Projection drain skipped."
+            } else {
+                lastError = nil
+            }
         } catch {
             isCodeMemoryLoading = false
             lastError = error.localizedDescription

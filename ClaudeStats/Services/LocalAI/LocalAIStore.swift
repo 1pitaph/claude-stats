@@ -28,8 +28,7 @@ final class LocalAIStore {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let embeddingIndex: TranscriptEmbeddingIndex
     @ObservationIgnored private let engineFactory: LocalAIEmbeddingEngineFactory
-    @ObservationIgnored private let openAIService: LocalAIOpenAIService
-    @ObservationIgnored private var openAIServer: LocalAIOpenAIServer?
+    @ObservationIgnored private let helperManager: LocalAIHelperManager
 
     private static let chunkerVersion = "semantic-chunker-v1"
 
@@ -37,13 +36,14 @@ final class LocalAIStore {
         modelStore: LocalAIModelStore = LocalAIModelStore(),
         embeddingIndex: TranscriptEmbeddingIndex = TranscriptEmbeddingIndex(),
         engineFactory: LocalAIEmbeddingEngineFactory = LocalAIEmbeddingEngineFactory(),
+        helperManager: LocalAIHelperManager = LocalAIHelperManager(),
         defaults: UserDefaults = .standard
     ) {
         self.modelStore = modelStore
         self.defaults = defaults
         self.embeddingIndex = embeddingIndex
         self.engineFactory = engineFactory
-        self.openAIService = LocalAIOpenAIService(modelStore: modelStore)
+        self.helperManager = helperManager
         self.completeLocalModeEnabled = (defaults.object(forKey: Keys.completeLocalModeEnabled) as? Bool) ?? false
     }
 
@@ -180,10 +180,8 @@ final class LocalAIStore {
     @discardableResult
     func startOpenAICompatibleServer() -> LocalAIOpenAIEndpoint? {
         do {
-            let token = localAPIToken()
-            let server = openAIServer ?? LocalAIOpenAIServer(service: openAIService, token: token)
-            let endpoint = try server.start()
-            openAIServer = server
+            let config = currentRuntimeConfig()
+            let endpoint = try helperManager.start(config: config)
             localAPIEndpoint = endpoint
             localAPIError = nil
             return endpoint
@@ -195,8 +193,7 @@ final class LocalAIStore {
     }
 
     func stopOpenAICompatibleServer() {
-        openAIServer?.stop()
-        openAIServer = nil
+        _ = try? helperManager.stop()
         localAPIEndpoint = nil
         localAPIError = nil
     }
@@ -207,14 +204,27 @@ final class LocalAIStore {
     }
 
     func localAIEnvironment() -> CodeMemoryLocalAIEnvironment? {
-        guard let localAPIEndpoint else { return nil }
+        let config = currentRuntimeConfig()
+        guard let localAPIEndpoint,
+              helperManager.existingProcessCanServe(config: config)
+        else { return nil }
         return CodeMemoryLocalAIEnvironment(
             baseURL: localAPIEndpoint.baseURL,
             token: localAPIEndpoint.token,
             llmModelID: modelStore.selectedLLMModel.id,
             embeddingModelID: modelStore.selectedEmbeddingModel.id,
             embeddingDimensions: modelStore.selectedEmbeddingModel.dimensions,
+            configurationHash: config.configHash,
             adaptersEnabled: completeLocalModeEnabled
+        )
+    }
+
+    private func currentRuntimeConfig() -> LocalAIHelperRuntimeConfig {
+        LocalAIHelperRuntimeConfig(
+            token: localAPIToken(),
+            embeddingModelID: modelStore.selectedEmbeddingModel.id,
+            llmModelID: modelStore.selectedLLMModel.id,
+            embeddingDimensions: modelStore.selectedEmbeddingModel.dimensions
         )
     }
 

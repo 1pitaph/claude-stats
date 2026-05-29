@@ -23,11 +23,13 @@ enum LocalAIOpenAIServiceError: Error, LocalizedError {
 @MainActor
 final class LocalAIOpenAIService {
     private let modelStore: LocalAIModelStore
+    private let runtimeMetadata: LocalAIServiceRuntimeMetadata?
     private var embeddingEngines: [String: any EmbeddingEngine] = [:]
     private var chatEngines: [String: LlamaChatEngine] = [:]
 
-    init(modelStore: LocalAIModelStore) {
+    init(modelStore: LocalAIModelStore, runtimeMetadata: LocalAIServiceRuntimeMetadata? = nil) {
         self.modelStore = modelStore
+        self.runtimeMetadata = runtimeMetadata
     }
 
     func modelsResponse() -> LocalAIModelsResponse {
@@ -105,13 +107,20 @@ final class LocalAIOpenAIService {
     func health() -> [String: String] {
         let embeddingInstalled = modelStore.installedModelURL(for: modelStore.selectedEmbeddingModel) != nil
         let llmInstalled = modelStore.installedModelURL(for: modelStore.selectedLLMModel) != nil
-        return [
+        var payload = [
             "status": embeddingInstalled && llmInstalled ? "ok" : "degraded",
             "embedding_model": modelStore.selectedEmbeddingModel.id,
             "embedding_installed": embeddingInstalled ? "true" : "false",
             "llm_model": modelStore.selectedLLMModel.id,
             "llm_installed": llmInstalled ? "true" : "false",
         ]
+        if let runtimeMetadata {
+            payload["helper"] = "claude-stats-local-ai"
+            payload["schema_version"] = "\(runtimeMetadata.schemaVersion)"
+            payload["config_hash"] = runtimeMetadata.configHash
+            payload["port"] = "\(runtimeMetadata.port)"
+        }
+        return payload
     }
 
     private func resolveModel(id: String?, kind: LocalAIModelKind) throws -> LocalAIModelManifest {
@@ -127,4 +136,3 @@ final class LocalAIOpenAIService {
         max(1, text.utf8.count / 4)
     }
 }
-

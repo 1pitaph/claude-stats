@@ -7,6 +7,7 @@ struct CodeMemoryLocalAIEnvironment: Sendable, Hashable {
     var llmModelID: String
     var embeddingModelID: String
     var embeddingDimensions: Int
+    var configurationHash: String
     var adaptersEnabled: Bool
 }
 
@@ -21,9 +22,16 @@ struct CodeMemorySidecarConfiguration: Sendable, Hashable {
     }
 }
 
+private struct CodeMemorySidecarLaunchMeta: Codable {
+    var pid: Int32
+    var localAIConfigurationHash: String?
+    var adaptersEnabled: Bool
+}
+
 struct CodeMemorySidecarManager: Sendable {
     var configuration: CodeMemorySidecarConfiguration = CodeMemorySidecarConfiguration()
     var pidURL: URL = MemoryPaths.sidecarPIDURL()
+    var launchMetaURL: URL = MemoryPaths.rootDirectory().appendingPathComponent("memoryd-launch-meta.json", isDirectory: false)
 
     static func defaultHelperPath(bundle: Bundle = .main) -> String {
         if let bundled = bundledHelperPath(bundle: bundle) {
@@ -103,6 +111,7 @@ struct CodeMemorySidecarManager: Sendable {
             environment["CLAUDE_STATS_LOCAL_LLM_MODEL"] = localAI.llmModelID
             environment["CLAUDE_STATS_LOCAL_EMBEDDING_MODEL"] = localAI.embeddingModelID
             environment["CLAUDE_STATS_LOCAL_EMBEDDING_DIMS"] = "\(localAI.embeddingDimensions)"
+            environment["CLAUDE_STATS_LOCAL_AI_CONFIG_HASH"] = localAI.configurationHash
             environment["CLAUDE_STATS_MEM0_ENABLED"] = localAI.adaptersEnabled ? "1" : "0"
             environment["CLAUDE_STATS_GRAPHITI_ENABLED"] = localAI.adaptersEnabled ? "1" : "0"
         }
@@ -115,6 +124,7 @@ struct CodeMemorySidecarManager: Sendable {
         try process.run()
         let pid = process.processIdentifier
         try "\(pid)\n".write(to: pidURL, atomically: true, encoding: .utf8)
+        try writeLaunchMeta(pid: pid)
         return pid
     }
 
@@ -125,6 +135,7 @@ struct CodeMemorySidecarManager: Sendable {
         }
         Darwin.kill(pid, SIGTERM)
         try? FileManager.default.removeItem(at: pidURL)
+        try? FileManager.default.removeItem(at: launchMetaURL)
         return true
     }
 
@@ -149,10 +160,13 @@ struct CodeMemorySidecarManager: Sendable {
 
     private func existingProcessCanServeCurrentContract() -> Bool {
         guard httpStatus(path: "/health") == 200 else { return false }
+        guard let healthBody = httpBody(path: "/health"),
+              Self.sidecarAPIVersion(from: healthBody) ?? 0 >= 4
+        else { return false }
         guard httpStatus(path: "/v1/modules") == 200 else { return false }
         guard httpStatus(path: "/v1/memories/proposals") == 200 else { return false }
+        guard launchMetaMatchesCurrentConfiguration() else { return false }
         if configuration.localAI?.adaptersEnabled == true {
-            guard let healthBody = httpBody(path: "/health") else { return false }
             let missingAdapterMarkers = [
                 "No module named 'mem0'",
                 "No module named \"mem0\"",
@@ -165,6 +179,32 @@ struct CodeMemorySidecarManager: Sendable {
             }
         }
         return true
+    }
+
+    private func writeLaunchMeta(pid: Int32) throws {
+        let meta = CodeMemorySidecarLaunchMeta(
+            pid: pid,
+            localAIConfigurationHash: configuration.localAI?.configurationHash,
+            adaptersEnabled: configuration.localAI?.adaptersEnabled ?? false
+        )
+        try FileManager.default.createDirectory(at: launchMetaURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONEncoder.memoryEncoder.encode(meta).write(to: launchMetaURL, options: [.atomic])
+    }
+
+    private func launchMetaMatchesCurrentConfiguration() -> Bool {
+        guard let data = try? Data(contentsOf: launchMetaURL),
+              let meta = try? JSONDecoder().decode(CodeMemorySidecarLaunchMeta.self, from: data)
+        else { return false }
+        let expectedAdapters = configuration.localAI?.adaptersEnabled ?? false
+        let expectedHash = configuration.localAI?.configurationHash
+        return meta.adaptersEnabled == expectedAdapters && meta.localAIConfigurationHash == expectedHash
+    }
+
+    private static func sidecarAPIVersion(from body: String) -> Int? {
+        guard let data = body.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        return object["api_version"] as? Int
     }
 
     private func httpStatus(path: String) -> Int? {

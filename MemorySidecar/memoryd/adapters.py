@@ -167,6 +167,7 @@ class Mem0Adapter:
                     "history_db_path": str(config.qdrant_path.parent / "mem0-history.sqlite3"),
                 }
             )
+            _set_mem0_openai_timeouts(self.client, config.adapter_timeout_seconds)
             self.available = True
         except Exception as error:  # noqa: BLE001
             self.client = None
@@ -589,6 +590,25 @@ def _noop_cross_encoder():
     return NoopCrossEncoder()
 
 
+def _set_mem0_openai_timeouts(client: Any, timeout_seconds: float) -> None:
+    timeout = max(1.0, float(timeout_seconds))
+    for attr_path in (("llm", "client"), ("embedding_model", "client")):
+        target = client
+        for attr in attr_path:
+            target = getattr(target, attr, None)
+            if target is None:
+                break
+        if target is None or not hasattr(target, "with_options"):
+            continue
+        try:
+            replacement = target.with_options(timeout=timeout)
+        except Exception:  # noqa: BLE001
+            continue
+        owner = getattr(client, attr_path[0], None)
+        if owner is not None:
+            setattr(owner, attr_path[1], replacement)
+
+
 def _json_list(value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, str) or not value:
         return []
@@ -637,6 +657,8 @@ def _endpoint_error(config: LocalAIConfig) -> str:
             return ""
     except OSError as error:
         detail = error.strerror or str(error)
+        if host in {"127.0.0.1", "localhost", "::1"} and port == 18765:
+            return f"local AI helper stopped or unreachable at {host}:{port} ({detail})"
         return f"{host}:{port} is unreachable ({detail})"
 
 

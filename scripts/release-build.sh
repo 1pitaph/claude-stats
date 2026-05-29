@@ -106,6 +106,7 @@ fi
 PRODUCTS="$DERIVED/Build/Products/$CONFIGURATION"
 APP="$PRODUCTS/Claude Stats.app"
 ROCKXY_HELPER_TOOL="$APP/Contents/Library/HelperTools/RockxyHelperTool"
+LOCAL_AI_HELPER_TOOL="$APP/Contents/Helpers/claude-stats-local-ai"
 
 codesign_release() {
     local attempt=1
@@ -197,10 +198,18 @@ if [[ $SIGNED -eq 1 ]]; then
         echo "error: missing bundled Rockxy helper at $ROCKXY_HELPER_TOOL" >&2
         exit 1
     fi
+    if [[ ! -f "$LOCAL_AI_HELPER_TOOL" ]]; then
+        echo "error: missing bundled Local AI helper at $LOCAL_AI_HELPER_TOOL" >&2
+        exit 1
+    fi
     echo "==> Re-signing Rockxy helper tool"
     codesign_release --force --options runtime --timestamp \
         --sign "$SIGN_IDENTITY" \
         "$ROCKXY_HELPER_TOOL"
+    echo "==> Re-signing Local AI helper tool"
+    codesign_release --force --options runtime --timestamp \
+        --sign "$SIGN_IDENTITY" \
+        "$LOCAL_AI_HELPER_TOOL"
     codesign_release --force --options runtime --timestamp \
         --sign "$SIGN_IDENTITY" \
         --entitlements "$SIGNED_ENTITLEMENTS" \

@@ -271,7 +271,11 @@ struct MenuPanelView: View {
             .help(L10n.string("menu.footer.share.help", defaultValue: "Export a snapshot as a PNG"))
             Spacer()
             Button {
-                NSApplication.shared.terminate(nil)
+                if let appDelegate = NSApp.delegate as? AppDelegate {
+                    appDelegate.requestUserTermination()
+                } else {
+                    NSApplication.shared.terminate(nil)
+                }
             } label: {
                 BracketBox(spacing: 5) {
                     Label("QUIT", systemImage: "power")

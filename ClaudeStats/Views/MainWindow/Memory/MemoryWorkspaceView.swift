@@ -733,12 +733,12 @@ private struct CodeMemorySettingsView: View {
                     .foregroundStyle(Color.stxMuted)
             }
             if let result = store.codeLastReindexResult {
-                Text("Reindex: \(result.enqueued ?? 0) enqueued, \(result.drained?.delivered ?? result.delivered ?? 0) delivered, \(result.drained?.failed ?? result.failed ?? 0) failed")
+                Text(reindexSummary(result))
                     .font(.sora(11))
                     .foregroundStyle(Color.stxMuted)
             }
             if let result = store.codeLastProjectionDrainResult {
-                Text("Projection drain: \(result.delivered ?? 0) delivered, \(result.failed ?? 0) failed, \(result.remaining ?? 0) remaining")
+                Text(projectionDrainSummary(result))
                     .font(.sora(11))
                     .foregroundStyle(Color.stxMuted)
             }
@@ -756,6 +756,21 @@ private struct CodeMemorySettingsView: View {
         }
         .padding(16)
         .appSurface(.compactCard(radius: 8, fillOpacity: 0.55, cornerStyle: .circular, maxWidth: nil), padding: nil)
+    }
+
+    private func reindexSummary(_ result: CodeMemoryProjectionDrainResponse) -> String {
+        if let drained = result.drained {
+            return "Reindex: \(result.enqueued ?? 0) enqueued, \(drained.delivered ?? 0) delivered, \(drained.failed ?? 0) failed"
+        }
+        return "Reindex queued: \(result.enqueued ?? 0) enqueued, \(result.remaining ?? 0) pending/failed"
+    }
+
+    private func projectionDrainSummary(_ result: CodeMemoryProjectionDrainResponse) -> String {
+        if result.skipped == true {
+            let blockers = result.blockers?.keys.sorted().joined(separator: ", ") ?? "adapters"
+            return "Projection drain skipped: \(blockers) unavailable, \(result.remaining ?? 0) remaining"
+        }
+        return "Projection drain: \(result.delivered ?? 0) delivered, \(result.failed ?? 0) failed, \(result.remaining ?? 0) remaining"
     }
 
     private var adaptersCard: some View {

@@ -173,6 +173,64 @@ targets:
           ENABLE_HARDENED_RUNTIME: YES
           OTHER_CODE_SIGN_FLAGS: "--timestamp"
 
+  ClaudeStatsLocalAIHelper:
+    type: tool
+    platform: macOS
+    sources:
+      - path: ClaudeStatsLocalAIHelper
+      - path: ClaudeStats/Models/LocalAI
+      - path: ClaudeStats/Utilities/Log.swift
+      - path: ClaudeStats/Services/LocalAI/LocalAIPaths.swift
+      - path: ClaudeStats/Services/LocalAI/LocalAIHelperRuntime.swift
+      - path: ClaudeStats/Services/LocalAI/LocalAIOpenAIServer.swift
+      - path: ClaudeStats/Services/LocalAI/LocalAIOpenAIService.swift
+      - path: ClaudeStats/Services/LocalAI/LocalAIModelStore.swift
+      - path: ClaudeStats/Services/LocalAI/LocalAIModelCatalog.swift
+      - path: ClaudeStats/Services/LocalAI/LlamaEmbeddingEngine.swift
+      - path: ClaudeStats/Services/LocalAI/LlamaChatEngine.swift
+      - path: ClaudeStats/Services/LocalAI/LlamaEmbeddingBridge.h
+      - path: ClaudeStats/Services/LocalAI/LlamaEmbeddingBridge.mm
+      - path: ClaudeStats/Services/LocalAI/LlamaChatBridge.h
+      - path: ClaudeStats/Services/LocalAI/LlamaChatBridge.mm
+    dependencies:
+      - framework: ThirdParty/llama.cpp/build-macos/framework/llama.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.claudestats.ClaudeStatsLocalAIHelper
+        PRODUCT_NAME: claude-stats-local-ai
+        PRODUCT_MODULE_NAME: ClaudeStatsLocalAIHelper
+        MARKETING_VERSION: "1.7.8"
+        CURRENT_PROJECT_VERSION: "77"
+        GENERATE_INFOPLIST_FILE: YES
+        CREATE_INFOPLIST_SECTION_IN_BINARY: YES
+        INSTALL_PATH: ""
+        SKIP_INSTALL: YES
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+        SWIFT_OBJC_BRIDGING_HEADER: ClaudeStatsLocalAIHelper/ClaudeStatsLocalAIHelper-Bridging-Header.h
+        FRAMEWORK_SEARCH_PATHS: "$(inherited) ThirdParty/llama.cpp/build-macos/framework"
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks @loader_path/../Frameworks"
+        CLANG_CXX_LANGUAGE_STANDARD: gnu++17
+        CLANG_CXX_LIBRARY: libc++
+      configs:
+        Debug:
+          CODE_SIGN_IDENTITY: "-"
+          CODE_SIGN_STYLE: Automatic
+        DebugCloudKit:
+          CODE_SIGN_IDENTITY: Apple Development
+          CODE_SIGN_STYLE: Automatic
+          DEVELOPMENT_TEAM: 24XGLNT76L
+        Release:
+          CODE_SIGN_IDENTITY: "-"
+          CODE_SIGN_STYLE: Automatic
+        ReleaseSigned:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
+          CODE_SIGN_IDENTITY: "$(SIGN_IDENTITY)"
+          DEVELOPMENT_TEAM: "$(APPLE_TEAM_ID)"
+          ENABLE_HARDENED_RUNTIME: YES
+          OTHER_CODE_SIGN_FLAGS: "--timestamp"
+
   RockxyBackendEmbed:
     type: framework
     platform: macOS
@@ -392,6 +450,12 @@ targets:
           destination: wrapper
           subpath: Contents/Library/HelperTools
       - target: ClaudeStatsMemoryCLI
+        link: false
+        codeSign: true
+        copy:
+          destination: wrapper
+          subpath: Contents/Helpers
+      - target: ClaudeStatsLocalAIHelper
         link: false
         codeSign: true
         copy:
