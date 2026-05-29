@@ -15,11 +15,13 @@ struct SidebarColumn: View {
     var isSessionsActive = false
     var isConfigsActive = false
     var isMemoryActive = false
+    var isChatActive = false
     var onOpenSettings: () -> Void
     var onOpenLinuxDo: () -> Void
     var onOpenSessions: () -> Void
     var onOpenConfigs: () -> Void
     var onOpenMemory: () -> Void
+    var onOpenChat: () -> Void
     var onOpenNetwork: () -> Void
     var onOpenOps: () -> Void
 
@@ -60,6 +62,16 @@ struct SidebarColumn: View {
             if env.preferences.systemMonitorEnabled { navRow(.system) }
 
             sectionHeader("TOOLS")
+            SidebarRow(
+                title: "Chat",
+                symbol: "bubble.left.and.bubble.right",
+                isSelected: isChatActive,
+                trailingSymbol: "chevron.right",
+                showsTrailingOnHover: true
+            ) {
+                clearTextFocus()
+                onOpenChat()
+            }
             SidebarRow(
                 title: "Memory",
                 symbol: "brain",
@@ -232,11 +244,13 @@ struct SidebarRow: View {
         isSessionsActive: false,
         isConfigsActive: false,
         isMemoryActive: false,
+        isChatActive: false,
         onOpenSettings: {},
         onOpenLinuxDo: {},
         onOpenSessions: {},
         onOpenConfigs: {},
         onOpenMemory: {},
+        onOpenChat: {},
         onOpenNetwork: {},
         onOpenOps: {}
     )

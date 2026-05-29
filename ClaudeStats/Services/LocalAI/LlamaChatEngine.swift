@@ -18,6 +18,11 @@ struct LocalLLMGeneration: Sendable, Hashable {
     var completionTokenEstimate: Int
 }
 
+enum LocalLLMStreamEvent: Sendable, Equatable {
+    case delta(String)
+    case completed(promptTokenEstimate: Int, completionTokenEstimate: Int)
+}
+
 actor LlamaChatEngine {
     let modelID: String
     let modelRevision: String
@@ -61,6 +66,68 @@ actor LlamaChatEngine {
         )
     }
 
+    func streamComplete(
+        messages: [LocalAIChatMessage],
+        maxNewTokens: Int,
+        temperature: Double
+    ) -> AsyncThrowingStream<LocalLLMStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    try await self.performStreamComplete(
+                        messages: messages,
+                        maxNewTokens: maxNewTokens,
+                        temperature: temperature,
+                        continuation: continuation
+                    )
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
+    }
+
+    private func performStreamComplete(
+        messages: [LocalAIChatMessage],
+        maxNewTokens: Int,
+        temperature: Double,
+        continuation: AsyncThrowingStream<LocalLLMStreamEvent, Error>.Continuation
+    ) throws {
+        let runtime = try bridgeInstance()
+        let payload = messages.map { message in
+            ["role": message.role, "content": message.content]
+        }
+        var output = ""
+        do {
+            try runtime.streamMessages(
+                payload,
+                maxNewTokens: maxNewTokens,
+                temperature: temperature
+            ) { token in
+                guard !Task.isCancelled else { return false }
+                output += token
+                continuation.yield(.delta(token))
+                return true
+            }
+        } catch {
+            throw LlamaChatEngineError.bridgeFailed(error.localizedDescription)
+        }
+        guard !Task.isCancelled else {
+            continuation.finish(throwing: CancellationError())
+            return
+        }
+        continuation.yield(
+            .completed(
+                promptTokenEstimate: Self.estimatedTokens(messages.map(\.content).joined(separator: "\n")),
+                completionTokenEstimate: Self.estimatedTokens(output)
+            )
+        )
+        continuation.finish()
+    }
+
     private func bridgeInstance() throws -> LlamaChatBridge {
         if let bridge { return bridge }
         let runtime: LlamaChatBridge
@@ -99,4 +166,3 @@ enum LocalLLMContextPolicy {
         return min(max(512, model.maxTokens), cap)
     }
 }
-

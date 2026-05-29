@@ -90,8 +90,7 @@ final class LocalAIOpenAIServer {
             }
             if let request = Self.parseRequest(next) {
                 Task { @MainActor in
-                    let response = await self.route(request)
-                    self.send(response, to: connection)
+                    await self.handle(request, connection: connection)
                 }
             } else if isComplete {
                 Task { @MainActor in
@@ -105,11 +104,37 @@ final class LocalAIOpenAIServer {
         }
     }
 
+    private func handle(_ request: LocalAIHTTPRequest, connection: NWConnection) async {
+        guard request.path == "/health" || authorized(request) else {
+            send(Self.errorResponse("Missing or invalid local API token.", status: 401, code: "unauthorized"), to: connection)
+            return
+        }
+
+        if request.method == "POST", request.path == "/v1/chat/completions" {
+            do {
+                let decoded = try JSONDecoder().decode(LocalAIChatCompletionsRequest.self, from: request.body)
+                if decoded.stream == true {
+                    await sendStreamingChat(decoded, to: connection)
+                    return
+                }
+            } catch {
+                send(Self.errorResponse(error.localizedDescription, status: 400), to: connection)
+                return
+            }
+        }
+
+        let response = await route(authorizedRequest: request)
+        send(response, to: connection)
+    }
+
     private func route(_ request: LocalAIHTTPRequest) async -> LocalAIHTTPResponse {
         guard request.path == "/health" || authorized(request) else {
             return Self.errorResponse("Missing or invalid local API token.", status: 401, code: "unauthorized")
         }
+        return await route(authorizedRequest: request)
+    }
 
+    private func route(authorizedRequest request: LocalAIHTTPRequest) async -> LocalAIHTTPResponse {
         do {
             switch (request.method, request.path) {
             case ("GET", "/health"):
@@ -130,6 +155,83 @@ final class LocalAIOpenAIServer {
         }
     }
 
+    private func sendStreamingChat(_ request: LocalAIChatCompletionsRequest, to connection: NWConnection) async {
+        do {
+            let session = try await service.chatStream(request)
+            try await sendStreamHeader(to: connection)
+            do {
+                try await sendStreamObject(
+                    LocalAIChatCompletionsStreamResponse(
+                        id: session.id,
+                        created: session.created,
+                        model: session.model,
+                        choices: [
+                            LocalAIChatCompletionsStreamResponse.Choice(
+                                index: 0,
+                                delta: LocalAIChatCompletionsStreamResponse.Delta(role: "assistant", content: nil),
+                                finishReason: nil
+                            ),
+                        ]
+                    ),
+                    to: connection
+                )
+                for try await event in session.events {
+                    switch event {
+                    case .delta(let text):
+                        try await sendStreamObject(
+                            LocalAIChatCompletionsStreamResponse(
+                                id: session.id,
+                                created: session.created,
+                                model: session.model,
+                                choices: [
+                                    LocalAIChatCompletionsStreamResponse.Choice(
+                                        index: 0,
+                                        delta: LocalAIChatCompletionsStreamResponse.Delta(role: nil, content: text),
+                                        finishReason: nil
+                                    ),
+                                ]
+                            ),
+                            to: connection
+                        )
+                    case .completed(let finishReason):
+                        try await sendStreamObject(
+                            LocalAIChatCompletionsStreamResponse(
+                                id: session.id,
+                                created: session.created,
+                                model: session.model,
+                                choices: [
+                                    LocalAIChatCompletionsStreamResponse.Choice(
+                                        index: 0,
+                                        delta: LocalAIChatCompletionsStreamResponse.Delta(role: nil, content: nil),
+                                        finishReason: finishReason ?? "stop"
+                                    ),
+                                ]
+                            ),
+                            to: connection
+                        )
+                    }
+                }
+                try await sendStreamDone(to: connection)
+            } catch {
+                try? await sendStreamObject(
+                    LocalAIAPIErrorResponse(
+                        error: LocalAIAPIErrorResponse.ErrorBody(
+                            message: error.localizedDescription,
+                            type: "local_ai_error",
+                            code: nil
+                        )
+                    ),
+                    to: connection
+                )
+                try? await sendStreamDone(to: connection)
+            }
+            connection.cancel()
+        } catch {
+            let response = Self.errorResponse(error.localizedDescription, status: statusCode(for: error))
+            send(response, to: connection)
+        }
+    }
+
     private func authorized(_ request: LocalAIHTTPRequest) -> Bool {
         let raw = request.headers["authorization"] ?? request.headers["Authorization"] ?? ""
         return raw == "Bearer \(token)"
@@ -146,6 +248,36 @@ final class LocalAIOpenAIServer {
         connection.send(content: data, completion: .contentProcessed { _ in
             connection.cancel()
         })
+    }
+
+    private func sendStreamHeader(to connection: NWConnection) async throws {
+        var head = "HTTP/1.1 200 OK\r\n"
+        head += "Content-Type: text/event-stream; charset=utf-8\r\n"
+        head += "Cache-Control: no-cache\r\n"
+        head += "Connection: close\r\n\r\n"
+        try await sendRaw(Data(head.utf8), to: connection)
+    }
+
+    private func sendStreamObject<T: Encodable>(_ value: T, to connection: NWConnection) async throws {
+        let data = try JSONEncoder.localAIHTTPEncoder.encode(value)
+        let payload = String(data: data, encoding: .utf8) ?? "{}"
+        try await sendRaw(Data("data: \(payload)\n\n".utf8), to: connection)
+    }
+
+    private func sendStreamDone(to connection: NWConnection) async throws {
+        try await sendRaw(Data("data: [DONE]\n\n".utf8), to: connection)
+    }
+
+    private func sendRaw(_ data: Data, to connection: NWConnection) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            connection.send(content: data, completion: .contentProcessed { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume()
+                }
+            })
+        }
     }
 
     nonisolated private static func parseRequest(_ data: Data) -> LocalAIHTTPRequest? {

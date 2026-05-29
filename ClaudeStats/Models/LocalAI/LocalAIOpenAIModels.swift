@@ -5,7 +5,7 @@ struct LocalAIChatMessage: Codable, Sendable, Hashable {
     var content: String
 }
 
-struct LocalAIChatCompletionsRequest: Decodable, Sendable {
+struct LocalAIChatCompletionsRequest: Codable, Sendable {
     var model: String?
     var messages: [LocalAIChatMessage]
     var temperature: Double?
@@ -19,6 +19,11 @@ struct LocalAIChatCompletionsRequest: Decodable, Sendable {
         case maxTokens = "max_tokens"
         case stream
     }
+}
+
+enum LocalAIChatStreamEvent: Sendable, Equatable {
+    case delta(String)
+    case completed(finishReason: String?)
 }
 
 struct LocalAIChatCompletionsResponse: Encodable, Sendable {
@@ -51,6 +56,31 @@ struct LocalAIChatCompletionsResponse: Encodable, Sendable {
             case completionTokens = "completion_tokens"
             case totalTokens = "total_tokens"
         }
+    }
+}
+
+struct LocalAIChatCompletionsStreamResponse: Codable, Sendable {
+    var id: String
+    var object: String = "chat.completion.chunk"
+    var created: Int
+    var model: String
+    var choices: [Choice]
+
+    struct Choice: Codable, Sendable {
+        var index: Int
+        var delta: Delta
+        var finishReason: String?
+
+        enum CodingKeys: String, CodingKey {
+            case index
+            case delta
+            case finishReason = "finish_reason"
+        }
+    }
+
+    struct Delta: Codable, Sendable {
+        var role: String?
+        var content: String?
     }
 }
 
@@ -116,13 +146,12 @@ struct LocalAIModelsResponse: Encodable, Sendable {
     }
 }
 
-struct LocalAIAPIErrorResponse: Encodable, Sendable {
+struct LocalAIAPIErrorResponse: Codable, Sendable {
     var error: ErrorBody
 
-    struct ErrorBody: Encodable, Sendable {
+    struct ErrorBody: Codable, Sendable {
         var message: String
         var type: String
         var code: String?
     }
 }
-

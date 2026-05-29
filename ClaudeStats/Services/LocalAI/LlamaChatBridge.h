@@ -2,6 +2,8 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+typedef BOOL (^LlamaChatTokenHandler)(NSString *token);
+
 @interface LlamaChatBridge : NSObject
 
 - (nullable instancetype)initWithModelPath:(NSString *)modelPath
@@ -10,11 +12,16 @@ NS_ASSUME_NONNULL_BEGIN
                                      error:(NSError **)error;
 
 - (nullable NSString *)completeMessages:(NSArray<NSDictionary<NSString *, NSString *> *> *)messages
-                            maxNewTokens:(NSInteger)maxNewTokens
+                           maxNewTokens:(NSInteger)maxNewTokens
                             temperature:(double)temperature
                                   error:(NSError **)error;
+
+- (BOOL)streamMessages:(NSArray<NSDictionary<NSString *, NSString *> *> *)messages
+          maxNewTokens:(NSInteger)maxNewTokens
+           temperature:(double)temperature
+          tokenHandler:(LlamaChatTokenHandler)tokenHandler
+                 error:(NSError **)error;
 
 @end
 
 NS_ASSUME_NONNULL_END
-

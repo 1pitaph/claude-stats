@@ -20,6 +20,13 @@ enum LocalAIOpenAIServiceError: Error, LocalizedError {
     }
 }
 
+struct LocalAIChatStreamSession: Sendable {
+    var id: String
+    var created: Int
+    var model: String
+    var events: AsyncThrowingStream<LocalAIChatStreamEvent, Error>
+}
+
 @MainActor
 final class LocalAIOpenAIService {
     private let modelStore: LocalAIModelStore
@@ -63,9 +70,6 @@ final class LocalAIOpenAIService {
     }
 
     func chatResponse(_ request: LocalAIChatCompletionsRequest) async throws -> LocalAIChatCompletionsResponse {
-        if request.stream == true {
-            throw LocalAIOpenAIServiceError.unsupportedStreaming
-        }
         guard !request.messages.isEmpty else {
             throw LocalAIOpenAIServiceError.invalidRequest("Chat completion requires at least one message.")
         }
@@ -101,6 +105,53 @@ final class LocalAIOpenAIService {
                 completionTokens: generation.completionTokenEstimate,
                 totalTokens: generation.promptTokenEstimate + generation.completionTokenEstimate
             )
+        )
+    }
+
+    func chatStream(_ request: LocalAIChatCompletionsRequest) async throws -> LocalAIChatStreamSession {
+        guard !request.messages.isEmpty else {
+            throw LocalAIOpenAIServiceError.invalidRequest("Chat completion requires at least one message.")
+        }
+        let model = try resolveModel(id: request.model, kind: .llm)
+        guard let url = modelStore.installedModelURL(for: model) else {
+            throw LocalAIOpenAIServiceError.modelNotInstalled(model.id)
+        }
+        let engine = chatEngines[model.id] ?? LlamaChatEngine(
+            model: model,
+            modelURL: url,
+            maxContextTokens: LocalLLMContextPolicy.maxContextTokens(for: model)
+        )
+        chatEngines[model.id] = engine
+        let llmEvents = await engine.streamComplete(
+            messages: request.messages,
+            maxNewTokens: min(max(request.maxTokens ?? 512, 1), 2048),
+            temperature: request.temperature ?? 0.2
+        )
+        let events = AsyncThrowingStream<LocalAIChatStreamEvent, Error> { continuation in
+            let task = Task {
+                do {
+                    for try await event in llmEvents {
+                        switch event {
+                        case .delta(let text):
+                            continuation.yield(.delta(text))
+                        case .completed:
+                            continuation.yield(.completed(finishReason: "stop"))
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
+        return LocalAIChatStreamSession(
+            id: "chatcmpl-local-\(UUID().uuidString)",
+            created: Int(Date().timeIntervalSince1970),
+            model: model.id,
+            events: events
         )
     }
 

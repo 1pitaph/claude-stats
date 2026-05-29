@@ -88,13 +88,29 @@ static void EnsureLlamaChatBackend() {
                             maxNewTokens:(NSInteger)maxNewTokens
                             temperature:(double)temperature
                                   error:(NSError **)error {
+    NSMutableString * output = [NSMutableString string];
+    BOOL ok = [self streamMessages:messages
+                       maxNewTokens:maxNewTokens
+                        temperature:temperature
+                       tokenHandler:^BOOL(NSString * token) {
+        [output appendString:token];
+        return YES;
+    } error:error];
+    return ok ? [output copy] : nil;
+}
+
+- (BOOL)streamMessages:(NSArray<NSDictionary<NSString *, NSString *> *> *)messages
+          maxNewTokens:(NSInteger)maxNewTokens
+           temperature:(double)temperature
+          tokenHandler:(LlamaChatTokenHandler)tokenHandler
+                 error:(NSError **)error {
     if (_model == nullptr || _context == nullptr) {
         if (error) { *error = LlamaChatError(3, @"llama chat runtime is not initialized."); }
-        return nil;
+        return NO;
     }
     if (messages.count == 0) {
         if (error) { *error = LlamaChatError(4, @"Chat completion requires at least one message."); }
-        return nil;
+        return NO;
     }
 
     std::vector<std::string> roles;
@@ -161,7 +177,7 @@ static void EnsureLlamaChatBackend() {
     );
     if (promptTokenCount <= 0) {
         if (error) { *error = LlamaChatError(5, @"Unable to tokenize chat prompt."); }
-        return nil;
+        return NO;
     }
     std::vector<llama_token> promptTokens((size_t)promptTokenCount);
     promptTokenCount = llama_tokenize(
@@ -175,7 +191,7 @@ static void EnsureLlamaChatBackend() {
     );
     if (promptTokenCount <= 0) {
         if (error) { *error = LlamaChatError(6, @"Unable to tokenize chat prompt."); }
-        return nil;
+        return NO;
     }
     promptTokens.resize((size_t)promptTokenCount);
 
@@ -197,7 +213,7 @@ static void EnsureLlamaChatBackend() {
         llama_batch batch = llama_batch_get_one(promptTokens.data() + offset, chunkTokenCount);
         if (llama_decode(_context, batch) != 0) {
             if (error) { *error = LlamaChatError(7, @"llama_decode failed while evaluating chat prompt."); }
-            return nil;
+            return NO;
         }
     }
 
@@ -211,6 +227,7 @@ static void EnsureLlamaChatBackend() {
     }
 
     std::string response;
+    size_t emittedBytes = 0;
     for (NSInteger index = 0; index < cappedNewTokens; index++) {
         llama_token token = llama_sampler_sample(sampler, _context, -1);
         if (llama_vocab_is_eog(vocab, token)) {
@@ -222,22 +239,40 @@ static void EnsureLlamaChatBackend() {
         if (pieceLength < 0) {
             llama_sampler_free(sampler);
             if (error) { *error = LlamaChatError(8, @"Unable to convert sampled token to text."); }
-            return nil;
+            return NO;
         }
         response.append(pieceBuffer, (size_t)pieceLength);
+
+        if (tokenHandler && response.size() > emittedBytes) {
+            NSString * tokenText = [[NSString alloc] initWithBytes:response.data() + emittedBytes
+                                                            length:response.size() - emittedBytes
+                                                          encoding:NSUTF8StringEncoding];
+            if (tokenText != nil && tokenText.length > 0) {
+                emittedBytes = response.size();
+                if (!tokenHandler(tokenText)) {
+                    break;
+                }
+            }
+        }
 
         llama_batch next = llama_batch_get_one(&token, 1);
         if (llama_decode(_context, next) != 0) {
             llama_sampler_free(sampler);
             if (error) { *error = LlamaChatError(9, @"llama_decode failed while generating chat response."); }
-            return nil;
+            return NO;
         }
     }
 
     llama_sampler_free(sampler);
-    return [[NSString alloc] initWithBytes:response.data()
-                                    length:response.size()
-                                  encoding:NSUTF8StringEncoding] ?: @"";
+    if (tokenHandler && response.size() > emittedBytes) {
+        NSString * remaining = [[NSString alloc] initWithBytes:response.data() + emittedBytes
+                                                        length:response.size() - emittedBytes
+                                                      encoding:NSUTF8StringEncoding];
+        if (remaining != nil && remaining.length > 0) {
+            tokenHandler(remaining);
+        }
+    }
+    return YES;
 }
 
 @end

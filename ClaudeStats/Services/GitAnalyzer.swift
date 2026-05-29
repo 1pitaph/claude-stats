@@ -81,6 +81,20 @@ struct GitAnalyzer: Sendable {
         }
     }
 
+    func recentCommits(in repo: GitRepo, limit: Int = 5) -> [GitCommit] {
+        let format = "format:\(Self.recordSep)%H\(Self.fieldSep)%at\(Self.fieldSep)%an\(Self.fieldSep)%ae\(Self.fieldSep)%s"
+        let args = [
+            "-C", repo.rootPath,
+            "log",
+            "--no-merges",
+            "--max-count=\(max(1, limit))",
+            "--numstat",
+            "--pretty=\(format)",
+        ]
+        guard let output = runGit(args) else { return [] }
+        return Self.parseLog(output, repoID: repo.id)
+    }
+
     /// Files tracked by git at `HEAD` / the index. Untracked and ignored files
     /// are intentionally excluded so repository code stats remain reproducible.
     func trackedFiles(in repo: GitRepo) -> [String] {

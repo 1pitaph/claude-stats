@@ -224,6 +224,12 @@ final class LocalAIStore {
     }
 
     @discardableResult
+    func ensureChatEndpoint() -> LocalAIOpenAIEndpoint? {
+        let config = currentRuntimeConfig()
+        return reconcileOpenAICompatibleServer(config: config, allowRestart: true)
+    }
+
+    @discardableResult
     private func startOpenAICompatibleServer(
         resetRecoveryState: Bool,
         config: LocalAIHelperRuntimeConfig? = nil

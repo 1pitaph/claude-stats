@@ -38,6 +38,7 @@ final class AppEnvironment {
     let skills: SkillsStore
     let configWorkspace: ConfigWorkspaceStore
     let memory: MemoryStore
+    let chat: ChatStore
     let systemMonitor: SystemMonitorViewModel
     let networkDebugger: NetworkDebuggerStore
     let ops: OpsStore
@@ -109,6 +110,7 @@ final class AppEnvironment {
             configurationProfiles: self.configurationProfiles
         )
         self.memory = MemoryStore()
+        self.chat = ChatStore()
     }
 
     convenience init() {
