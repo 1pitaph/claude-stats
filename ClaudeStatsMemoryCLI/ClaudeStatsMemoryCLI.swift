@@ -38,6 +38,8 @@ enum ClaudeStatsMemoryCLI {
                 try await codeMemoryTrace(arguments)
             case "reindex":
                 try await codeMemoryReindex(arguments)
+            case "drain":
+                try await codeMemoryDrain(arguments)
             case "sync":
                 try await codeMemorySync(arguments)
             case "record-event":
@@ -259,6 +261,12 @@ enum ClaudeStatsMemoryCLI {
         try printJSON(response)
     }
 
+    private static func codeMemoryDrain(_ arguments: [String]) async throws {
+        guard arguments.isEmpty else { throw CLIError.message("Usage: claude-stats-memory drain") }
+        let response = try await CodeMemoryHTTPClient().drainProjections()
+        try printJSON(response)
+    }
+
     private static func codeMemorySync(_ arguments: [String]) async throws {
         let options = parseOptions(arguments)
         let projectID = options["project"] ?? options["project-id"] ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath).lastPathComponent
@@ -362,6 +370,7 @@ enum ClaudeStatsMemoryCLI {
               claude-stats-memory graph <project-id>
               claude-stats-memory trace <run-id>
               claude-stats-memory reindex [--project <id>]
+              claude-stats-memory drain
               claude-stats-memory sync --project <id> --path <file> [--kind ai_config] [--infer true]
               claude-stats-memory record-event --project <id> --title <title> --body <text>
             """

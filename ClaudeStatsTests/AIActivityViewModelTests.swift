@@ -75,7 +75,7 @@ private actor OrderedFocusLoader {
     func waitForFirstSuspension() async -> Bool {
         for _ in 0..<1_000 {
             if firstContinuation != nil { return true }
-            await Task.yield()
+            try? await Task.sleep(nanoseconds: 1_000_000)
         }
         return false
     }
@@ -83,7 +83,7 @@ private actor OrderedFocusLoader {
     func waitForCallCount(_ expected: Int) async -> Bool {
         for _ in 0..<1_000 {
             if callCount >= expected { return true }
-            await Task.yield()
+            try? await Task.sleep(nanoseconds: 1_000_000)
         }
         return false
     }

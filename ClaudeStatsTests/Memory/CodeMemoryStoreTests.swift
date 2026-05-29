@@ -29,10 +29,28 @@ struct CodeMemoryStoreTests {
         #expect(backend.searchQueries == ["run-debug"])
         #expect(store.codeSearchResults.first?.memory.title == "Use run-debug")
     }
+
+    @MainActor
+    @Test("Accepting a proposal drains projection jobs")
+    func acceptingProposalDrainsProjectionJobs() async throws {
+        let backend = FakeCodeMemoryBackend()
+        let proposal = FakeCodeMemoryBackend.memory(id: "memory:proposal", status: "proposed")
+        backend.proposalResponse = [proposal]
+        let store = MemoryStore(codeBackend: backend)
+
+        await store.acceptProposal(proposal)
+
+        #expect(backend.acceptedMemoryIDs == ["memory:proposal"])
+        #expect(backend.projectionDrainCount == 1)
+        #expect(store.codeLastProjectionDrainResult?.delivered == 1)
+    }
 }
 
 private final class FakeCodeMemoryBackend: CodeMemoryBackend, @unchecked Sendable {
     var searchQueries: [String] = []
+    var acceptedMemoryIDs: [String] = []
+    var projectionDrainCount = 0
+    var proposalResponse: [CodeMemoryMemory] = []
 
     func health() async throws -> CodeMemoryHealth {
         CodeMemoryHealth(
@@ -57,26 +75,24 @@ private final class FakeCodeMemoryBackend: CodeMemoryBackend, @unchecked Sendabl
                 CodeMemorySearchResult(
                     rank: 1,
                     score: 1,
-                    memory: CodeMemoryMemory(
-                        id: "memory:test",
-                        projectID: "claude-stats",
-                        type: "command",
-                        status: "active",
-                        title: "Use run-debug",
-                        body: "After changing code, run bash scripts/run-debug.sh.",
-                        normalizedClaim: "run debug after code changes",
-                        confidence: 1,
-                        importance: 1,
-                        scopes: [],
-                        sourceRefs: [],
-                        metadata: nil,
-                        createdAt: 0,
-                        updatedAt: 0
-                    ),
+                    memory: Self.memory(id: "memory:test", status: "active"),
                     matchKind: "text"
                 ),
             ]
         )
+    }
+
+    func proposals(projectID: String?, limit: Int) async throws -> [CodeMemoryMemory] {
+        proposalResponse
+    }
+
+    func accept(memoryID: String) async throws {
+        acceptedMemoryIDs.append(memoryID)
+    }
+
+    func drainProjections() async throws -> CodeMemoryProjectionDrainResponse {
+        projectionDrainCount += 1
+        return CodeMemoryProjectionDrainResponse(delivered: 1, failed: 0, remaining: 0)
     }
 
     func graph(projectID: String) async throws -> CodeMemoryGraph {
@@ -88,4 +104,23 @@ private final class FakeCodeMemoryBackend: CodeMemoryBackend, @unchecked Sendabl
     }
 
     func recordEvent(_ event: CodeMemoryEventInput) async throws {}
+
+    static func memory(id: String, status: String) -> CodeMemoryMemory {
+        CodeMemoryMemory(
+            id: id,
+            projectID: "claude-stats",
+            type: "command",
+            status: status,
+            title: "Use run-debug",
+            body: "After changing code, run bash scripts/run-debug.sh.",
+            normalizedClaim: "run debug after code changes",
+            confidence: 1,
+            importance: 1,
+            scopes: [],
+            sourceRefs: [],
+            metadata: nil,
+            createdAt: 0,
+            updatedAt: 0
+        )
+    }
 }

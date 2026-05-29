@@ -126,17 +126,109 @@ class MemorySidecarTests(unittest.TestCase):
             self.assertEqual(result["status"], "ok")
             self.assertEqual(len(result["created"]), 1)
             self.assertEqual(len(result["proposed"]), 1)
-            self.assertTrue(adapters.indexed)
+            self.assertFalse(adapters.indexed)
+
+            drained = store.drain_projection_jobs()
+            self.assertEqual(drained["delivered"], 1)
+            self.assertEqual(len(adapters.indexed), 1)
+            self.assertEqual(adapters.indexed[0][0], result["created"][0]["id"])
+            self.assertEqual(adapters.indexed[0][2], "fake")
 
             modules = store.modules(project_id="claude-stats")["modules"]
             self.assertEqual(modules[0]["title"], "ClaudeStats")
 
             proposals = store.proposals(project_id="claude-stats")["memories"]
             self.assertEqual(proposals[0]["status"], "proposed")
+            proposed_id = proposals[0]["id"]
+            self.assertNotIn(proposed_id, [item[0] for item in adapters.indexed])
+
+            accepted = store.accept_memory(proposed_id)
+            self.assertEqual(accepted["drained"]["delivered"], 1)
+            self.assertIn(proposed_id, [item[0] for item in adapters.indexed])
 
             reindex = store.reindex(project_id="claude-stats")
             self.assertGreaterEqual(reindex["enqueued"], 1)
             self.assertGreaterEqual(reindex["drained"]["delivered"], 1)
+
+    def test_adapter_search_must_resolve_to_canonical_memory(self):
+        from memoryd.store import MemoryStore
+
+        class FakeAdapters:
+            def names(self):
+                return []
+
+            def health(self):
+                return {"fake": "enabled"}
+
+            def index_memory(self, memory, event, *, adapter_name=None):
+                return {}
+
+            def infer_memories(self, source):
+                return []
+
+            def search(self, query, *, project_id, limit):
+                return [
+                    {
+                        "rank": 1,
+                        "score": 0.99,
+                        "memory": {
+                            "id": "mem:missing",
+                            "project_id": project_id or "p",
+                            "type": "fact",
+                            "status": "active",
+                            "title": "Adapter-only memory",
+                            "body": "This should not bypass canonical review.",
+                            "normalized_claim": "adapter-only",
+                            "confidence": 1,
+                            "importance": 1,
+                            "source_refs": [],
+                            "metadata": {"adapter": "fake"},
+                            "scopes": [],
+                            "created_at": 0,
+                            "updated_at": 0,
+                        },
+                        "match_kind": "fake",
+                    }
+                ]
+
+            def graph(self, project_id, *, limit=80):
+                return {"nodes": [], "edges": []}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = MemoryStore(Path(tmp), adapters=FakeAdapters())
+            hits = store.search("adapter-only", project_id="p")
+            self.assertEqual(hits["results"], [])
+
+    def test_adapter_graph_is_merged_into_project_graph(self):
+        from memoryd.store import MemoryStore
+
+        class FakeAdapters:
+            def names(self):
+                return []
+
+            def health(self):
+                return {"fake": "enabled"}
+
+            def index_memory(self, memory, event, *, adapter_name=None):
+                return {}
+
+            def infer_memories(self, source):
+                return []
+
+            def search(self, query, *, project_id, limit):
+                return []
+
+            def graph(self, project_id, *, limit=80):
+                return {
+                    "nodes": [{"id": "graphiti:entity:one", "kind": "graphiti_entity", "title": "One"}],
+                    "edges": [{"source": "project:p", "target": "graphiti:entity:one", "kind": "HAS_GRAPHITI_ENTITY"}],
+                }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = MemoryStore(Path(tmp), adapters=FakeAdapters())
+            graph = store.graph("p")
+            self.assertIn("graphiti:entity:one", {node["id"] for node in graph["nodes"]})
+            self.assertIn("HAS_GRAPHITI_ENTITY", {edge["kind"] for edge in graph["edges"]})
 
 
 if __name__ == "__main__":

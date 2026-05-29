@@ -130,6 +130,7 @@ private struct CodeMemoryOverviewView: View {
                     AIConfigsMiniStat(value: "\(store.codeHealth?.proposalCount ?? store.codeProposals.count)", label: "proposals")
                     AIConfigsMiniStat(value: "\(store.codeHealth?.moduleCount ?? store.codeModules.count)", label: "modules")
                     AIConfigsMiniStat(value: "\(store.codeHealth?.projectionPending ?? 0)", label: "pending")
+                    AIConfigsMiniStat(value: "\(store.codeHealth?.projectionFailed ?? 0)", label: "failed")
                 }
                 .padding(12)
                 .appSurface(.compactCard(radius: 8, fillOpacity: 0.58, cornerStyle: .circular, maxWidth: nil), padding: nil)
@@ -141,6 +142,31 @@ private struct CodeMemoryOverviewView: View {
                         .font(.sora(12))
                         .foregroundStyle(Color.stxMuted)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(14)
+                .appSurface(.compactCard(radius: 8, fillOpacity: 0.52, cornerStyle: .circular, maxWidth: nil), padding: nil)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 10) {
+                        Text("Projection")
+                            .font(.sora(14, weight: .semibold))
+                        Spacer(minLength: 8)
+                        Button {
+                            Task { await store.drainCodeMemoryProjections() }
+                        } label: {
+                            Label("Drain Pending", systemImage: "tray.and.arrow.up")
+                        }
+                        .controlSize(.small)
+                        .disabled(store.isCodeMemoryLoading || store.codeHealth == nil)
+                    }
+                    HStack(spacing: 10) {
+                        AIConfigsMiniStat(value: "\(store.codeHealth?.projectionPending ?? 0)", label: "pending")
+                        AIConfigsMiniStat(value: "\(store.codeHealth?.projectionFailed ?? 0)", label: "failed")
+                        if let result = store.codeLastProjectionDrainResult {
+                            AIConfigsMiniStat(value: "\(result.delivered ?? 0)", label: "delivered")
+                            AIConfigsMiniStat(value: "\(result.remaining ?? 0)", label: "remaining")
+                        }
+                    }
                 }
                 .padding(14)
                 .appSurface(.compactCard(radius: 8, fillOpacity: 0.52, cornerStyle: .circular, maxWidth: nil), padding: nil)
@@ -651,6 +677,8 @@ private struct CodeMemorySettingsView: View {
             fact("Store", store.codeHealth?.store ?? "-")
             fact("Events", "\(store.codeHealth?.eventCount ?? 0)")
             fact("Memories", "\(store.codeHealth?.memoryCount ?? 0)")
+            fact("Projection Pending", "\(store.codeHealth?.projectionPending ?? 0)")
+            fact("Projection Failed", "\(store.codeHealth?.projectionFailed ?? 0)")
             fact("Helper", helperPath)
             fact("Command", startCommand)
             HStack(spacing: 8) {
@@ -686,6 +714,13 @@ private struct CodeMemorySettingsView: View {
                 .controlSize(.small)
                 .disabled(store.isCodeMemoryLoading)
                 Button {
+                    Task { await store.drainCodeMemoryProjections() }
+                } label: {
+                    Label("Drain Pending", systemImage: "tray.and.arrow.up")
+                }
+                .controlSize(.small)
+                .disabled(store.isCodeMemoryLoading || store.codeHealth == nil)
+                Button {
                     copy(startCommand)
                 } label: {
                     Label("Copy Start Command", systemImage: "doc.on.doc")
@@ -699,6 +734,11 @@ private struct CodeMemorySettingsView: View {
             }
             if let result = store.codeLastReindexResult {
                 Text("Reindex: \(result.enqueued ?? 0) enqueued, \(result.drained?.delivered ?? result.delivered ?? 0) delivered, \(result.drained?.failed ?? result.failed ?? 0) failed")
+                    .font(.sora(11))
+                    .foregroundStyle(Color.stxMuted)
+            }
+            if let result = store.codeLastProjectionDrainResult {
+                Text("Projection drain: \(result.delivered ?? 0) delivered, \(result.failed ?? 0) failed, \(result.remaining ?? 0) remaining")
                     .font(.sora(11))
                     .foregroundStyle(Color.stxMuted)
             }

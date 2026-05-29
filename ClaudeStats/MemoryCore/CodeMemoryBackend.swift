@@ -13,6 +13,7 @@ protocol CodeMemoryBackend: Sendable {
     func accept(memoryID: String) async throws
     func reject(memoryID: String) async throws
     func deprecate(memoryID: String) async throws
+    func drainProjections() async throws -> CodeMemoryProjectionDrainResponse
     func reindex(projectID: String?) async throws -> CodeMemoryProjectionDrainResponse
     func ingestSource(_ source: CodeMemorySourceInput) async throws -> CodeMemorySyncSourceResponse
     func recordEvent(_ event: CodeMemoryEventInput) async throws
@@ -33,6 +34,7 @@ extension CodeMemoryBackend {
     func accept(memoryID: String) async throws {}
     func reject(memoryID: String) async throws {}
     func deprecate(memoryID: String) async throws {}
+    func drainProjections() async throws -> CodeMemoryProjectionDrainResponse { CodeMemoryProjectionDrainResponse() }
     func reindex(projectID: String?) async throws -> CodeMemoryProjectionDrainResponse { CodeMemoryProjectionDrainResponse() }
     func ingestSource(_ source: CodeMemorySourceInput) async throws -> CodeMemorySyncSourceResponse {
         CodeMemorySyncSourceResponse(status: "unsupported", created: nil, proposed: nil)
@@ -119,6 +121,10 @@ struct CodeMemoryHTTPClient: CodeMemoryBackend {
 
     func deprecate(memoryID: String) async throws {
         let _: EmptyResponse = try await post("/v1/memories/\(Self.pathSegment(memoryID))/deprecate", body: CodeMemoryActorRequest(actor: ["kind": "human", "id": NSUserName()]))
+    }
+
+    func drainProjections() async throws -> CodeMemoryProjectionDrainResponse {
+        try await post("/v1/projections/drain", body: CodeMemoryProjectRequest(projectID: nil))
     }
 
     func reindex(projectID: String?) async throws -> CodeMemoryProjectionDrainResponse {

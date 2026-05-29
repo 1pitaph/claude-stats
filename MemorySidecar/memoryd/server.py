@@ -16,6 +16,10 @@ class MemoryHTTPRequestHandler(BaseHTTPRequestHandler):
 
     server_version = "ClaudeStatsMemoryD/0.1"
 
+    def setup(self) -> None:
+        super().setup()
+        self.connection.settimeout(2.0)
+
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)

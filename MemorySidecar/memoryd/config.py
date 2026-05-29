@@ -16,6 +16,7 @@ class LocalAIConfig:
     graphiti_enabled: bool
     qdrant_path: Path
     kuzu_path: Path
+    adapter_timeout_seconds: float
 
     @property
     def enabled(self) -> bool:
@@ -35,6 +36,7 @@ def load_local_ai_config(root: Path) -> LocalAIConfig:
         graphiti_enabled=_bool_env("CLAUDE_STATS_GRAPHITI_ENABLED"),
         qdrant_path=root / "mem0-qdrant",
         kuzu_path=root / "graphiti.kuzu",
+        adapter_timeout_seconds=_float_env("CLAUDE_STATS_MEMORY_ADAPTER_TIMEOUT_SECONDS", 20.0),
     )
 
 
@@ -48,3 +50,9 @@ def _int_env(name: str, default: int) -> int:
     except ValueError:
         return default
 
+
+def _float_env(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, str(default)))
+    except ValueError:
+        return default

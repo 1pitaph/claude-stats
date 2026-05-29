@@ -152,6 +152,7 @@ struct CodeMemoryGraphEdge: Codable, Identifiable, Sendable, Hashable {
     var target: String
     var kind: String
     var primary: Bool?
+    var metadata: [String: String]?
 
     var id: String { "\(source)-\(kind)-\(target)" }
 }

@@ -79,9 +79,8 @@ struct CodeMemorySidecarManager: Sendable {
 
         let resolvedPaths = resolvePythonPaths(helperPath: helperPath)
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.executableURL = pythonExecutable()
         process.arguments = [
-            "python3",
             "-m",
             "memoryd",
             "serve",
@@ -152,6 +151,19 @@ struct CodeMemorySidecarManager: Sendable {
         guard httpStatus(path: "/health") == 200 else { return false }
         guard httpStatus(path: "/v1/modules") == 200 else { return false }
         guard httpStatus(path: "/v1/memories/proposals") == 200 else { return false }
+        if configuration.localAI?.adaptersEnabled == true {
+            guard let healthBody = httpBody(path: "/health") else { return false }
+            let missingAdapterMarkers = [
+                "No module named 'mem0'",
+                "No module named \"mem0\"",
+                "No module named 'graphiti_core'",
+                "No module named \"graphiti_core\"",
+                "validation error for GraphitiClients",
+            ]
+            if missingAdapterMarkers.contains(where: { healthBody.contains($0) }) {
+                return false
+            }
+        }
         return true
     }
 
@@ -173,6 +185,54 @@ struct CodeMemorySidecarManager: Sendable {
             return nil
         }
         return statusBox.value
+    }
+
+    private func httpBody(path: String) -> String? {
+        let trimmedPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let url = configuration.baseURL.appendingPathComponent(trimmedPath)
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 0.4
+
+        let semaphore = DispatchSemaphore(value: 0)
+        let bodyBox = CodeMemoryHTTPBodyBox()
+        let task = URLSession.shared.dataTask(with: request) { data, response, _ in
+            let statusCode = (response as? HTTPURLResponse)?.statusCode
+            let body = data.flatMap { String(data: $0, encoding: .utf8) }
+            bodyBox.set(statusCode: statusCode, body: body)
+            semaphore.signal()
+        }
+        task.resume()
+        if semaphore.wait(timeout: .now() + 0.5) == .timedOut {
+            task.cancel()
+            return nil
+        }
+        guard bodyBox.statusCode == 200 else { return nil }
+        return bodyBox.body
+    }
+
+    private func pythonExecutable() -> URL {
+        let environment = ProcessInfo.processInfo.environment
+        if let override = environment["CLAUDE_STATS_MEMORYD_PYTHON"], !override.isEmpty {
+            let url = URL(fileURLWithPath: override)
+            if FileManager.default.isExecutableFile(atPath: url.path) {
+                return url
+            }
+        }
+
+        let venvPython = configuration.rootDirectory
+            .appendingPathComponent(".venv", isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+            .appendingPathComponent("python", isDirectory: false)
+        if FileManager.default.isExecutableFile(atPath: venvPython.path) {
+            return venvPython
+        }
+
+        let homebrewPython = URL(fileURLWithPath: "/opt/homebrew/bin/python3")
+        if FileManager.default.isExecutableFile(atPath: homebrewPython.path) {
+            return homebrewPython
+        }
+
+        return URL(fileURLWithPath: "/usr/bin/python3")
     }
 
     private func resolvePythonPaths(helperPath: String) -> [URL] {
@@ -219,6 +279,27 @@ private final class CodeMemoryHTTPStatusBox: @unchecked Sendable {
     func set(_ nextStatusCode: Int?) {
         lock.withLock {
             statusCode = nextStatusCode
+        }
+    }
+}
+
+private final class CodeMemoryHTTPBodyBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var responseStatusCode: Int?
+    private var responseBody: String?
+
+    var statusCode: Int? {
+        lock.withLock { responseStatusCode }
+    }
+
+    var body: String? {
+        lock.withLock { responseBody }
+    }
+
+    func set(statusCode nextStatusCode: Int?, body nextBody: String?) {
+        lock.withLock {
+            responseStatusCode = nextStatusCode
+            responseBody = nextBody
         }
     }
 }

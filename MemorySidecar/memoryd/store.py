@@ -149,7 +149,6 @@ class MemoryStore:
         if memory:
             self._enqueue_projection_jobs(memory, event)
             self.conn.commit()
-            self.drain_projection_jobs()
         return event | ({"memory": memory} if memory else {})
 
     def propose_memory(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -171,7 +170,7 @@ class MemoryStore:
             raise KeyError(memory_id)
         after = self._memory_row(row)
         after["status"] = "active"
-        return self.append_event(
+        result = self.append_event(
             {
                 "project_id": after["project_id"],
                 "event_type": "memory.accepted",
@@ -182,6 +181,8 @@ class MemoryStore:
                 "source_refs": after.get("source_refs", []),
             }
         )
+        result["drained"] = self.drain_projection_jobs(limit=20)
+        return result
 
     def reject_memory(self, memory_id: str, actor: dict[str, Any] | None = None) -> dict[str, Any]:
         row = self.conn.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)).fetchone()
@@ -395,6 +396,12 @@ class MemoryStore:
             if memory_row is None:
                 continue
             memory = self._memory_row(memory_row)
+            if memory.get("status") != "active":
+                self.conn.execute(
+                    "UPDATE projection_jobs SET status = 'done', last_error = NULL, updated_at = ?, attempt_count = attempt_count + 1 WHERE id = ?",
+                    (time.time(), job["id"]),
+                )
+                continue
             event = self._event_row(event_row) if event_row is not None else {"event_id": job["event_id"], "timestamp": time.time()}
             status = self.adapters.index_memory(memory, event, adapter_name=job["adapter"])
             detail = status.get(job["adapter"], "")
@@ -468,9 +475,15 @@ class MemoryStore:
             if not memory_id or memory_id in seen:
                 continue
             canonical = self.conn.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)).fetchone()
-            if canonical is not None:
-                result = dict(result)
-                result["memory"] = self._memory_row(canonical)
+            if canonical is None:
+                continue
+            canonical_memory = self._memory_row(canonical)
+            if status and canonical_memory["status"] != status:
+                continue
+            if project_id and canonical_memory["project_id"] != project_id:
+                continue
+            result = dict(result)
+            result["memory"] = canonical_memory
             seen.add(memory_id)
             results.append(result)
             if len(results) >= limit:
@@ -585,6 +598,8 @@ class MemoryStore:
         return int(row["count"])
 
     def _enqueue_projection_jobs(self, memory: dict[str, Any], event: dict[str, Any], *, force: bool = False) -> int:
+        if memory.get("status") != "active":
+            return 0
         adapters = self.adapters.names()
         now = time.time()
         count = 0

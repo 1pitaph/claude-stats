@@ -21,6 +21,7 @@ final class MemoryStore {
     private(set) var codeGraph: CodeMemoryGraph?
     private(set) var codeTrace: CodeMemoryRunTrace?
     private(set) var codeOutboxLastDrainResult: CodeMemoryOutboxDrainResult?
+    private(set) var codeLastProjectionDrainResult: CodeMemoryProjectionDrainResponse?
     private(set) var codeLastReindexResult: CodeMemoryProjectionDrainResponse?
     private(set) var codeLastSyncSummary: String?
     private(set) var isCodeMemoryLoading = false
@@ -202,9 +203,19 @@ final class MemoryStore {
     func acceptProposal(_ memory: CodeMemoryMemory) async {
         do {
             try await codeBackend.accept(memoryID: memory.id)
+            var drainError: Error?
+            do {
+                codeLastProjectionDrainResult = try await codeBackend.drainProjections()
+            } catch {
+                drainError = error
+            }
             await loadCodeProposals()
             await refreshCodeMemoryStatus()
-            lastError = nil
+            if let drainError {
+                lastError = "Accepted proposal; projection drain failed: \(drainError.localizedDescription)"
+            } else {
+                lastError = nil
+            }
         } catch {
             lastError = error.localizedDescription
         }
@@ -222,13 +233,29 @@ final class MemoryStore {
     }
 
     func reindexCodeMemory() async {
+        guard !isCodeMemoryLoading else { return }
         isCodeMemoryLoading = true
-        defer { isCodeMemoryLoading = false }
         do {
             codeLastReindexResult = try await codeBackend.reindex(projectID: codeSelectedProjectID)
+            isCodeMemoryLoading = false
             await refreshCodeMemoryStatus()
             lastError = nil
         } catch {
+            isCodeMemoryLoading = false
+            lastError = error.localizedDescription
+        }
+    }
+
+    func drainCodeMemoryProjections() async {
+        guard !isCodeMemoryLoading else { return }
+        isCodeMemoryLoading = true
+        do {
+            codeLastProjectionDrainResult = try await codeBackend.drainProjections()
+            isCodeMemoryLoading = false
+            await refreshCodeMemoryStatus()
+            lastError = nil
+        } catch {
+            isCodeMemoryLoading = false
             lastError = error.localizedDescription
         }
     }

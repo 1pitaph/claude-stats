@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import html
 import json
+import re
+import socket
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Protocol
+from urllib.parse import urlparse
 
 from .config import LocalAIConfig, load_local_ai_config
 
@@ -83,9 +87,10 @@ class CompositeAdapters:
                 result = adapter.index_memory(memory, event, adapter_name=adapter_name)
                 statuses.update(result)
             except Exception as error:  # noqa: BLE001
+                message = _compact_error(error)
                 if hasattr(adapter, "last_error"):
-                    setattr(adapter, "last_error", str(error))
-                statuses[str(name or "adapter")] = f"error: {error}"
+                    setattr(adapter, "last_error", message)
+                statuses[str(name or "adapter")] = f"error: {message}"
         return statuses
 
     def infer_memories(self, source: dict[str, Any]) -> list[dict[str, Any]]:
@@ -95,7 +100,7 @@ class CompositeAdapters:
                 proposals.extend(adapter.infer_memories(source))
             except Exception as error:  # noqa: BLE001
                 if hasattr(adapter, "last_error"):
-                    setattr(adapter, "last_error", str(error))
+                    setattr(adapter, "last_error", _compact_error(error))
         return proposals
 
     def search(self, query: str, *, project_id: str | None, limit: int) -> list[dict[str, Any]]:
@@ -105,7 +110,7 @@ class CompositeAdapters:
                 results.extend(adapter.search(query, project_id=project_id, limit=limit))
             except Exception as error:  # noqa: BLE001
                 if hasattr(adapter, "last_error"):
-                    setattr(adapter, "last_error", str(error))
+                    setattr(adapter, "last_error", _compact_error(error))
         return results[:limit]
 
     def graph(self, project_id: str, *, limit: int = 80) -> dict[str, list[dict[str, Any]]]:
@@ -118,7 +123,7 @@ class CompositeAdapters:
                 edges.extend(graph.get("edges", []))
             except Exception as error:  # noqa: BLE001
                 if hasattr(adapter, "last_error"):
-                    setattr(adapter, "last_error", str(error))
+                    setattr(adapter, "last_error", _compact_error(error))
         return {"nodes": nodes, "edges": edges}
 
 
@@ -170,12 +175,17 @@ class Mem0Adapter:
 
     def health(self) -> dict[str, str]:
         if self.available:
+            if endpoint_error := _endpoint_error(self.config):
+                return {"mem0": f"configured but endpoint unavailable: {endpoint_error}"}
             return {"mem0": "enabled: local qdrant + local OpenAI-compatible endpoint"}
         return {"mem0": f"unavailable: {self.last_error}"}
 
     def index_memory(self, memory: dict[str, Any], event: dict[str, Any], *, adapter_name: str | None = None) -> dict[str, str]:
         if not self.available or self.client is None:
             return {"mem0": f"unavailable: {self.last_error}"}
+        if endpoint_error := _endpoint_error(self.config):
+            self.last_error = endpoint_error
+            return {"mem0": f"unavailable: {endpoint_error}"}
         metadata = {
             "memory_id": str(memory.get("id") or ""),
             "project_id": str(memory.get("project_id") or ""),
@@ -200,6 +210,9 @@ class Mem0Adapter:
 
     def infer_memories(self, source: dict[str, Any]) -> list[dict[str, Any]]:
         if not self.available or self.client is None:
+            return []
+        if endpoint_error := _endpoint_error(self.config):
+            self.last_error = endpoint_error
             return []
         body = str(source.get("body") or source.get("text") or "").strip()
         if not body:
@@ -259,7 +272,12 @@ class Mem0Adapter:
     def search(self, query: str, *, project_id: str | None, limit: int) -> list[dict[str, Any]]:
         if not self.available or self.client is None or not query.strip():
             return []
-        filters = {"user_id": project_id or "default"}
+        if project_id is None:
+            return []
+        if endpoint_error := _endpoint_error(self.config):
+            self.last_error = endpoint_error
+            return []
+        filters = {"user_id": project_id}
         raw = self.client.search(query, filters=filters, top_k=limit)
         items = raw.get("results", raw) if isinstance(raw, dict) else raw
         if not isinstance(items, list):
@@ -270,7 +288,11 @@ class Mem0Adapter:
                 continue
             text = str(item.get("memory") or item.get("text") or item.get("body") or "")
             metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
-            memory_id = str(metadata.get("memory_id") or item.get("id") or f"mem0:{rank}")
+            memory_id = str(metadata.get("memory_id") or "")
+            if not memory_id:
+                continue
+            if str(metadata.get("status") or "active") != "active":
+                continue
             resolved_project = str(metadata.get("project_id") or project_id or "default")
             score = float(item.get("score") or item.get("distance") or 0.0)
             source_refs = _json_list(metadata.get("source_refs_json"))
@@ -343,7 +365,7 @@ class GraphitiAdapter:
                         embedding_dim=config.embedding_dims,
                     )
                 ),
-                cross_encoder=_NoopCrossEncoder(),
+                cross_encoder=_noop_cross_encoder(),
             )
             self.available = True
         except Exception as error:  # noqa: BLE001
@@ -353,12 +375,17 @@ class GraphitiAdapter:
 
     def health(self) -> dict[str, str]:
         if self.available:
+            if endpoint_error := _endpoint_error(self.config):
+                return {"graphiti": f"configured but endpoint unavailable: {endpoint_error}"}
             return {"graphiti": "enabled: local kuzu + local OpenAI-compatible endpoint"}
         return {"graphiti": f"unavailable: {self.last_error}"}
 
     def index_memory(self, memory: dict[str, Any], event: dict[str, Any], *, adapter_name: str | None = None) -> dict[str, str]:
         if not self.available or self.graphiti is None:
             return {"graphiti": f"unavailable: {self.last_error}"}
+        if endpoint_error := _endpoint_error(self.config):
+            self.last_error = endpoint_error
+            return {"graphiti": f"unavailable: {endpoint_error}"}
         episode_name = str(event.get("event_id") or memory.get("id") or "memory")
         project_id = str(memory.get("project_id") or "default")
         body = json.dumps(
@@ -378,22 +405,29 @@ class GraphitiAdapter:
         )
         source_description = f"Claude Stats memory project={project_id}"
         reference_time = datetime.fromtimestamp(float(event.get("timestamp") or time.time()), timezone.utc)
-        episode_uuid = "graphiti-" + hashlib.sha256(str(memory.get("id") or episode_name).encode("utf-8")).hexdigest()[:32]
         group_id = _safe_group_id(project_id)
         from graphiti_core.nodes import EpisodeType  # type: ignore
 
-        asyncio.run(
-            self.graphiti.add_episode(
-                name=episode_name,
-                episode_body=body,
-                source_description=source_description,
-                reference_time=reference_time,
-                source=EpisodeType.json,
-                group_id=group_id,
-                uuid=episode_uuid,
-                saga=f"project:{project_id}",
+        async def add_episode_with_timeout():
+            return await asyncio.wait_for(
+                self.graphiti.add_episode(
+                    name=episode_name,
+                    episode_body=body,
+                    source_description=source_description,
+                    reference_time=reference_time,
+                    source=EpisodeType.json,
+                    group_id=group_id,
+                    saga=f"project:{project_id}",
+                ),
+                timeout=self.config.adapter_timeout_seconds,
             )
-        )
+
+        try:
+            result = asyncio.run(add_episode_with_timeout())
+        except (TimeoutError, asyncio.TimeoutError) as error:
+            raise TimeoutError(f"graphiti add_episode timed out after {self.config.adapter_timeout_seconds:.1f}s") from error
+        episode = getattr(result, "episode", None)
+        episode_uuid = str(getattr(episode, "uuid", "") or hashlib.sha256(str(memory.get("id") or episode_name).encode("utf-8")).hexdigest()[:32])
         return {"graphiti": f"ok:{episode_uuid}"}
 
     def infer_memories(self, source: dict[str, Any]) -> list[dict[str, Any]]:
@@ -402,8 +436,21 @@ class GraphitiAdapter:
     def search(self, query: str, *, project_id: str | None, limit: int) -> list[dict[str, Any]]:
         if not self.available or self.graphiti is None or not query.strip():
             return []
+        if endpoint_error := _endpoint_error(self.config):
+            self.last_error = endpoint_error
+            return []
         group_ids = [_safe_group_id(project_id)] if project_id else None
-        edges = asyncio.run(self.graphiti.search(query=query, group_ids=group_ids, num_results=limit))
+
+        async def search_with_timeout():
+            return await asyncio.wait_for(
+                self.graphiti.search(query=query, group_ids=group_ids, num_results=limit),
+                timeout=self.config.adapter_timeout_seconds,
+            )
+
+        try:
+            edges = asyncio.run(search_with_timeout())
+        except (TimeoutError, asyncio.TimeoutError) as error:
+            raise TimeoutError(f"graphiti search timed out after {self.config.adapter_timeout_seconds:.1f}s") from error
         results: list[dict[str, Any]] = []
         now = time.time()
         for rank, edge in enumerate(edges, start=1):
@@ -444,12 +491,102 @@ class GraphitiAdapter:
         return results
 
     def graph(self, project_id: str, *, limit: int = 80) -> dict[str, list[dict[str, Any]]]:
-        return {"nodes": [], "edges": []}
+        if not self.available or self.graphiti is None:
+            return {"nodes": [], "edges": []}
+        if endpoint_error := _endpoint_error(self.config):
+            self.last_error = endpoint_error
+            return {"nodes": [], "edges": []}
+        group_id = _safe_group_id(project_id)
+        from graphiti_core.edges import EntityEdge  # type: ignore
+        from graphiti_core.errors import GroupsEdgesNotFoundError  # type: ignore
+        from graphiti_core.nodes import EntityNode  # type: ignore
+
+        async def graph_with_timeout():
+            async def load_edges():
+                try:
+                    return await EntityEdge.get_by_group_ids(self.graphiti.driver, [group_id], limit=limit)
+                except GroupsEdgesNotFoundError:
+                    return []
+
+            return await asyncio.wait_for(
+                asyncio.gather(
+                    EntityNode.get_by_group_ids(self.graphiti.driver, [group_id], limit=limit),
+                    load_edges(),
+                ),
+                timeout=self.config.adapter_timeout_seconds,
+            )
+
+        try:
+            entity_nodes, entity_edges = asyncio.run(graph_with_timeout())
+        except (TimeoutError, asyncio.TimeoutError) as error:
+            raise TimeoutError(f"graphiti graph timed out after {self.config.adapter_timeout_seconds:.1f}s") from error
+
+        nodes: dict[str, dict[str, Any]] = {}
+        edges: list[dict[str, Any]] = []
+
+        for node in entity_nodes:
+            node_uuid = str(getattr(node, "uuid", ""))
+            if not node_uuid:
+                continue
+            labels = getattr(node, "labels", []) or []
+            attributes = getattr(node, "attributes", {}) or {}
+            nodes[f"graphiti:entity:{node_uuid}"] = {
+                "id": f"graphiti:entity:{node_uuid}",
+                "kind": "graphiti_entity",
+                "title": str(getattr(node, "name", "") or node_uuid),
+                "body": str(getattr(node, "summary", "") or ""),
+                "metadata": {
+                    "adapter": "graphiti",
+                    "uuid": node_uuid,
+                    "group_id": group_id,
+                    "labels": json.dumps(labels, sort_keys=True, ensure_ascii=False),
+                    "attributes": json.dumps(attributes, sort_keys=True, ensure_ascii=False),
+                },
+            }
+
+        for edge in entity_edges:
+            edge_uuid = str(getattr(edge, "uuid", ""))
+            source_uuid = str(getattr(edge, "source_node_uuid", ""))
+            target_uuid = str(getattr(edge, "target_node_uuid", ""))
+            if not edge_uuid or not source_uuid or not target_uuid:
+                continue
+            for node_uuid in (source_uuid, target_uuid):
+                node_id = f"graphiti:entity:{node_uuid}"
+                if node_id not in nodes:
+                    nodes[node_id] = {
+                        "id": node_id,
+                        "kind": "graphiti_entity",
+                        "title": node_uuid,
+                        "metadata": {"adapter": "graphiti", "uuid": node_uuid, "group_id": group_id},
+                    }
+            valid_at = getattr(edge, "valid_at", None)
+            invalid_at = getattr(edge, "invalid_at", None)
+            edges.append(
+                {
+                    "source": f"graphiti:entity:{source_uuid}",
+                    "target": f"graphiti:entity:{target_uuid}",
+                    "kind": str(getattr(edge, "name", "") or "RELATES_TO"),
+                    "metadata": {
+                        "adapter": "graphiti",
+                        "uuid": edge_uuid,
+                        "fact": str(getattr(edge, "fact", "") or ""),
+                        "valid_at": valid_at.isoformat() if hasattr(valid_at, "isoformat") else str(valid_at or ""),
+                        "invalid_at": invalid_at.isoformat() if hasattr(invalid_at, "isoformat") else str(invalid_at or ""),
+                    },
+                }
+            )
+
+        return {"nodes": list(nodes.values()), "edges": edges}
 
 
-class _NoopCrossEncoder:
-    async def rank(self, query: str, passages: list[str]) -> list[tuple[str, float]]:
-        return [(passage, 1.0 / (index + 1)) for index, passage in enumerate(passages)]
+def _noop_cross_encoder():
+    from graphiti_core.cross_encoder.client import CrossEncoderClient  # type: ignore
+
+    class NoopCrossEncoder(CrossEncoderClient):
+        async def rank(self, query: str, passages: list[str]) -> list[tuple[str, float]]:
+            return [(passage, 1.0 / (index + 1)) for index, passage in enumerate(passages)]
+
+    return NoopCrossEncoder()
 
 
 def _json_list(value: Any) -> list[dict[str, Any]]:
@@ -487,6 +624,30 @@ def _safe_group_id(value: str | None) -> str:
     safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in raw)
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
     return f"p_{safe[:48]}_{digest}"
+
+
+def _endpoint_error(config: LocalAIConfig) -> str:
+    parsed = urlparse(config.base_url)
+    host = parsed.hostname
+    if not host:
+        return "local AI base URL is not configured"
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        with socket.create_connection((host, port), timeout=0.25):
+            return ""
+    except OSError as error:
+        detail = error.strerror or str(error)
+        return f"{host}:{port} is unreachable ({detail})"
+
+
+def _compact_error(error: Exception) -> str:
+    text = html.unescape(str(error))
+    text = re.sub(r"(?is)<script.*?</script>|<style.*?</style>", " ", text)
+    text = re.sub(r"(?is)<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) > 320:
+        text = text[:317].rstrip() + "..."
+    return text or error.__class__.__name__
 
 
 def build_adapters(root) -> MemoryAdapters:
