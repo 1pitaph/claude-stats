@@ -230,7 +230,7 @@ struct CodeMemoryHTTPClient: CodeMemoryBackend {
         try await post(
             "/v1/projections/drain",
             body: CodeMemoryProjectionDrainRequest(limit: limit, includeFailed: includeFailed),
-            timeout: 60
+            timeout: 300
         )
     }
 

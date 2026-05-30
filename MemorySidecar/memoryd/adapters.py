@@ -7,6 +7,8 @@ import json
 import re
 import socket
 import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Protocol
@@ -20,6 +22,17 @@ class AdapterHealth:
     name: str
     status: str
     detail: str
+
+
+DIRECT_EXTRACTION_SYSTEM_PROMPT = (
+    "You convert coding sources into canonical mem0 memories. Return JSON only "
+    "with this shape: {\"memories\":[{\"memory\":\"atomic reusable fact\","
+    "\"type\":\"convention|workflow|fact|decision|risk|command\","
+    "\"confidence\":0.0,\"importance\":0.0}]}. Each memory must be short, "
+    "self-contained, durable, and useful in a future coding session. Do not copy "
+    "raw source headers, raw JSON, Markdown headings alone, logs, secrets, or whole "
+    "sections. Return {\"memories\":[]} when there is no durable memory."
+)
 
 
 class MemoryAdapters(Protocol):
@@ -279,6 +292,7 @@ class Mem0Adapter:
     def capture_source(self, source: dict[str, Any], chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not self.available or self.client is None:
             return []
+        self.last_error = ""
         if endpoint_error := _endpoint_error(self.config):
             self.last_error = endpoint_error
             return []
@@ -323,23 +337,102 @@ class Mem0Adapter:
             extra = chunk.get("metadata")
             if isinstance(extra, dict):
                 metadata.update({str(key): str(value) for key, value in extra.items() if value is not None})
+            if bool(chunk.get("infer", True)):
+                candidates = self._extract_chunk_memories(body, chunk=chunk, source=source)
+                for candidate in candidates:
+                    candidate_body = str(candidate.get("memory") or "").strip()
+                    if not candidate_body:
+                        continue
+                    candidate_metadata = dict(metadata)
+                    candidate_metadata.update(
+                        {
+                            "title": str(candidate.get("title") or candidate_body[:120])[:160],
+                            "type": str(candidate.get("type") or metadata.get("type") or "fact"),
+                            "confidence": str(candidate.get("confidence") or metadata.get("confidence") or "0.82"),
+                            "importance": str(candidate.get("importance") or metadata.get("importance") or "0.6"),
+                            "extracted_by": "llm_direct_mem0",
+                        }
+                    )
+                    raw = self.client.add(
+                        candidate_body,
+                        user_id=project_id,
+                        metadata=candidate_metadata,
+                        infer=False,
+                    )
+                    for item in _mem0_result_items(raw):
+                        memory = self._memory_from_mem0_item(item, fallback_metadata=candidate_metadata)
+                        if memory is not None:
+                            captured.append(memory)
+                continue
+
             raw = self.client.add(
                 body,
                 user_id=project_id,
                 metadata=metadata,
-                infer=bool(chunk.get("infer", True)),
-                prompt=chunk.get("prompt") if isinstance(chunk.get("prompt"), str) else None,
+                infer=False,
             )
-            items = raw.get("results", raw) if isinstance(raw, dict) else raw
-            if not isinstance(items, list):
-                continue
-            for item in items:
-                if not isinstance(item, dict):
-                    continue
+            for item in _mem0_result_items(raw):
                 memory = self._memory_from_mem0_item(item, fallback_metadata=metadata)
                 if memory is not None:
                     captured.append(memory)
         return captured
+
+    def _extract_chunk_memories(self, body: str, *, chunk: dict[str, Any], source: dict[str, Any]) -> list[dict[str, Any]]:
+        prompt = str(chunk.get("prompt") or "").strip()
+        source_kind = str(source.get("kind") or chunk.get("type") or "source")
+        user_prompt = (
+            f"{prompt}\n\n" if prompt else ""
+        ) + (
+            f"Source kind: {source_kind}\n"
+            f"Project: {chunk.get('project_id') or source.get('project_id') or 'default'}\n"
+            f"Section: {chunk.get('section') or chunk.get('title') or ''}\n\n"
+            "Extract at most 8 memories from this chunk. Return JSON only.\n\n"
+            f"{body}"
+        )
+        text = self._call_extraction_llm(user_prompt)
+        memories = _parse_extracted_memories(text)
+        return memories[:8]
+
+    def _call_extraction_llm(self, prompt: str) -> str:
+        protocol = str(self.config.llm.protocol or "openai_chat_completions")
+        if protocol == "openai_responses":
+            payload = {
+                "model": self.config.llm.model,
+                "input": [
+                    {"role": "system", "content": DIRECT_EXTRACTION_SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                "max_output_tokens": 1400,
+                "temperature": 0,
+                "text": {"format": {"type": "json_object"}},
+            }
+            raw = _post_json(
+                _endpoint_url(self.config.llm.base_url, "responses"),
+                payload,
+                token=self.config.llm.token,
+                timeout_seconds=self.config.adapter_timeout_seconds,
+            )
+            return _responses_text(raw)
+        if protocol == "anthropic_messages":
+            raise RuntimeError("Direct memory extraction does not support Anthropic Messages yet; use OpenAI-compatible chat or Responses for mem0 capture.")
+
+        payload = {
+            "model": self.config.llm.model,
+            "messages": [
+                {"role": "system", "content": DIRECT_EXTRACTION_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            "max_tokens": 1400,
+            "temperature": 0,
+            "response_format": {"type": "json_object"},
+        }
+        raw = _post_json(
+            _endpoint_url(self.config.llm.base_url, "chat/completions"),
+            payload,
+            token=self.config.llm.token,
+            timeout_seconds=self.config.adapter_timeout_seconds,
+        )
+        return _chat_completion_text(raw)
 
     def capture_memory(self, memory: dict[str, Any]) -> dict[str, Any] | None:
         if not self.available or self.client is None:
@@ -867,6 +960,171 @@ def _set_mem0_openai_timeouts(client: Any, timeout_seconds: float) -> None:
         owner = getattr(client, attr_path[0], None)
         if owner is not None:
             setattr(owner, attr_path[1], replacement)
+
+
+def _mem0_result_items(raw: Any) -> list[dict[str, Any]]:
+    if isinstance(raw, dict):
+        items = raw.get("results")
+        if isinstance(items, list):
+            return [item for item in items if isinstance(item, dict)]
+        return [raw]
+    if isinstance(raw, list):
+        return [item for item in raw if isinstance(item, dict)]
+    return []
+
+
+def _endpoint_url(base_url: str, endpoint: str) -> str:
+    return f"{base_url.rstrip('/')}/{endpoint.lstrip('/')}"
+
+
+def _post_json(url: str, payload: dict[str, Any], *, token: str, timeout_seconds: float) -> dict[str, Any]:
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(
+        url,
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=max(1.0, float(timeout_seconds))) as response:
+            data = response.read()
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace") if error.fp else str(error)
+        raise RuntimeError(f"LLM extraction HTTP {error.code}: {_compact_error(Exception(detail))}") from error
+    except TimeoutError as error:
+        raise TimeoutError(f"LLM extraction timed out after {timeout_seconds:.0f}s") from error
+    except OSError as error:
+        raise RuntimeError(f"LLM extraction network error: {_compact_error(error)}") from error
+    try:
+        decoded = json.loads(data.decode("utf-8"))
+    except json.JSONDecodeError as error:
+        raise RuntimeError("LLM extraction returned non-JSON HTTP response") from error
+    if not isinstance(decoded, dict):
+        raise RuntimeError("LLM extraction returned unexpected JSON response")
+    return decoded
+
+
+def _chat_completion_text(raw: dict[str, Any]) -> str:
+    choices = raw.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return ""
+    first = choices[0] if isinstance(choices[0], dict) else {}
+    message = first.get("message") if isinstance(first.get("message"), dict) else {}
+    content = message.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(str(part.get("text") or "") for part in content if isinstance(part, dict))
+    return ""
+
+
+def _responses_text(raw: dict[str, Any]) -> str:
+    text = raw.get("output_text")
+    if isinstance(text, str) and text.strip():
+        return text
+    parts: list[str] = []
+    for item in raw.get("output") or []:
+        if not isinstance(item, dict):
+            continue
+        for content in item.get("content") or []:
+            if isinstance(content, dict) and isinstance(content.get("text"), str):
+                parts.append(content["text"])
+    return "".join(parts)
+
+
+def _parse_extracted_memories(text: str) -> list[dict[str, Any]]:
+    payload = _json_payload_from_text(text)
+    if payload is None:
+        raise RuntimeError("LLM extraction did not return the required JSON memory payload")
+    raw_items: Any
+    if isinstance(payload, dict):
+        raw_items = payload.get("memories", [])
+    else:
+        raw_items = payload
+    if isinstance(raw_items, dict):
+        raw_items = [raw_items]
+    if not isinstance(raw_items, list):
+        return []
+    memories: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in raw_items:
+        memory = _normalise_extracted_memory(item)
+        if memory is None:
+            continue
+        key = str(memory["memory"]).strip().lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        memories.append(memory)
+    return memories
+
+
+def _json_payload_from_text(text: str) -> Any | None:
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = re.sub(r"^```(?:json)?\s*", "", stripped, flags=re.IGNORECASE)
+        stripped = re.sub(r"\s*```$", "", stripped).strip()
+    for candidate in (stripped, _balanced_json_slice(stripped, "{", "}"), _balanced_json_slice(stripped, "[", "]")):
+        if not candidate:
+            continue
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+    return None
+
+
+def _balanced_json_slice(text: str, opener: str, closer: str) -> str:
+    start = text.find(opener)
+    end = text.rfind(closer)
+    if start == -1 or end == -1 or end <= start:
+        return ""
+    return text[start : end + 1]
+
+
+def _normalise_extracted_memory(item: Any) -> dict[str, Any] | None:
+    if isinstance(item, str):
+        text = item.strip()
+        raw: dict[str, Any] = {}
+    elif isinstance(item, dict):
+        raw = item
+        text = str(item.get("memory") or item.get("body") or item.get("text") or item.get("claim") or "").strip()
+    else:
+        return None
+    if not text or _looks_like_non_memory_text(text):
+        return None
+    memory_type = str(raw.get("type") or "fact").strip().lower()
+    if memory_type not in {"convention", "workflow", "fact", "decision", "risk", "command"}:
+        memory_type = "fact"
+    return {
+        "memory": text,
+        "title": str(raw.get("title") or text[:120]).strip()[:160],
+        "type": memory_type,
+        "confidence": _bounded_float(raw.get("confidence"), 0.82),
+        "importance": _bounded_float(raw.get("importance"), 0.6),
+    }
+
+
+def _looks_like_non_memory_text(text: str) -> bool:
+    head = "\n".join(text.lstrip().splitlines()[:8])
+    if "Project:" in head and "Source kind:" in head and "Source path:" in head:
+        return True
+    stripped = text.lstrip()
+    if stripped.startswith(("{", "[")) and any(marker in stripped[:1200] for marker in ('"permissions"', '"env"', '"session_meta"')):
+        return True
+    return len(text) > 2400
+
+
+def _bounded_float(value: Any, default: float) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    return max(0.0, min(1.0, number))
 
 
 def _json_list(value: Any) -> list[dict[str, Any]]:

@@ -34,13 +34,14 @@ class FakeMem0Adapters:
         captured = []
         for chunk in chunks:
             memory_id = f"mem0:{len(self.memories) + 1}"
+            body = str(chunk["body"]).split("\n\n", 1)[-1].strip()
             memory = {
                 "id": memory_id,
                 "project_id": chunk["project_id"],
                 "type": chunk["type"],
                 "status": chunk.get("status", "active"),
                 "title": chunk["title"],
-                "body": f"{chunk['title']} {chunk['body']}",
+                "body": f"captured:{body}",
                 "normalized_claim": memory_id,
                 "confidence": 0.82,
                 "importance": 0.6,
@@ -188,6 +189,26 @@ class MemorySidecarTests(unittest.TestCase):
         self.assertEqual(embedder_config["api_key"], "local-key")
         self.assertEqual(embedder_config["openai_base_url"], "http://127.0.0.1:18765/v1")
 
+    def test_direct_extraction_payload_parser_accepts_json_object(self):
+        from memoryd.adapters import _parse_extracted_memories
+
+        memories = _parse_extracted_memories(
+            '{"memories":[{"memory":"Run bash scripts/run-tests.sh after code changes.","type":"workflow","confidence":0.9}]}'
+        )
+
+        self.assertEqual(len(memories), 1)
+        self.assertEqual(memories[0]["memory"], "Run bash scripts/run-tests.sh after code changes.")
+        self.assertEqual(memories[0]["type"], "workflow")
+
+    def test_direct_extraction_payload_parser_rejects_raw_source(self):
+        from memoryd.adapters import _parse_extracted_memories
+
+        memories = _parse_extracted_memories(
+            '{"memories":[{"memory":"Project: /tmp/app\\nSource kind: CLAUDE.md\\nSource path: CLAUDE.md\\n\\n# Build"}]}'
+        )
+
+        self.assertEqual(memories, [])
+
     def test_openai_responses_parser_extracts_text_and_function_calls(self):
         from memoryd.llm_providers import _parse_responses_output
 
@@ -235,7 +256,7 @@ class MemorySidecarTests(unittest.TestCase):
 
             self.assertIsNone(first["prev_hash"])
             self.assertEqual(second["prev_hash"], first["hash"])
-            self.assertEqual(store.health()["api_version"], 12)
+            self.assertEqual(store.health()["api_version"], 15)
 
             hits = store.search("run-debug", project_id="claude-stats")
             self.assertEqual(hits["results"], [])
@@ -338,6 +359,106 @@ class MemorySidecarTests(unittest.TestCase):
 
             drained_after_reindex = store.drain_projection_jobs()
             self.assertEqual(drained_after_reindex["delivered"], 0)
+
+    def test_adapter_source_only_config_memories_are_filtered(self):
+        from memoryd.store import MemoryStore
+
+        class ConfigMemoryAdapters(FakeMem0Adapters):
+            def __init__(self):
+                super().__init__()
+                self.memories["mem0:config"] = {
+                    "id": "mem0:config",
+                    "project_id": "p",
+                    "type": "convention",
+                    "status": "active",
+                    "title": "Project settings.local.json",
+                    "body": '{"permissions":{"allow":["Bash(*)"]}}',
+                    "normalized_claim": "raw config",
+                    "confidence": 1,
+                    "importance": 1,
+                    "scopes": [{"id": "project:p", "kind": "project", "key": "p", "title": "p", "metadata": {}}],
+                    "source_refs": [
+                        {
+                            "kind": "ai_config",
+                            "uri": "/repo/.claude/settings.local.json",
+                            "path": "/repo/.claude/settings.local.json",
+                        },
+                        {"kind": "mem0", "uri": "mem0:config"},
+                    ],
+                    "metadata": {"adapter": "mem0", "source_kind": "ai_config"},
+                    "created_at": 1,
+                    "updated_at": 1,
+                    "extracted_by": "mem0",
+                }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = MemoryStore(Path(tmp), adapters=ConfigMemoryAdapters())
+            memories = store.memories(project_id="p", status="active")["memories"]
+            cached = store.conn.execute("SELECT COUNT(*) AS count FROM memories WHERE id = 'mem0:config'").fetchone()
+
+            self.assertEqual(memories, [])
+            self.assertEqual(cached["count"], 0)
+
+    def test_raw_instruction_chunk_is_not_cached_as_memory(self):
+        from memoryd.store import MemoryStore
+
+        class RawChunkAdapters(FakeMem0Adapters):
+            def capture_source(self, source, chunks):
+                self.captured_sources.append((source, chunks))
+                chunk = chunks[0]
+                return [
+                    {
+                        "id": "mem0:raw",
+                        "project_id": chunk["project_id"],
+                        "type": chunk["type"],
+                        "status": "active",
+                        "title": chunk["title"],
+                        "body": chunk["body"],
+                        "normalized_claim": "raw chunk",
+                        "confidence": 0.82,
+                        "importance": 0.6,
+                        "scopes": chunk["scopes"],
+                        "source_refs": chunk["source_refs"],
+                        "metadata": {"adapter": "mem0", "infer": "true"},
+                        "created_at": 1,
+                        "updated_at": 1,
+                        "extracted_by": "mem0",
+                    }
+                ]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = MemoryStore(Path(tmp), adapters=RawChunkAdapters())
+            store.ingest_source(
+                {
+                    "id": "src:agents",
+                    "project_id": "p",
+                    "title": "AGENTS.md",
+                    "body": "# Build\nRun tests after code changes.",
+                    "kind": "AGENTS.md",
+                    "path": "/repo/AGENTS.md",
+                    "content_hash": "hash",
+                }
+            )
+
+            drained = store.drain_projection_jobs(limit=5)
+            memories = store.memories(project_id="p", status="active")["memories"]
+            capture = store.conn.execute("SELECT status, last_error FROM source_captures WHERE source_id = 'src:agents'").fetchone()
+
+            self.assertEqual(drained["delivered"], 0)
+            self.assertEqual(drained["failed"], 1)
+            self.assertEqual(memories, [])
+            self.assertEqual(capture["status"], "failed")
+            self.assertIn("non-canonical", capture["last_error"])
+
+    def test_markdown_sections_are_fence_aware_and_keep_heading_path(self):
+        from memoryd.store import _markdown_sections
+
+        sections = _markdown_sections(
+            "# Root\nIntro\n\n```swift\n# Not a heading\n```\n\n## Build\nRun tests.\n\n## Release\nTag releases.",
+            limit=120,
+        )
+
+        self.assertEqual([section["title"] for section in sections], ["Root", "Root > Build", "Root > Release"])
 
     def test_config_sources_are_source_only_even_when_infer_is_requested(self):
         from memoryd.store import MemoryStore

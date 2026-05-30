@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sqlite3
 import time
 import uuid
@@ -18,7 +19,7 @@ INSTRUCTION_SOURCE_KINDS = {"AGENTS.md", "CLAUDE.md"}
 CONFIG_SOURCE_ONLY_KINDS = {"ai_config", "provider_config", "plugin_config", "plan"}
 REINFER_SOURCE_KINDS = TRANSCRIPT_SOURCE_KINDS | {"terminal_capture", "manual", "user_instruction"}
 MEM0_CAPTURE_SOURCE_KINDS = TRANSCRIPT_SOURCE_KINDS | INSTRUCTION_SOURCE_KINDS | {"terminal_capture", "manual", "user_instruction"}
-MEM0_CAPTURE_VERSION = "mem0-first-v1"
+MEM0_CAPTURE_VERSION = "mem0-direct-extract-v3"
 RAW_TRANSCRIPT_REDACTION = (
     "[Legacy raw transcript excerpt redacted. Re-sync this session to store parsed "
     "user/assistant conversation text.]"
@@ -31,12 +32,18 @@ SOURCE_ONLY_CONFIG_REDACTION = (
     "[Configuration source kept as source-only provenance. Config, plugin, and "
     "plan files are not canonical memories.]"
 )
+NONCANONICAL_MEM0_REDACTION = (
+    "[Non-canonical mem0 capture retracted. Re-capture this source to generate "
+    "atomic reusable memories.]"
+)
 REPO_RULE_EXTRACTION_PROMPT = (
     "Extract reusable repository rules from this instruction file. Capture each "
     "specific build command, test command, workflow rule, architecture convention, "
     "UI standard, release rule, or provider/submodule rule as a separate self-contained "
     "memory. Keep concrete paths, commands, file names, and exceptions. Do not merge "
-    "unrelated rules. Ignore headings that contain no actionable rule."
+    "unrelated rules. Ignore headings that contain no actionable rule. Never store the "
+    "source title, Markdown heading, Project/Source header, raw JSON, or an entire "
+    "section as a memory; every memory must be a concise reusable claim."
 )
 TRANSCRIPT_EXTRACTION_PROMPT = (
     "Extract only durable project memories from this coding transcript: decisions, "
@@ -52,14 +59,14 @@ def canonical_json(value: Any) -> str:
 
 class MemoryStore:
     schema_version = 10
-    api_version = 12
+    api_version = 15
 
     def __init__(self, root: Path, adapters: MemoryAdapters | None = None):
         self.root = root
         self.root.mkdir(parents=True, exist_ok=True)
         self.db_path = self.root / "code-memory.sqlite3"
         self.adapters = adapters if adapters is not None else build_adapters(root)
-        self.conn = sqlite3.connect(self.db_path)
+        self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA synchronous=NORMAL")
@@ -71,37 +78,49 @@ class MemoryStore:
         self.conn.close()
 
     def health(self) -> dict[str, Any]:
-        row = self.conn.execute("SELECT COUNT(*) AS count FROM memory_events").fetchone()
-        active_memories = self.conn.execute("SELECT COUNT(*) AS count FROM memories WHERE status = 'active' AND extracted_by = 'mem0'").fetchone()
-        total_memories = self.conn.execute("SELECT COUNT(*) AS count FROM memories WHERE extracted_by = 'mem0'").fetchone()
-        pending = self.conn.execute("SELECT COUNT(*) AS count FROM source_captures WHERE status = 'pending'").fetchone()
-        failed = self.conn.execute("SELECT COUNT(*) AS count FROM source_captures WHERE status = 'failed'").fetchone()
-        migration_pending = self.conn.execute("SELECT COUNT(*) AS count FROM legacy_memory_migrations WHERE status = 'pending'").fetchone()
-        proposals = self.conn.execute("SELECT COUNT(*) AS count FROM memories WHERE status = 'proposed' AND extracted_by = 'mem0'").fetchone()
-        modules = self.conn.execute("SELECT COUNT(*) AS count FROM modules").fetchone()
+        counts = self._health_counts()
+        pending = counts["capture_pending"]
+        failed = counts["capture_failed"]
         return {
             "status": "ok",
             "api_version": self.api_version,
             "store": str(self.db_path),
-            "event_count": int(row["count"]),
-            "memory_count": int(active_memories["count"]),
-            "total_memory_count": int(total_memories["count"]),
-            "proposal_count": int(proposals["count"]),
-            "module_count": int(modules["count"]),
+            "event_count": counts["event_count"],
+            "memory_count": counts["memory_count"],
+            "total_memory_count": counts["total_memory_count"],
+            "proposal_count": counts["proposal_count"],
+            "module_count": counts["module_count"],
             "projection_pending": 0,
             "projection_failed": 0,
-            "capture_pending": int(pending["count"]),
-            "capture_failed": int(failed["count"]),
-            "migration_pending": int(migration_pending["count"]),
+            "capture_pending": pending,
+            "capture_failed": failed,
+            "migration_pending": counts["migration_pending"],
             "adapters": self.adapters.health()
             | {
                 "projection_pending": "0",
                 "projection_failed": "0",
-                "capture_pending": str(int(pending["count"])),
-                "capture_failed": str(int(failed["count"])),
-                "migration_pending": str(int(migration_pending["count"])),
+                "capture_pending": str(pending),
+                "capture_failed": str(failed),
+                "migration_pending": str(counts["migration_pending"]),
             },
         }
+
+    def _health_counts(self) -> dict[str, int]:
+        conn = sqlite3.connect(self.db_path)
+        try:
+            queries = {
+                "event_count": ("SELECT COUNT(*) FROM memory_events", ()),
+                "memory_count": ("SELECT COUNT(*) FROM memories WHERE status = 'active' AND extracted_by = 'mem0'", ()),
+                "total_memory_count": ("SELECT COUNT(*) FROM memories WHERE extracted_by = 'mem0'", ()),
+                "proposal_count": ("SELECT COUNT(*) FROM memories WHERE status = 'proposed' AND extracted_by = 'mem0'", ()),
+                "module_count": ("SELECT COUNT(*) FROM modules", ()),
+                "capture_pending": ("SELECT COUNT(*) FROM source_captures WHERE status = 'pending' AND capture_version = ?", (MEM0_CAPTURE_VERSION,)),
+                "capture_failed": ("SELECT COUNT(*) FROM source_captures WHERE status = 'failed' AND capture_version = ?", (MEM0_CAPTURE_VERSION,)),
+                "migration_pending": ("SELECT COUNT(*) FROM legacy_memory_migrations WHERE status = 'pending'", ()),
+            }
+            return {key: int(conn.execute(sql, params).fetchone()[0]) for key, (sql, params) in queries.items()}
+        finally:
+            conn.close()
 
     def append_event(self, payload: dict[str, Any]) -> dict[str, Any]:
         project_id = str(payload.get("project_id") or "unknown")
@@ -294,6 +313,7 @@ class MemoryStore:
         list_memories = getattr(self.adapters, "list_memories", None)
         if callable(list_memories):
             memories = list_memories(project_id=project_id, status="proposed", memory_type=None, limit=max(1, min(limit, 500)))
+            memories = [memory for memory in memories if _canonical_memory_rejection_reason(memory) is None]
             if memories:
                 for memory in memories:
                     self._cache_mem0_memory(memory)
@@ -313,7 +333,8 @@ class MemoryStore:
             """,
             params,
         ).fetchall()
-        return {"memories": [self._memory_row(row) for row in rows]}
+        memories = [self._memory_row(row) for row in rows]
+        return {"memories": [memory for memory in memories if _canonical_memory_rejection_reason(memory) is None]}
 
     def events(self, *, project_id: str | None = None, after_seq: int | None = None, limit: int = 100) -> dict[str, Any]:
         params: list[Any] = []
@@ -383,6 +404,7 @@ class MemoryStore:
                     memory for memory in adapter_memories
                     if any(scope.get("id") == module_id for scope in memory.get("scopes", []) if isinstance(scope, dict))
                 ]
+            adapter_memories = [memory for memory in adapter_memories if _canonical_memory_rejection_reason(memory) is None]
             if adapter_memories:
                 for memory in adapter_memories:
                     self._cache_mem0_memory(memory)
@@ -416,7 +438,8 @@ class MemoryStore:
             """,
             params,
         ).fetchall()
-        return {"memories": [self._memory_row(row) for row in rows]}
+        memories = [self._memory_row(row) for row in rows]
+        return {"memories": [memory for memory in memories if _canonical_memory_rejection_reason(memory) is None]}
 
     def ingest_source(self, payload: dict[str, Any]) -> dict[str, Any]:
         project_id = str(payload.get("project_id") or "unknown")
@@ -619,6 +642,8 @@ class MemoryStore:
         for result in self.adapters.search(query, project_id=project_id, limit=limit):
             memory = result.get("memory") if isinstance(result, dict) else None
             if not isinstance(memory, dict):
+                continue
+            if _canonical_memory_rejection_reason(memory) is not None:
                 continue
             memory_id = memory.get("id")
             if not memory_id or memory_id in seen:
@@ -995,7 +1020,10 @@ class MemoryStore:
                 "capture_version": MEM0_CAPTURE_VERSION,
                 "source_refs": [ref],
                 "scopes": scopes,
-                "metadata": string_map(source.get("metadata") if isinstance(source.get("metadata"), dict) else {}),
+                "metadata": string_map(source.get("metadata") if isinstance(source.get("metadata"), dict) else {}) | {
+                    "infer": "true" if infer else "false",
+                    "source_kind": kind,
+                },
             }
 
         if kind in INSTRUCTION_SOURCE_KINDS:
@@ -1089,7 +1117,13 @@ class MemoryStore:
             LEFT JOIN sources src ON src.id = cap.source_id
             WHERE cap.capture_version = ?
               AND cap.status IN ({placeholders})
-            ORDER BY cap.updated_at ASC
+            ORDER BY
+                CASE
+                    WHEN cap.kind IN ('AGENTS.md', 'CLAUDE.md') THEN 0
+                    WHEN cap.kind IN ('manual', 'user_instruction', 'terminal_capture') THEN 1
+                    ELSE 2
+                END,
+                cap.updated_at ASC
             LIMIT ?
             """,
             (MEM0_CAPTURE_VERSION, *statuses, max(1, min(limit, 25))),
@@ -1142,16 +1176,20 @@ class MemoryStore:
             try:
                 chunks = self._capture_chunks_for_source(inference_source)
                 memories = self.adapters.capture_source(inference_source, chunks)
+                accepted_memories: list[dict[str, Any]] = []
                 for memory in memories:
-                    self._cache_mem0_memory(memory)
+                    cached = self._cache_mem0_memory(memory)
+                    if cached is None:
+                        continue
+                    accepted_memories.append(cached)
                     self.append_event(
                         {
-                            "project_id": memory.get("project_id") or project_id,
+                            "project_id": cached.get("project_id") or project_id,
                             "event_type": "memory.observed",
                             "actor": {"kind": "background", "id": "mem0"},
-                            "memory_id": memory.get("id"),
-                            "after": memory,
-                            "source_refs": memory.get("source_refs", []),
+                            "memory_id": cached.get("id"),
+                            "after": cached,
+                            "source_refs": cached.get("source_refs", []),
                         }
                     )
                 inference_errors = self._adapter_inference_errors()
@@ -1159,6 +1197,20 @@ class MemoryStore:
                     mem0_health = self.adapters.health().get("mem0", "mem0 unavailable")
                     if "enabled" not in str(mem0_health).lower():
                         inference_errors = [{"adapter": "mem0", "error": str(mem0_health)}]
+                elif memories and not accepted_memories:
+                    inference_errors = [
+                        {
+                            "adapter": "mem0",
+                            "error": "mem0 returned only non-canonical source/config payloads; no usable memory was stored",
+                        }
+                    ]
+                if not accepted_memories and chunks and kind in INSTRUCTION_SOURCE_KINDS and not inference_errors:
+                    inference_errors = [
+                        {
+                            "adapter": "mem0",
+                            "error": "mem0 returned no usable repository-rule memories for this Markdown source",
+                        }
+                    ]
                 if inference_errors:
                     self._mark_source_capture(
                         source_id,
@@ -1167,12 +1219,12 @@ class MemoryStore:
                         content_hash,
                         "failed",
                         error=inference_errors[0].get("error", ""),
-                        created_count=len(memories),
+                        created_count=len(accepted_memories),
                     )
                     failed += 1
                 else:
-                    self._mark_source_capture(source_id, project_id, kind, content_hash, "succeeded", created_count=len(memories))
-                    delivered += len(memories)
+                    self._mark_source_capture(source_id, project_id, kind, content_hash, "succeeded", created_count=len(accepted_memories))
+                    delivered += len(accepted_memories)
             except Exception as error:  # noqa: BLE001
                 self._mark_source_capture(source_id, project_id, kind, content_hash, "failed", error=_compact_exception(error))
                 failed += 1
@@ -1252,6 +1304,8 @@ class MemoryStore:
     def _cache_mem0_memory(self, memory: dict[str, Any]) -> dict[str, Any] | None:
         if not isinstance(memory, dict) or not str(memory.get("id") or "").strip():
             return None
+        if _canonical_memory_rejection_reason(memory) is not None:
+            return None
         payload = dict(memory)
         metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
         payload["metadata"] = metadata | {"adapter": "mem0", "cache_source": "mem0"}
@@ -1293,6 +1347,8 @@ class MemoryStore:
         results: list[dict[str, Any]] = []
         for rank, row in enumerate(rows, start=1):
             memory = self._memory_row(row)
+            if _canonical_memory_rejection_reason(memory) is not None:
+                continue
             score = self._lexical_score(query, memory)
             results.append(
                 {
@@ -2051,6 +2107,7 @@ class MemoryStore:
         self._redact_legacy_raw_transcript_source_excerpts()
         self._retract_legacy_source_only_config_memories()
         self._retract_legacy_sensitive_config_memories()
+        self._retract_legacy_noncanonical_mem0_memories()
         self._redact_legacy_sensitive_config_source_excerpts()
         self.conn.execute(f"PRAGMA user_version={self.schema_version}")
         self.conn.commit()
@@ -2192,6 +2249,38 @@ class MemoryStore:
             WHERE id IN ({placeholders})
             """,
             (SENSITIVE_CONFIG_REDACTION, now, now, *memory_ids),
+        )
+
+    def _retract_legacy_noncanonical_mem0_memories(self) -> None:
+        rows = self.conn.execute(
+            """
+            SELECT *
+            FROM memories
+            WHERE status = 'active'
+              AND COALESCE(extracted_by, '') = 'mem0'
+            """
+        ).fetchall()
+        memory_ids: list[str] = []
+        for row in rows:
+            memory = self._memory_row(row)
+            if _canonical_memory_rejection_reason(memory) is not None:
+                memory_ids.append(str(memory["id"]))
+        if not memory_ids:
+            return
+        now = time.time()
+        placeholders = ",".join("?" for _ in memory_ids)
+        self.conn.execute(
+            f"""
+            UPDATE memories
+            SET status = 'retracted',
+                body = ?,
+                invalid_at = COALESCE(invalid_at, ?),
+                review_reason = COALESCE(review_reason, 'noncanonical_mem0_capture'),
+                extracted_by = 'noncanonical_mem0_capture',
+                updated_at = ?
+            WHERE id IN ({placeholders})
+            """,
+            (NONCANONICAL_MEM0_REDACTION, now, now, *memory_ids),
         )
 
     def _redact_legacy_sensitive_config_source_excerpts(self) -> None:
@@ -2494,6 +2583,100 @@ def _text_from_value(value: Any) -> str:
     return str(value).strip()
 
 
+def _canonical_memory_rejection_reason(memory: dict[str, Any]) -> str | None:
+    if _source_only_config_memory(memory):
+        return "source-only configuration is not a canonical memory"
+    text = str(memory.get("body") or memory.get("memory") or memory.get("text") or "").strip()
+    if not text:
+        return "memory body is empty"
+    metadata = _memory_metadata(memory)
+    inferred = str(metadata.get("infer") or "").strip().lower() in {"1", "true", "yes", "on"}
+    if _looks_like_raw_source_chunk(text):
+        return "raw source chunk was returned instead of an extracted memory"
+    if _looks_like_raw_json_payload(text):
+        return "raw JSON/config payload was returned instead of an extracted memory"
+    if inferred and len(text) > 2400:
+        return "inferred memory is too large to be canonical"
+    return None
+
+
+def _source_only_config_memory(memory: dict[str, Any]) -> bool:
+    refs = _memory_source_refs(memory)
+    if any(str(ref.get("kind") or "") in CONFIG_SOURCE_ONLY_KINDS for ref in refs if isinstance(ref, dict)):
+        return True
+    metadata = _memory_metadata(memory)
+    source_kind = str(metadata.get("source_kind") or metadata.get("kind") or "").strip()
+    if source_kind in CONFIG_SOURCE_ONLY_KINDS:
+        return True
+    title = str(memory.get("title") or metadata.get("title") or "")
+    locator_parts = [
+        title,
+        str(metadata.get("source_path") or ""),
+        str(metadata.get("source_uri") or ""),
+    ]
+    for ref in refs:
+        if isinstance(ref, dict):
+            locator_parts.extend(str(ref.get(key) or "") for key in ("uri", "path"))
+    locator = "/".join(part.replace("\\", "/") for part in locator_parts if part)
+    if source_kind in {"ai_config", "provider_config"} and (
+        "settings.local.json" in locator
+        or ".claude/settings.json" in locator
+        or locator.endswith("settings.json")
+    ):
+        return True
+    return False
+
+
+def _memory_source_refs(memory: dict[str, Any]) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    raw_refs = memory.get("source_refs")
+    if isinstance(raw_refs, list):
+        refs.extend(ref for ref in raw_refs if isinstance(ref, dict))
+    metadata_refs = _json_dict_list(_memory_metadata(memory).get("source_refs_json"))
+    refs.extend(metadata_refs)
+    return refs
+
+
+def _memory_metadata(memory: dict[str, Any]) -> dict[str, Any]:
+    metadata = memory.get("metadata")
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _json_dict_list(value: Any) -> list[dict[str, Any]]:
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, dict)]
+    if not isinstance(value, str) or not value.strip():
+        return []
+    try:
+        decoded = json.loads(value)
+    except json.JSONDecodeError:
+        return []
+    return [item for item in decoded if isinstance(item, dict)] if isinstance(decoded, list) else []
+
+
+def _looks_like_raw_source_chunk(text: str) -> bool:
+    head = "\n".join(text.lstrip().splitlines()[:8])
+    return "Project:" in head and "Source kind:" in head and "Source path:" in head
+
+
+def _looks_like_raw_json_payload(text: str) -> bool:
+    stripped = text.lstrip()
+    if not stripped.startswith(("{", "[")):
+        return False
+    head = stripped[:4000]
+    markers = [
+        '"permissions"',
+        '"allow"',
+        '"deny"',
+        '"env"',
+        '"session_meta"',
+        '"base_instructions"',
+        '"activeProvider"',
+        '"enabledPlugins"',
+    ]
+    return any(marker in head for marker in markers)
+
+
 def _source_chunk_header(source: dict[str, Any], section: str) -> str:
     lines = [
         f"Project: {source.get('project_id') or 'unknown'}",
@@ -2505,12 +2688,14 @@ def _source_chunk_header(source: dict[str, Any], section: str) -> str:
     return "\n".join(lines)
 
 
-def _markdown_sections(text: str, *, limit: int = 12_000) -> list[dict[str, Any]]:
+def _markdown_sections(text: str, *, limit: int = 8_000) -> list[dict[str, Any]]:
     lines = text.splitlines()
     sections: list[dict[str, Any]] = []
     current_title = "Document"
     current_start = 1
     current_lines: list[str] = []
+    heading_stack: list[tuple[int, str]] = []
+    in_fence = False
 
     def flush(end_line: int) -> None:
         body = "\n".join(current_lines).strip()
@@ -2519,7 +2704,7 @@ def _markdown_sections(text: str, *, limit: int = 12_000) -> list[dict[str, Any]
         for index, chunk in enumerate(_paragraph_chunks(body, limit=limit), start=1):
             sections.append(
                 {
-                    "title": current_title if index == 1 else f"{current_title} ({index})",
+                    "title": current_title if index == 1 else f"{current_title} (part {index})",
                     "body": chunk,
                     "line_start": current_start,
                     "line_end": end_line,
@@ -2528,11 +2713,18 @@ def _markdown_sections(text: str, *, limit: int = 12_000) -> list[dict[str, Any]
 
     for line_number, line in enumerate(lines, start=1):
         stripped = line.strip()
-        if stripped.startswith("#"):
-            heading = stripped.lstrip("#").strip()
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            in_fence = not in_fence
+        heading_match = re.match(r"^(#{1,6})\s+(.+?)\s*#*\s*$", stripped) if not in_fence else None
+        if heading_match is not None:
+            level = len(heading_match.group(1))
+            heading = heading_match.group(2).strip()
             if heading:
                 flush(line_number - 1)
-                current_title = heading
+                while heading_stack and heading_stack[-1][0] >= level:
+                    heading_stack.pop()
+                heading_stack.append((level, heading))
+                current_title = " > ".join(title for _, title in heading_stack) or heading
                 current_start = line_number
                 current_lines = [line]
                 continue

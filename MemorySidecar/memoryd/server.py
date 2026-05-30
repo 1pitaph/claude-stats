@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -191,7 +191,8 @@ class MemoryHTTPRequestHandler(BaseHTTPRequestHandler):
 def serve(root: Path, host: str, port: int) -> None:
     store = MemoryStore(root)
     MemoryHTTPRequestHandler.store = store
-    server = HTTPServer((host, port), MemoryHTTPRequestHandler)
+    server = ThreadingHTTPServer((host, port), MemoryHTTPRequestHandler)
+    server.daemon_threads = True
     try:
         server.serve_forever()
     finally:

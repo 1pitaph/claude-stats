@@ -112,7 +112,7 @@ def _load_runtime_config(path: Path, root: Path) -> MemoryModelConfig:
         graphiti_enabled=_bool_value(raw.get("graphiti_enabled")),
         qdrant_path=root / "mem0-qdrant",
         kuzu_path=root / "graphiti.kuzu",
-        adapter_timeout_seconds=_float_env("CLAUDE_STATS_MEMORY_ADAPTER_TIMEOUT_SECONDS", 20.0),
+        adapter_timeout_seconds=_float_env("CLAUDE_STATS_MEMORY_ADAPTER_TIMEOUT_SECONDS", 120.0),
         configuration_hash=str(raw.get("configuration_hash") or ""),
         source="runtime_config",
     )
@@ -138,7 +138,7 @@ def _load_legacy_env_config(root: Path) -> MemoryModelConfig:
         graphiti_enabled=_bool_env("CLAUDE_STATS_GRAPHITI_ENABLED"),
         qdrant_path=root / "mem0-qdrant",
         kuzu_path=root / "graphiti.kuzu",
-        adapter_timeout_seconds=_float_env("CLAUDE_STATS_MEMORY_ADAPTER_TIMEOUT_SECONDS", 20.0),
+        adapter_timeout_seconds=_float_env("CLAUDE_STATS_MEMORY_ADAPTER_TIMEOUT_SECONDS", 120.0),
         configuration_hash=os.environ.get("CLAUDE_STATS_LOCAL_AI_CONFIG_HASH", ""),
         source="legacy_env",
     )
@@ -152,7 +152,7 @@ def _disabled_config(root: Path, detail: str) -> MemoryModelConfig:
         graphiti_enabled=False,
         qdrant_path=root / "mem0-qdrant",
         kuzu_path=root / "graphiti.kuzu",
-        adapter_timeout_seconds=_float_env("CLAUDE_STATS_MEMORY_ADAPTER_TIMEOUT_SECONDS", 20.0),
+        adapter_timeout_seconds=_float_env("CLAUDE_STATS_MEMORY_ADAPTER_TIMEOUT_SECONDS", 120.0),
         source="disabled",
     )
 
