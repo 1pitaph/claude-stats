@@ -32,9 +32,6 @@ MEMORY_STATUSES = {
 DETERMINISTIC_SOURCE_KINDS = {
     "AGENTS.md",
     "CLAUDE.md",
-    "ai_config",
-    "codex_transcript",
-    "claude_transcript",
     "manual",
     "repo_config",
     "script",

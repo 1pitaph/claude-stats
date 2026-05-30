@@ -13,6 +13,7 @@ DERIVED=/tmp/Codex-stats-build
 APP="$DERIVED/Build/Products/Debug/Claude Stats.app"
 APP_PROCESS_PATTERN="Claude Stats.app/Contents/MacOS/Claude Stats"
 LOCAL_AI_HELPER_PATTERN="Claude Stats.app/Contents/Helpers/claude-stats-local-ai"
+MEMORY_SIDECAR_PATTERN="memoryd serve --root .*/Claude Stats/Memory --host 127.0.0.1 --port 8765"
 MEDIAREMOTE_HELPER_PATTERN="Codex-stats-build/Build/Products/Debug/Claude Stats.app/Contents/Resources/mediaremote-adapter.pl"
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 
@@ -33,6 +34,10 @@ running_mediaremote_helper_pids() {
 
 running_local_ai_helper_pids() {
     pgrep -f "$LOCAL_AI_HELPER_PATTERN" 2>/dev/null || true
+}
+
+running_memory_sidecar_pids() {
+    pgrep -f "$MEMORY_SIDECAR_PATTERN" 2>/dev/null || true
 }
 
 wait_until_stopped() {
@@ -74,6 +79,19 @@ wait_until_local_ai_helpers_stopped() {
     return 1
 }
 
+wait_until_memory_sidecars_stopped() {
+    local pids
+    local attempts="$1"
+    for ((i = 0; i < attempts; i++)); do
+        pids="$(running_memory_sidecar_pids)"
+        if [[ -z "$pids" ]]; then
+            return 0
+        fi
+        sleep 0.15
+    done
+    return 1
+}
+
 stop_running_app() {
     local pids
     pids="$(running_app_pids)"
@@ -96,6 +114,31 @@ stop_running_app() {
 
     pids="$(running_app_pids)"
     echo "error: unable to stop existing Claude Stats process(es): $(echo "$pids" | tr '\n' ' ')" >&2
+    return 1
+}
+
+stop_running_memory_sidecars() {
+    local pids
+    pids="$(running_memory_sidecar_pids)"
+    if [[ -z "$pids" ]]; then
+        return 0
+    fi
+
+    echo "==> Stopping stale Code Memory sidecar process(es): $(echo "$pids" | tr '\n' ' ')"
+    kill -TERM $pids 2>/dev/null || true
+    if wait_until_memory_sidecars_stopped 30; then
+        return 0
+    fi
+
+    pids="$(running_memory_sidecar_pids)"
+    echo "==> Stale Code Memory sidecar ignored SIGTERM; forcing: $(echo "$pids" | tr '\n' ' ')"
+    kill -KILL $pids 2>/dev/null || true
+    if wait_until_memory_sidecars_stopped 30; then
+        return 0
+    fi
+
+    pids="$(running_memory_sidecar_pids)"
+    echo "error: unable to stop stale Code Memory sidecar process(es): $(echo "$pids" | tr '\n' ' ')" >&2
     return 1
 }
 
@@ -172,6 +215,7 @@ bash scripts/generate.sh
 # Kill any running instance so the rebuild can replace it.
 stop_running_app
 stop_running_local_ai_helpers
+stop_running_memory_sidecars
 stop_running_mediaremote_helpers
 cleanup_stale_registrations
 

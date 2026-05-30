@@ -17,6 +17,9 @@ struct MemoryGraphWorkspaceView: View {
                     .frame(width: 330)
             }
         }
+        .task(id: store.codeSelectedProjectID) {
+            await store.loadCodeGraphIfNeeded()
+        }
     }
 
     private var toolbar: some View {

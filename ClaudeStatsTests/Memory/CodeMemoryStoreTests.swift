@@ -104,6 +104,85 @@ struct CodeMemoryStoreTests {
     }
 
     @MainActor
+    @Test("Transcript sync sends parsed conversation text instead of raw JSONL")
+    func transcriptSyncUsesParsedConversationText() async throws {
+        let backend = FakeCodeMemoryBackend()
+        let store = MemoryStore(codeBackend: backend)
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("jsonl")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let raw = """
+        {"timestamp":"2026-05-29T00:00:00.000Z","type":"session_meta","payload":{"id":"s","cwd":"/repo/claude-stats","base_instructions":{"text":"SECRET BASE INSTRUCTIONS"}}}
+        {"timestamp":"2026-05-29T00:00:01.000Z","type":"event_msg","payload":{"type":"user_message","message":"Remember to run tests."}}
+        {"timestamp":"2026-05-29T00:00:02.000Z","type":"event_msg","payload":{"type":"agent_message","message":"I will run bash scripts/run-tests.sh."}}
+        """
+        try raw.write(to: url, atomically: true, encoding: .utf8)
+        let session = Session(
+            id: "codex::s",
+            externalID: "s",
+            provider: .codex,
+            projectDirectoryName: "-repo-claude-stats",
+            filePath: url.path,
+            cwd: "/repo/claude-stats",
+            lastModified: Date(timeIntervalSince1970: 0),
+            fileSize: 1_024,
+            stats: nil
+        )
+
+        await store.syncAvailableSources(sessions: [session], configProjects: [])
+
+        #expect(backend.ingestedSources.count == 1)
+        let source = try #require(backend.ingestedSources.first)
+        #expect(source.kind == "codex_transcript")
+        #expect(source.infer)
+        #expect(source.body.contains("User: Remember to run tests."))
+        #expect(source.body.contains("Assistant: I will run bash scripts/run-tests.sh."))
+        #expect(!source.body.contains("session_meta"))
+        #expect(!source.body.contains("SECRET BASE INSTRUCTIONS"))
+    }
+
+    @MainActor
+    @Test("Config sync uses specific source-only kinds")
+    func configSyncUsesSpecificSourceOnlyKinds() async throws {
+        let backend = FakeCodeMemoryBackend()
+        let store = MemoryStore(codeBackend: backend)
+        let documents = [
+            Self.configDocument(title: "config.toml", kind: .providerConfig, fileKind: .toml, path: "/repo/.codex/config.toml"),
+            Self.configDocument(title: "installed_plugins.json", kind: .pluginConfig, fileKind: .json, path: "/repo/.claude/plugins/installed_plugins.json"),
+            Self.configDocument(title: "repair-plan.md", kind: .plan, fileKind: .markdown, path: "/repo/.codex/plans/repair-plan.md"),
+            Self.configDocument(title: "AGENTS.md", kind: .instruction, fileKind: .markdown, path: "/repo/AGENTS.md"),
+            Self.configDocument(title: "other.json", kind: .other, fileKind: .json, path: "/repo/other.json"),
+        ]
+        let project = AIConfigProject(kind: .project, name: "repo", path: "/repo", documents: documents)
+
+        await store.syncAvailableSources(sessions: [], configProjects: [project])
+
+        let kindByTitle = Dictionary(uniqueKeysWithValues: backend.ingestedSources.map { ($0.title, $0.kind) })
+        #expect(kindByTitle["config.toml"] == "provider_config")
+        #expect(kindByTitle["installed_plugins.json"] == "plugin_config")
+        #expect(kindByTitle["repair-plan.md"] == "plan")
+        #expect(kindByTitle["AGENTS.md"] == "AGENTS.md")
+        #expect(kindByTitle["other.json"] == "ai_config")
+        #expect(backend.ingestedSources.allSatisfy { !$0.infer })
+    }
+
+    @MainActor
+    @Test("Settings reinfer sources calls backend and stores result")
+    func reinferSourcesCallsBackendAndStoresResult() async throws {
+        let backend = FakeCodeMemoryBackend()
+        backend.reinferResponse = CodeMemoryReinferSourcesResponse(status: "ok", scanned: 4, attempted: 3, proposed: 2, skipped: 1, errors: [])
+        let store = MemoryStore(codeBackend: backend)
+        store.codeSelectedProjectID = "claude-stats"
+
+        await store.reinferCodeMemorySources()
+
+        #expect(backend.reinferProjectIDs == ["claude-stats"])
+        #expect(store.codeLastReinferResult?.attempted == 3)
+        #expect(store.codeLastReinferResult?.proposed == 2)
+    }
+
+    @MainActor
     @Test("Accepting a proposal drains projection jobs")
     func acceptingProposalDrainsProjectionJobs() async throws {
         let backend = FakeCodeMemoryBackend()
@@ -187,6 +266,32 @@ struct CodeMemoryStoreTests {
     private static func memory(id: String, status: String) -> CodeMemoryMemory {
         FakeCodeMemoryBackend.memory(id: id, status: status)
     }
+
+    private static func configDocument(
+        title: String,
+        kind: AIConfigDocumentKind,
+        fileKind: ProviderConfigFileKind,
+        path: String
+    ) -> AIConfigDocument {
+        AIConfigDocument(
+            id: "doc:\(title)",
+            provider: .codex,
+            title: title,
+            path: path,
+            kind: kind,
+            fileKind: fileKind,
+            location: .project(path: "/repo"),
+            exists: true,
+            isExpected: false,
+            fileSize: 32,
+            modifiedAt: nil,
+            contentPreview: "\(title) body",
+            isPreviewTruncated: false,
+            assignedProjectPath: "/repo",
+            stats: .empty,
+            diagnostics: []
+        )
+    }
 }
 
 private final class FakeCodeMemoryBackend: CodeMemoryBackend, @unchecked Sendable {
@@ -202,6 +307,9 @@ private final class FakeCodeMemoryBackend: CodeMemoryBackend, @unchecked Sendabl
     var unifiedSearchResponse: CodeMemoryUnifiedSearchResponse?
     var contextPackResponse: CodeMemoryContextPack?
     var graphResponse: CodeMemoryGraph?
+    var ingestedSources: [CodeMemorySourceInput] = []
+    var reinferProjectIDs: [String?] = []
+    var reinferResponse = CodeMemoryReinferSourcesResponse(status: "ok", scanned: 0, attempted: 0, proposed: 0, skipped: 0, errors: [])
 
     func health() async throws -> CodeMemoryHealth {
         CodeMemoryHealth(
@@ -302,6 +410,16 @@ private final class FakeCodeMemoryBackend: CodeMemoryBackend, @unchecked Sendabl
 
     func trace(runID: String) async throws -> CodeMemoryRunTrace {
         CodeMemoryRunTrace(runID: runID, projectID: nil, timestamp: nil, request: nil, repoState: [:], memoryUsage: [])
+    }
+
+    func ingestSource(_ source: CodeMemorySourceInput) async throws -> CodeMemorySyncSourceResponse {
+        ingestedSources.append(source)
+        return CodeMemorySyncSourceResponse(status: "ok", created: [], proposed: [])
+    }
+
+    func reinferSources(projectID: String?) async throws -> CodeMemoryReinferSourcesResponse {
+        reinferProjectIDs.append(projectID)
+        return reinferResponse
     }
 
     func recordEvent(_ event: CodeMemoryEventInput) async throws {}

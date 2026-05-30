@@ -119,6 +119,14 @@ struct MemorySettingsView: View {
                 }
                 .controlSize(.small)
                 .disabled(store.isCodeMemoryLoading || store.codeHealth == nil)
+
+                Button {
+                    Task { await store.reinferCodeMemorySources() }
+                } label: {
+                    Label("Reinfer Sources", systemImage: "sparkles")
+                }
+                .controlSize(.small)
+                .disabled(store.isCodeMemoryLoading || store.codeHealth == nil)
             }
 
             if let result = store.codeLastProjectionDrainResult {
@@ -128,6 +136,11 @@ struct MemorySettingsView: View {
             }
             if let result = store.codeLastReindexResult {
                 Text(reindexSummary(result))
+                    .font(.sora(11))
+                    .foregroundStyle(Color.stxMuted)
+            }
+            if let result = store.codeLastReinferResult {
+                Text(reinferSummary(result))
                     .font(.sora(11))
                     .foregroundStyle(Color.stxMuted)
             }
@@ -237,6 +250,11 @@ struct MemorySettingsView: View {
             return "Reindex: \(result.enqueued ?? 0) enqueued, \(drained.delivered ?? 0) delivered, \(drained.failed ?? 0) failed"
         }
         return "Reindex queued: \(result.enqueued ?? 0) enqueued, \(result.remaining ?? 0) pending/failed"
+    }
+
+    private func reinferSummary(_ result: CodeMemoryReinferSourcesResponse) -> String {
+        let errorSuffix = result.errors.isEmpty ? "" : ", \(result.errors.count) adapter errors"
+        return "Reinfer: \(result.scanned) scanned, \(result.attempted) attempted, \(result.proposed) proposed, \(result.skipped) skipped\(errorSuffix)"
     }
 
     private func projectionDrainSummary(_ result: CodeMemoryProjectionDrainResponse) -> String {

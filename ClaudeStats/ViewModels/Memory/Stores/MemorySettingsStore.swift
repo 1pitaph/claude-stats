@@ -9,6 +9,7 @@ final class MemorySettingsStore {
     private(set) var outboxLastDrainResult: CodeMemoryOutboxDrainResult?
     private(set) var lastProjectionDrainResult: CodeMemoryProjectionDrainResponse?
     private(set) var lastReindexResult: CodeMemoryProjectionDrainResponse?
+    private(set) var lastReinferResult: CodeMemoryReinferSourcesResponse?
     private(set) var isLoading = false
     private(set) var lastError: String?
     private(set) var setupMessage: String?
@@ -28,7 +29,11 @@ final class MemorySettingsStore {
 
         do {
             health = try await backend.health()
-            lastError = nil
+            if let apiVersion = health?.apiVersion, apiVersion < CodeMemorySidecarManager.requiredAPIVersion {
+                lastError = "Code Memory sidecar is out of date: API v\(apiVersion), app requires v\(CodeMemorySidecarManager.requiredAPIVersion). Restart memoryd."
+            } else {
+                lastError = nil
+            }
         } catch {
             health = nil
             lastError = "Code Memory sidecar is unavailable: \(error.localizedDescription)"
@@ -81,6 +86,24 @@ final class MemorySettingsStore {
         do {
             lastReindexResult = try await backend.reindex(projectID: projectID)
             lastError = nil
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func reinferSources(projectID: String?) async {
+        guard !isLoading else { return }
+        isLoading = true
+        AppLivenessRescue.arm(reason: "code memory source reinfer")
+        defer { isLoading = false }
+
+        do {
+            lastReinferResult = try await backend.reinferSources(projectID: projectID)
+            if let errors = lastReinferResult?.errors, !errors.isEmpty {
+                lastError = "Source reinfer completed with \(errors.count) adapter error(s)."
+            } else {
+                lastError = nil
+            }
         } catch {
             lastError = error.localizedDescription
         }

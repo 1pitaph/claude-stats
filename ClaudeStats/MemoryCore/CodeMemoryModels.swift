@@ -3,6 +3,7 @@ import Foundation
 struct CodeMemoryHealth: Codable, Sendable, Hashable {
     var status: String
     var store: String?
+    var apiVersion: Int? = nil
     var eventCount: Int
     var memoryCount: Int
     var totalMemoryCount: Int? = nil
@@ -15,6 +16,7 @@ struct CodeMemoryHealth: Codable, Sendable, Hashable {
     enum CodingKeys: String, CodingKey {
         case status
         case store
+        case apiVersion = "api_version"
         case eventCount = "event_count"
         case memoryCount = "memory_count"
         case totalMemoryCount = "total_memory_count"
@@ -638,6 +640,24 @@ struct CodeMemoryProjectionDrainStats: Codable, Sendable, Hashable {
     var remaining: Int? = nil
 }
 
+struct CodeMemoryInferenceError: Codable, Identifiable, Sendable, Hashable {
+    var sourceID: String?
+    var adapter: String
+    var error: String
+
+    var id: String {
+        [sourceID, adapter, error]
+            .compactMap { $0 }
+            .joined(separator: "|")
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case sourceID = "source_id"
+        case adapter
+        case error
+    }
+}
+
 struct CodeMemorySourceInput: Codable, Sendable, Hashable {
     var id: String?
     var projectID: String
@@ -668,6 +688,23 @@ struct CodeMemorySyncSourceResponse: Codable, Sendable, Hashable {
     var status: String
     var created: [CodeMemoryMemory]?
     var proposed: [CodeMemoryMemory]?
+    var inferenceErrors: [CodeMemoryInferenceError]? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case created
+        case proposed
+        case inferenceErrors = "inference_errors"
+    }
+}
+
+struct CodeMemoryReinferSourcesResponse: Codable, Sendable, Hashable {
+    var status: String = "ok"
+    var scanned: Int = 0
+    var attempted: Int = 0
+    var proposed: Int = 0
+    var skipped: Int = 0
+    var errors: [CodeMemoryInferenceError] = []
 }
 
 struct CodeMemoryEventInput: Codable, Sendable, Hashable {

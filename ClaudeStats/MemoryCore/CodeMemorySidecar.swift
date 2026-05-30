@@ -29,6 +29,8 @@ private struct CodeMemorySidecarLaunchMeta: Codable {
 }
 
 struct CodeMemorySidecarManager: Sendable {
+    static let requiredAPIVersion = 11
+
     var configuration: CodeMemorySidecarConfiguration = CodeMemorySidecarConfiguration()
     var pidURL: URL = MemoryPaths.sidecarPIDURL()
     var launchMetaURL: URL = MemoryPaths.rootDirectory().appendingPathComponent("memoryd-launch-meta.json", isDirectory: false)
@@ -161,9 +163,11 @@ struct CodeMemorySidecarManager: Sendable {
     private func existingProcessCanServeCurrentContract() -> Bool {
         guard httpStatus(path: "/health") == 200 else { return false }
         guard let healthBody = httpBody(path: "/health"),
-              Self.sidecarAPIVersion(from: healthBody) ?? 0 >= 4
+              Self.sidecarAPIVersion(from: healthBody) ?? 0 >= Self.requiredAPIVersion
         else { return false }
         guard httpStatus(path: "/v1/modules") == 200 else { return false }
+        guard httpStatus(path: "/v1/memories") == 200 else { return false }
+        guard httpStatus(path: "/v1/review/items") == 200 else { return false }
         guard httpStatus(path: "/v1/memories/proposals") == 200 else { return false }
         guard launchMetaMatchesCurrentConfiguration() else { return false }
         if configuration.localAI?.adaptersEnabled == true {

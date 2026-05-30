@@ -49,6 +49,7 @@ final class MemoryWorkspaceStore {
     var codeOutboxLastDrainResult: CodeMemoryOutboxDrainResult? { settings.outboxLastDrainResult }
     var codeLastProjectionDrainResult: CodeMemoryProjectionDrainResponse? { settings.lastProjectionDrainResult ?? review.lastProjectionDrainResult }
     var codeLastReindexResult: CodeMemoryProjectionDrainResponse? { settings.lastReindexResult }
+    var codeLastReinferResult: CodeMemoryReinferSourcesResponse? { settings.lastReinferResult }
     var isCodeMemoryLoading: Bool {
         isLoading || search.isLoading || search.isSearching || library.isLoading || graph.isLoading || review.isLoading || settings.isLoading
     }
@@ -171,6 +172,11 @@ final class MemoryWorkspaceStore {
         await refreshCodeMemoryStatus()
     }
 
+    func reinferCodeMemorySources() async {
+        await settings.reinferSources(projectID: selectedProjectID)
+        await refreshCodeMemoryStatus()
+    }
+
     func drainCodeMemoryProjections(includeFailed: Bool = false) async {
         await settings.drainProjections(includeFailed: includeFailed)
         await refreshCodeMemoryStatus()
@@ -178,6 +184,14 @@ final class MemoryWorkspaceStore {
 
     func loadCodeGraph(projectID: String? = nil) async {
         let projectID = projectID ?? selectedProjectID ?? library.projects.first?.projectID
+        await graph.load(projectID: projectID)
+        selectedProjectID = projectID
+    }
+
+    func loadCodeGraphIfNeeded() async {
+        let projectID = selectedProjectID ?? library.projects.first?.projectID
+        guard let projectID else { return }
+        guard graph.graph?.projectID != projectID else { return }
         await graph.load(projectID: projectID)
         selectedProjectID = projectID
     }
@@ -245,7 +259,7 @@ private extension MemoryWorkspaceStore {
     static func makeSyncSources(sessions: [Session], configProjects: [AIConfigProject]) async -> [CodeMemorySourceInput] {
         var sources: [CodeMemorySourceInput] = []
         for session in sessions.prefix(80) {
-            let body = await readPreview(path: session.filePath, limit: 128 * 1024)
+            let body = await transcriptMemoryBody(for: session, limit: 128 * 1024)
             guard !body.isEmpty else { continue }
             let projectID = session.cwd ?? session.projectDisplayName
             sources.append(
@@ -297,6 +311,33 @@ private extension MemoryWorkspaceStore {
         return sources
     }
 
+    static func transcriptMemoryBody(for session: Session, limit: Int) async -> String {
+        let url = URL(fileURLWithPath: session.filePath)
+        let messages: [SessionTranscriptMessage]
+        switch session.provider {
+        case .codex:
+            messages = await CodexTranscriptParser(pricing: .fallback).messages(transcriptAt: url)
+        case .claude:
+            messages = await TranscriptParser(pricing: .fallback).messages(transcriptAt: url)
+        case .gemini, .kimi, .minimax:
+            messages = []
+        }
+
+        let conversation = messages
+            .filter { $0.role == .user || $0.role == .assistant }
+            .prefix(120)
+            .map { "\($0.role.memoryLabel): \(limitText($0.text, to: 4_000))" }
+            .joined(separator: "\n\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !conversation.isEmpty else { return "" }
+
+        let header = [
+            "Session: \(session.stats?.title ?? session.projectDisplayName)",
+            "Project: \(session.cwd ?? session.projectDisplayName)",
+        ].joined(separator: "\n")
+        return limitText("\(header)\n\n\(conversation)", to: limit)
+    }
+
     static func readPreview(path: String, limit: Int) async -> String {
         await Task.detached(priority: .utility) {
             guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: path)) else { return "" }
@@ -309,6 +350,37 @@ private extension MemoryWorkspaceStore {
     static func configSourceKind(_ document: AIConfigDocument) -> String {
         if document.title == "AGENTS.md" { return "AGENTS.md" }
         if document.title == "CLAUDE.md" || document.title.contains("CLAUDE.md") { return "CLAUDE.md" }
-        return "ai_config"
+        switch document.kind {
+        case .instruction:
+            return "ai_config"
+        case .providerConfig:
+            return "provider_config"
+        case .pluginConfig:
+            return "plugin_config"
+        case .plan:
+            return "plan"
+        case .other:
+            return "ai_config"
+        }
+    }
+
+    static func limitText(_ text: String, to limit: Int) -> String {
+        guard text.count > limit else { return text }
+        return String(text.prefix(limit)).trimmingCharacters(in: .whitespacesAndNewlines) + "\n..."
+    }
+}
+
+private extension SessionTranscriptMessage.Role {
+    var memoryLabel: String {
+        switch self {
+        case .user:
+            "User"
+        case .assistant:
+            "Assistant"
+        case .tool:
+            "Tool"
+        case .system:
+            "System"
+        }
     }
 }

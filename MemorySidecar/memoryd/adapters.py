@@ -27,6 +27,7 @@ class MemoryAdapters(Protocol):
     def health(self) -> dict[str, str]: ...
     def index_memory(self, memory: dict[str, Any], event: dict[str, Any], *, adapter_name: str | None = None) -> dict[str, str]: ...
     def infer_memories(self, source: dict[str, Any]) -> list[dict[str, Any]]: ...
+    def inference_errors(self) -> list[dict[str, str]]: ...
     def search(self, query: str, *, project_id: str | None, limit: int) -> list[dict[str, Any]]: ...
     def graph(self, project_id: str, *, limit: int = 80) -> dict[str, list[dict[str, Any]]]: ...
 
@@ -52,6 +53,9 @@ class NullAdapters:
     def infer_memories(self, source: dict[str, Any]) -> list[dict[str, Any]]:
         return []
 
+    def inference_errors(self) -> list[dict[str, str]]:
+        return []
+
     def search(self, query: str, *, project_id: str | None, limit: int) -> list[dict[str, Any]]:
         return []
 
@@ -62,6 +66,7 @@ class NullAdapters:
 @dataclass
 class CompositeAdapters:
     adapters: list[MemoryAdapters] = field(default_factory=list)
+    last_inference_errors: list[dict[str, str]] = field(default_factory=list)
 
     def names(self) -> list[str]:
         names: list[str] = []
@@ -75,6 +80,8 @@ class CompositeAdapters:
         merged = {"graph_backend": "kuzu", "telemetry": "disabled"}
         for adapter in self.adapters:
             merged.update(adapter.health())
+        if self.last_inference_errors:
+            merged["last_inference_errors"] = json.dumps(self.last_inference_errors, sort_keys=True, ensure_ascii=False)
         return merged
 
     def index_memory(self, memory: dict[str, Any], event: dict[str, Any], *, adapter_name: str | None = None) -> dict[str, str]:
@@ -95,13 +102,26 @@ class CompositeAdapters:
 
     def infer_memories(self, source: dict[str, Any]) -> list[dict[str, Any]]:
         proposals: list[dict[str, Any]] = []
+        self.last_inference_errors = []
         for adapter in self.adapters:
+            name = str(getattr(adapter, "name", "") or "adapter")
+            before_error = str(getattr(adapter, "last_error", "") or "")
             try:
-                proposals.extend(adapter.infer_memories(source))
+                adapter_proposals = adapter.infer_memories(source)
+                proposals.extend(adapter_proposals)
             except Exception as error:  # noqa: BLE001
+                message = _compact_error(error)
                 if hasattr(adapter, "last_error"):
-                    setattr(adapter, "last_error", _compact_error(error))
+                    setattr(adapter, "last_error", message)
+                self.last_inference_errors.append({"adapter": name, "error": message})
+                continue
+            after_error = str(getattr(adapter, "last_error", "") or "")
+            if after_error and (after_error != before_error or not adapter_proposals):
+                self.last_inference_errors.append({"adapter": name, "error": after_error})
         return proposals
+
+    def inference_errors(self) -> list[dict[str, str]]:
+        return list(self.last_inference_errors)
 
     def search(self, query: str, *, project_id: str | None, limit: int) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
@@ -270,6 +290,9 @@ class Mem0Adapter:
             )
         return proposals
 
+    def inference_errors(self) -> list[dict[str, str]]:
+        return []
+
     def search(self, query: str, *, project_id: str | None, limit: int) -> list[dict[str, Any]]:
         if not self.available or self.client is None or not query.strip():
             return []
@@ -432,6 +455,9 @@ class GraphitiAdapter:
         return {"graphiti": f"ok:{episode_uuid}"}
 
     def infer_memories(self, source: dict[str, Any]) -> list[dict[str, Any]]:
+        return []
+
+    def inference_errors(self) -> list[dict[str, str]]:
         return []
 
     def search(self, query: str, *, project_id: str | None, limit: int) -> list[dict[str, Any]]:

@@ -13,13 +13,30 @@ from .adapters import MemoryAdapters, build_adapters
 from .models import DETERMINISTIC_SOURCE_KINDS, MEMORY_STATUSES, MemoryInput, Scope, string_map
 
 
+TRANSCRIPT_SOURCE_KINDS = {"codex_transcript", "claude_transcript"}
+CONFIG_SOURCE_ONLY_KINDS = {"ai_config", "provider_config", "plugin_config", "plan"}
+REINFER_SOURCE_KINDS = TRANSCRIPT_SOURCE_KINDS | {"terminal_capture", "manual", "user_instruction"}
+RAW_TRANSCRIPT_REDACTION = (
+    "[Legacy raw transcript excerpt redacted. Re-sync this session to store parsed "
+    "user/assistant conversation text.]"
+)
+SENSITIVE_CONFIG_REDACTION = (
+    "[Sensitive local AI configuration kept as source-only provenance. Raw "
+    "settings JSON is not a canonical memory.]"
+)
+SOURCE_ONLY_CONFIG_REDACTION = (
+    "[Configuration source kept as source-only provenance. Config, plugin, and "
+    "plan files are not canonical memories.]"
+)
+
+
 def canonical_json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
 class MemoryStore:
-    schema_version = 3
-    api_version = 5
+    schema_version = 9
+    api_version = 11
 
     def __init__(self, root: Path, adapters: MemoryAdapters | None = None):
         self.root = root
@@ -348,12 +365,13 @@ class MemoryStore:
 
     def ingest_source(self, payload: dict[str, Any]) -> dict[str, Any]:
         project_id = str(payload.get("project_id") or "unknown")
-        body = str(payload.get("body") or payload.get("text") or "").strip()
+        raw_body = str(payload.get("body") or payload.get("text") or "").strip()
         title = str(payload.get("title") or payload.get("path") or payload.get("uri") or "Source").strip()[:160]
         kind = str(payload.get("kind") or "source")
         path = str(payload.get("path") or "")
         uri = str(payload.get("uri") or path or payload.get("id") or title)
-        content_hash = str(payload.get("content_hash") or hashlib.sha256(body.encode("utf-8")).hexdigest())
+        content_hash = str(payload.get("content_hash") or hashlib.sha256(raw_body.encode("utf-8")).hexdigest())
+        body = _normalized_source_body(kind, raw_body, project_id=project_id, title=title, path=path, uri=uri)
         source_id = str(payload.get("id") or "src:" + hashlib.sha256(canonical_json({
             "project_id": project_id,
             "kind": kind,
@@ -374,7 +392,7 @@ class MemoryStore:
         self._upsert_episode(source)
         existing = self.conn.execute("SELECT content_hash FROM sources WHERE id = ?", (source_id,)).fetchone()
         if existing and existing["content_hash"] == content_hash:
-            return {"status": "skipped", "source": source, "created": [], "proposed": []}
+            return {"status": "skipped", "source": source, "created": [], "proposed": [], "inference_errors": []}
 
         observed = self.append_event(
             {
@@ -388,7 +406,13 @@ class MemoryStore:
         )
         created: list[dict[str, Any]] = []
         proposed: list[dict[str, Any]] = []
-        if body and kind in DETERMINISTIC_SOURCE_KINDS:
+        inference_errors: list[dict[str, str]] = []
+        if (
+            body
+            and kind in DETERMINISTIC_SOURCE_KINDS
+            and kind not in CONFIG_SOURCE_ONLY_KINDS
+            and not _looks_like_sensitive_ai_config(kind, raw_body, title=title, path=path, uri=uri)
+        ):
             memory = self.append_event(
                 {
                     "project_id": project_id,
@@ -409,12 +433,79 @@ class MemoryStore:
             )
             if "memory" in memory:
                 created.append(memory["memory"])
-        if bool(payload.get("infer")) and body:
-            for candidate in self.adapters.infer_memories(source | {"scope": self._source_scope(project_id, path=path, uri=uri).to_json()}):
-                proposed_event = self.propose_memory(candidate)
+        if bool(payload.get("infer")) and body and kind not in CONFIG_SOURCE_ONLY_KINDS:
+            candidates, inference_errors = self._infer_memory_candidates(
+                source | {"scope": self._source_scope(project_id, path=path, uri=uri).to_json()}
+            )
+            for candidate in candidates:
+                proposed_event = self.propose_memory(candidate | {"status": "proposed"})
                 if "memory" in proposed_event:
                     proposed.append(proposed_event["memory"])
-        return {"status": "ok", "event": observed, "source": source, "created": created, "proposed": proposed}
+        return {"status": "ok", "event": observed, "source": source, "created": created, "proposed": proposed, "inference_errors": inference_errors}
+
+    def reinfer_sources(self, payload: dict[str, Any]) -> dict[str, Any]:
+        project_id = payload.get("project_id") if isinstance(payload.get("project_id"), str) else None
+        source_id = payload.get("source_id") if isinstance(payload.get("source_id"), str) else None
+        limit = _bounded_int(payload.get("limit"), default=50, minimum=1, maximum=200)
+        kinds = sorted(REINFER_SOURCE_KINDS)
+        placeholders = ",".join("?" for _ in kinds)
+        params: list[Any] = list(kinds)
+        where = [f"kind IN ({placeholders})"]
+        if project_id:
+            where.append("project_id = ?")
+            params.append(project_id)
+        if source_id:
+            where.append("id = ?")
+            params.append(source_id)
+        params.append(limit)
+        rows = self.conn.execute(
+            f"""
+            SELECT id, project_id, kind, title, uri, path, content_hash, excerpt, metadata_json, updated_at
+            FROM sources
+            WHERE {' AND '.join(where)}
+            ORDER BY updated_at DESC
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+
+        attempted = 0
+        proposed = 0
+        skipped = 0
+        errors: list[dict[str, str]] = []
+        for row in rows:
+            source = self._source_row(row)
+            body = self._reinfer_source_body(source)
+            if not body:
+                skipped += 1
+                continue
+            inference_source = source | {
+                "body": body,
+                "scope": self._source_scope(
+                    str(source["project_id"]),
+                    path=str(source.get("path") or ""),
+                    uri=str(source.get("uri") or ""),
+                ).to_json(),
+            }
+            attempted += 1
+            candidates, inference_errors = self._infer_memory_candidates(inference_source)
+            for error in inference_errors:
+                errors.append(error | {"source_id": str(source["id"])})
+            if not candidates:
+                continue
+            for candidate in candidates:
+                proposed_event = self.propose_memory(candidate | {"status": "proposed"})
+                if "memory" in proposed_event:
+                    proposed += 1
+
+        return {
+            "status": "ok",
+            "scanned": len(rows),
+            "attempted": attempted,
+            "proposed": proposed,
+            "skipped": skipped,
+            "errors": errors,
+        }
 
     def reindex(self, *, project_id: str | None = None, drain: bool = False, drain_limit: int | None = None) -> dict[str, Any]:
         params: list[Any] = []
@@ -870,6 +961,68 @@ class MemoryStore:
         ).fetchall()
         return [self._source_row(row) for row in rows]
 
+    def _infer_memory_candidates(self, source: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+        try:
+            candidates = self.adapters.infer_memories(source)
+        except Exception as error:  # noqa: BLE001
+            adapter_name = str(getattr(self.adapters, "name", "") or self.adapters.__class__.__name__)
+            return [], [{"adapter": adapter_name, "error": _compact_exception(error)}]
+        return candidates, self._adapter_inference_errors()
+
+    def _adapter_inference_errors(self) -> list[dict[str, str]]:
+        getter = getattr(self.adapters, "inference_errors", None)
+        if not callable(getter):
+            return []
+        raw_errors = getter()
+        if not isinstance(raw_errors, list):
+            return []
+        errors: list[dict[str, str]] = []
+        for item in raw_errors:
+            if not isinstance(item, dict):
+                continue
+            message = str(item.get("error") or item.get("message") or "").strip()
+            if not message:
+                continue
+            errors.append(
+                {
+                    "adapter": str(item.get("adapter") or "adapter"),
+                    "error": _excerpt(message, 320),
+                }
+            )
+        return errors
+
+    def _reinfer_source_body(self, source: dict[str, Any]) -> str:
+        kind = str(source.get("kind") or "")
+        title = str(source.get("title") or "")
+        path = str(source.get("path") or "")
+        uri = str(source.get("uri") or "")
+        project_id = str(source.get("project_id") or "")
+        path_value = Path(path).expanduser() if path else None
+        if path_value and path_value.is_file():
+            try:
+                if path_value.stat().st_size <= 2 * 1024 * 1024:
+                    raw = path_value.read_text(encoding="utf-8", errors="replace")
+                    body = _normalized_source_body(kind, raw, project_id=project_id, title=title, path=path, uri=uri).strip()
+                    if body and body != RAW_TRANSCRIPT_REDACTION:
+                        return body
+            except OSError:
+                pass
+        episode = self.conn.execute(
+            """
+            SELECT body_excerpt
+            FROM episodes
+            WHERE source_id = ?
+            ORDER BY updated_at DESC
+            LIMIT 1
+            """,
+            (source.get("id"),),
+        ).fetchone()
+        for candidate in (episode["body_excerpt"] if episode is not None else None, source.get("excerpt")):
+            body = str(candidate or "").strip()
+            if body and body != RAW_TRANSCRIPT_REDACTION:
+                return body
+        return ""
+
     def _projection_count(self, status: str) -> int:
         row = self.conn.execute("SELECT COUNT(*) AS count FROM projection_jobs WHERE status = ?", (status,)).fetchone()
         return int(row["count"])
@@ -919,14 +1072,29 @@ class MemoryStore:
         return count
 
     def _upsert_source(self, project_id: str, payload: dict[str, Any]) -> None:
+        kind = str(payload.get("kind") or "source")
         body = str(payload.get("body") or payload.get("text") or "")
         content_hash = str(payload.get("content_hash") or hashlib.sha256(body.encode("utf-8")).hexdigest())
+        uri = str(payload.get("uri") or payload.get("path") or "")
+        title = str(payload.get("title") or uri or "").strip()[:160]
+        display_body = _normalized_source_body(
+            kind,
+            body,
+            project_id=project_id,
+            title=title or "Source",
+            path=str(payload.get("path") or ""),
+            uri=uri,
+        )
         source_id = str(payload.get("id") or "src:" + hashlib.sha256(canonical_json({
             "project_id": project_id,
-            "kind": payload.get("kind"),
-            "uri": payload.get("uri") or payload.get("path"),
+            "kind": kind,
+            "uri": uri,
             "hash": content_hash,
         }).encode("utf-8")).hexdigest()[:24])
+        if not title:
+            title = source_id
+        if not uri:
+            uri = source_id
         self.conn.execute(
             """
             INSERT INTO sources (
@@ -946,13 +1114,13 @@ class MemoryStore:
             (
                 source_id,
                 project_id,
-                str(payload.get("kind") or "source"),
-                str(payload.get("title") or payload.get("uri") or payload.get("path") or source_id)[:160],
-                str(payload.get("uri") or payload.get("path") or source_id),
+                kind,
+                title,
+                uri,
                 payload.get("path"),
                 payload.get("commit_sha"),
                 content_hash,
-                _excerpt(body, 800),
+                _excerpt(display_body, 800),
                 canonical_json(payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}),
                 time.time(),
             ),
@@ -960,6 +1128,14 @@ class MemoryStore:
 
     def _upsert_episode(self, source: dict[str, Any]) -> None:
         episode_id = str(source.get("episode_id") or f"episode:{source['id']}")
+        body = _normalized_source_body(
+            str(source["kind"]),
+            str(source.get("body") or ""),
+            project_id=str(source["project_id"]),
+            title=str(source["title"]),
+            path=str(source.get("path") or ""),
+            uri=str(source.get("uri") or ""),
+        )
         now = time.time()
         self.conn.execute(
             """
@@ -979,7 +1155,7 @@ class MemoryStore:
                 source["project_id"],
                 source["kind"],
                 source["title"],
-                _excerpt(str(source.get("body") or ""), 1200),
+                _excerpt(body, 1200),
                 float(source.get("reference_time") or now),
                 canonical_json(source.get("metadata") if isinstance(source.get("metadata"), dict) else {}),
                 now,
@@ -1462,8 +1638,211 @@ class MemoryStore:
         self._ensure_column("sources", "metadata_json", "TEXT NOT NULL DEFAULT '{}'")
         self._ensure_column("sources", "updated_at", "REAL NOT NULL DEFAULT 0")
         self.conn.execute("UPDATE sources SET title = COALESCE(NULLIF(title, ''), uri), updated_at = CASE WHEN updated_at = 0 THEN strftime('%s','now') ELSE updated_at END")
+        self._retract_legacy_raw_transcript_memories()
+        self._redact_legacy_raw_transcript_source_excerpts()
+        self._retract_legacy_source_only_config_memories()
+        self._retract_legacy_sensitive_config_memories()
+        self._redact_legacy_sensitive_config_source_excerpts()
         self.conn.execute(f"PRAGMA user_version={self.schema_version}")
         self.conn.commit()
+
+    def _retract_legacy_raw_transcript_memories(self) -> None:
+        now = time.time()
+        self.conn.execute(
+            """
+            UPDATE memories
+            SET status = 'retracted',
+                body = ?,
+                invalid_at = COALESCE(invalid_at, ?),
+                review_reason = COALESCE(review_reason, 'legacy_raw_transcript_ingest'),
+                extracted_by = COALESCE(extracted_by, 'legacy_raw_transcript_ingest'),
+                updated_at = ?
+            WHERE (
+                  source_refs_json LIKE '%"kind":"codex_transcript"%'
+                  OR source_refs_json LIKE '%"kind":"claude_transcript"%'
+              )
+              AND (
+                  body LIKE '{"timestamp":%'
+                  OR body LIKE '%"type":"session_meta"%'
+              )
+            """,
+            (RAW_TRANSCRIPT_REDACTION, now, now),
+        )
+
+    def _redact_legacy_raw_transcript_source_excerpts(self) -> None:
+        now = time.time()
+        self.conn.execute(
+            """
+            UPDATE sources
+            SET excerpt = ?, updated_at = ?
+            WHERE kind IN ('codex_transcript', 'claude_transcript')
+              AND (
+                  excerpt LIKE '{"timestamp":%'
+                  OR excerpt LIKE '%"type":"session_meta"%'
+                  OR excerpt LIKE '%"session_meta"%'
+              )
+            """,
+            (RAW_TRANSCRIPT_REDACTION, now),
+        )
+        self.conn.execute(
+            """
+            UPDATE episodes
+            SET body_excerpt = ?, updated_at = ?
+            WHERE kind IN ('codex_transcript', 'claude_transcript')
+              AND (
+                  body_excerpt LIKE '{"timestamp":%'
+                  OR body_excerpt LIKE '%"type":"session_meta"%'
+                  OR body_excerpt LIKE '%"session_meta"%'
+              )
+            """,
+            (RAW_TRANSCRIPT_REDACTION, now),
+        )
+
+    def _retract_legacy_source_only_config_memories(self) -> None:
+        rows = self.conn.execute(
+            """
+            SELECT id, source_refs_json
+            FROM memories
+            WHERE status = 'active'
+            """
+        ).fetchall()
+        memory_ids: list[str] = []
+        for row in rows:
+            try:
+                refs = json.loads(row["source_refs_json"] or "[]")
+            except json.JSONDecodeError:
+                refs = []
+            if any(isinstance(ref, dict) and ref.get("kind") in CONFIG_SOURCE_ONLY_KINDS for ref in refs):
+                memory_ids.append(str(row["id"]))
+        if not memory_ids:
+            return
+        now = time.time()
+        placeholders = ",".join("?" for _ in memory_ids)
+        self.conn.execute(
+            f"""
+            UPDATE memories
+            SET status = 'retracted',
+                body = ?,
+                invalid_at = COALESCE(invalid_at, ?),
+                review_reason = COALESCE(review_reason, 'source_only_config_ingest'),
+                extracted_by = COALESCE(extracted_by, 'source_only_config_ingest'),
+                updated_at = ?
+            WHERE id IN ({placeholders})
+            """,
+            (SOURCE_ONLY_CONFIG_REDACTION, now, now, *memory_ids),
+        )
+        self.conn.execute(
+            f"""
+            UPDATE projection_jobs
+            SET status = 'done',
+                last_error = NULL,
+                updated_at = ?
+            WHERE status IN ('pending', 'failed')
+              AND memory_id IN ({placeholders})
+            """,
+            (now, *memory_ids),
+        )
+
+    def _retract_legacy_sensitive_config_memories(self) -> None:
+        rows = self.conn.execute(
+            """
+            SELECT id, title, source_refs_json
+            FROM memories
+            """
+        ).fetchall()
+        memory_ids: list[str] = []
+        for row in rows:
+            title = str(row["title"] or "")
+            try:
+                refs = json.loads(row["source_refs_json"] or "[]")
+            except json.JSONDecodeError:
+                refs = []
+            if not any(isinstance(ref, dict) and ref.get("kind") in {"ai_config", "provider_config"} for ref in refs):
+                continue
+            locators = [title]
+            for ref in refs:
+                if not isinstance(ref, dict):
+                    continue
+                locators.extend(str(ref.get(key) or "") for key in ("uri", "path"))
+            locator = "/".join(item.replace("\\", "/") for item in locators if item)
+            if "settings.local.json" in locator or ".claude/settings.json" in locator or locator.endswith("settings.json"):
+                memory_ids.append(str(row["id"]))
+        if not memory_ids:
+            return
+        now = time.time()
+        placeholders = ",".join("?" for _ in memory_ids)
+        self.conn.execute(
+            f"""
+            UPDATE memories
+            SET status = 'retracted',
+                body = ?,
+                invalid_at = COALESCE(invalid_at, ?),
+                review_reason = COALESCE(review_reason, 'legacy_sensitive_config_ingest'),
+                extracted_by = COALESCE(extracted_by, 'legacy_sensitive_config_ingest'),
+                updated_at = ?
+            WHERE id IN ({placeholders})
+            """,
+            (SENSITIVE_CONFIG_REDACTION, now, now, *memory_ids),
+        )
+
+    def _redact_legacy_sensitive_config_source_excerpts(self) -> None:
+        now = time.time()
+        for row in self.conn.execute(
+            """
+            SELECT id, project_id, kind, title, uri, path, excerpt
+            FROM sources
+            WHERE kind IN ('ai_config', 'provider_config')
+              AND (
+                  title LIKE '%settings.local.json%'
+                  OR title LIKE '%settings.json%'
+                  OR uri LIKE '%.claude/settings.local.json%'
+                  OR uri LIKE '%.claude/settings.json%'
+                  OR path LIKE '%.claude/settings.local.json%'
+                  OR path LIKE '%.claude/settings.json%'
+              )
+            """
+        ).fetchall():
+            summary = _sensitive_ai_config_summary(
+                str(row["kind"]),
+                str(row["excerpt"] or ""),
+                project_id=str(row["project_id"] or ""),
+                title=str(row["title"] or ""),
+                path=str(row["path"] or ""),
+                uri=str(row["uri"] or ""),
+            ) or SENSITIVE_CONFIG_REDACTION
+            self.conn.execute(
+                "UPDATE sources SET excerpt = ?, updated_at = ? WHERE id = ?",
+                (_excerpt(summary, 800), now, row["id"]),
+            )
+        for row in self.conn.execute(
+            """
+            SELECT episodes.id, episodes.project_id, episodes.kind, episodes.title,
+                   episodes.body_excerpt, sources.path AS source_path, sources.uri AS source_uri
+            FROM episodes
+            LEFT JOIN sources ON sources.id = episodes.source_id
+            WHERE episodes.kind IN ('ai_config', 'provider_config')
+              AND (
+                  episodes.title LIKE '%settings.local.json%'
+                  OR episodes.title LIKE '%settings.json%'
+                  OR sources.uri LIKE '%.claude/settings.local.json%'
+                  OR sources.uri LIKE '%.claude/settings.json%'
+                  OR sources.path LIKE '%.claude/settings.local.json%'
+                  OR sources.path LIKE '%.claude/settings.json%'
+              )
+            """
+        ).fetchall():
+            summary = _sensitive_ai_config_summary(
+                str(row["kind"]),
+                str(row["body_excerpt"] or ""),
+                project_id=str(row["project_id"] or ""),
+                title=str(row["title"] or ""),
+                path=str(row["source_path"] or ""),
+                uri=str(row["source_uri"] or ""),
+            ) or SENSITIVE_CONFIG_REDACTION
+            self.conn.execute(
+                "UPDATE episodes SET body_excerpt = ?, updated_at = ? WHERE id = ?",
+                (_excerpt(summary, 1200), now, row["id"]),
+            )
 
     def _ensure_column(self, table: str, column: str, definition: str) -> None:
         rows = self.conn.execute(f"PRAGMA table_info({table})").fetchall()
@@ -1477,8 +1856,237 @@ def _excerpt(text: str, limit: int) -> str:
     return text[:limit].rstrip() + "\n..."
 
 
+def _compact_exception(error: Exception) -> str:
+    text = " ".join(str(error).split())
+    return _excerpt(text or error.__class__.__name__, 320)
+
+
+def _normalized_source_body(kind: str, body: str, *, project_id: str, title: str, path: str = "", uri: str = "") -> str:
+    config_summary = _sensitive_ai_config_summary(kind, body, project_id=project_id, title=title, path=path, uri=uri)
+    if config_summary is not None:
+        return config_summary
+    if kind not in TRANSCRIPT_SOURCE_KINDS or not _looks_like_raw_transcript(body):
+        return body
+    conversation = _conversation_from_transcript_jsonl(body)
+    if not conversation:
+        return RAW_TRANSCRIPT_REDACTION
+    header = "\n".join(
+        part
+        for part in [
+            f"Session: {title}" if title else "",
+            f"Project: {project_id}" if project_id else "",
+        ]
+        if part
+    )
+    return f"{header}\n\n{conversation}" if header else conversation
+
+
+def _sensitive_ai_config_summary(
+    kind: str,
+    body: str,
+    *,
+    project_id: str,
+    title: str,
+    path: str = "",
+    uri: str = "",
+) -> str | None:
+    if not _looks_like_sensitive_ai_config(kind, body, title=title, path=path, uri=uri):
+        return None
+    allow: list[str] = []
+    deny: list[str] = []
+    env_keys: list[str] = []
+    enabled_plugins = 0
+    top_level_groups: list[str] = []
+    try:
+        decoded = json.loads(body)
+    except json.JSONDecodeError:
+        decoded = None
+    if isinstance(decoded, dict):
+        top_level_groups = sorted(
+            str(key)
+            for key in decoded.keys()
+            if isinstance(key, str) and key not in {"env", "permissions"}
+        )
+        permissions = decoded.get("permissions")
+        if isinstance(permissions, dict):
+            allow = [str(item) for item in permissions.get("allow", []) if isinstance(item, str)]
+            deny = [str(item) for item in permissions.get("deny", []) if isinstance(item, str)]
+        env = decoded.get("env")
+        if isinstance(env, dict):
+            env_keys = [str(key) for key in env.keys() if isinstance(key, str)]
+        plugins = decoded.get("enabledPlugins")
+        if isinstance(plugins, dict):
+            enabled_plugins = sum(1 for value in plugins.values() if bool(value))
+    families = _permission_families(allow + deny)
+    env_families = _env_families(env_keys)
+    lines = [
+        "Sensitive local AI configuration.",
+        f"Configuration: {title or uri or path or 'settings'}",
+    ]
+    if project_id:
+        lines.append(f"Project: {project_id}")
+    if top_level_groups:
+        lines.append(f"Setting groups: {', '.join(top_level_groups[:12])}")
+    if enabled_plugins:
+        lines.append(f"Enabled plugin entries: {enabled_plugins}")
+    if env_keys:
+        lines.append(f"Environment entries: {len(env_keys)}")
+    if env_families:
+        lines.append(f"Environment families: {', '.join(env_families)}")
+    if allow:
+        lines.append(f"Allowed permission entries: {len(allow)}")
+    if deny:
+        lines.append(f"Denied permission entries: {len(deny)}")
+    if families:
+        lines.append(f"Permission families: {', '.join(families)}")
+    lines.append("Exact command patterns, environment values, and secret material are kept out of canonical memory surfaces.")
+    return "\n".join(lines)
+
+
+def _looks_like_sensitive_ai_config(kind: str, body: str, *, title: str = "", path: str = "", uri: str = "") -> bool:
+    if kind not in {"ai_config", "provider_config"}:
+        return False
+    locator = "/".join(part.replace("\\", "/") for part in [title, path, uri] if part)
+    if "settings.local.json" not in locator and ".claude/settings.json" not in locator and not locator.endswith("settings.json"):
+        return False
+    head = body.lstrip()[:4000]
+    markers = [
+        '"permissions"',
+        '"allow"',
+        '"deny"',
+        '"env"',
+        '"activeProvider"',
+        '"enabledPlugins"',
+        "ANTHROPIC_",
+        "OPENAI_",
+        "API_KEY",
+        "AUTH_TOKEN",
+        "BASE_URL",
+    ]
+    return any(marker in head for marker in markers)
+
+
+def _permission_families(entries: list[str]) -> list[str]:
+    families: set[str] = set()
+    for entry in entries:
+        token = entry.split("(", 1)[0].strip()
+        if token:
+            families.add(token)
+    return sorted(families)
+
+
+def _env_families(keys: list[str]) -> list[str]:
+    families: set[str] = set()
+    for key in keys:
+        token = key.split("_", 1)[0].strip()
+        if token:
+            families.add(token)
+    return sorted(families)
+
+
+def _looks_like_raw_transcript(text: str) -> bool:
+    head = text.lstrip()[:8000]
+    return (
+        head.startswith('{"timestamp":')
+        or '"session_meta"' in head
+        or '"type":"session_meta"' in head
+        or '"type":"event_msg"' in head
+        or ('"payload"' in head and ('"user_message"' in head or '"agent_message"' in head))
+    )
+
+
+def _conversation_from_transcript_jsonl(text: str) -> str:
+    messages: list[str] = []
+    for line in text.splitlines():
+        if len(messages) >= 120:
+            break
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            item = json.loads(stripped)
+        except json.JSONDecodeError:
+            continue
+        parsed = _message_from_transcript_line(item)
+        if parsed is None:
+            continue
+        role, message = parsed
+        messages.append(f"{role}: {_excerpt(message, 4000)}")
+    return "\n\n".join(messages).strip()
+
+
+def _message_from_transcript_line(item: Any) -> tuple[str, str] | None:
+    if not isinstance(item, dict):
+        return None
+    payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
+    line_type = str(item.get("type") or "")
+    payload_type = str(payload.get("type") or "")
+    message_obj = payload.get("message") if "message" in payload else item.get("message")
+
+    role = _transcript_role(line_type, payload_type, payload, message_obj, item)
+    if role is None:
+        return None
+
+    text = (
+        _text_from_value(message_obj)
+        or _text_from_value(payload.get("content"))
+        or _text_from_value(payload.get("text"))
+        or _text_from_value(item.get("content"))
+        or _text_from_value(item.get("text"))
+    ).strip()
+    if not text:
+        return None
+    return role, text
+
+
+def _transcript_role(
+    line_type: str,
+    payload_type: str,
+    payload: dict[str, Any],
+    message_obj: Any,
+    item: dict[str, Any],
+) -> str | None:
+    candidates: list[str] = []
+    if line_type == "event_msg":
+        candidates.append(payload_type)
+    else:
+        candidates.append(line_type)
+    if isinstance(message_obj, dict):
+        candidates.extend(str(message_obj.get(key) or "") for key in ("role", "type"))
+    candidates.extend(str(payload.get(key) or "") for key in ("role", "author"))
+    candidates.extend(str(item.get(key) or "") for key in ("role", "author"))
+
+    for candidate in candidates:
+        normalized = candidate.strip().lower()
+        if normalized in {"user", "human", "user_message"}:
+            return "User"
+        if normalized in {"assistant", "agent", "agent_message"}:
+            return "Assistant"
+    return None
+
+
+def _text_from_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, list):
+        parts = [_text_from_value(item) for item in value]
+        return "\n".join(part for part in parts if part).strip()
+    if isinstance(value, dict):
+        value_type = str(value.get("type") or "").lower()
+        if value_type and value_type not in {"text", "input_text", "output_text", "message"}:
+            return ""
+        for key in ("text", "content", "message"):
+            text = _text_from_value(value.get(key))
+            if text:
+                return text
+        return ""
+    return str(value).strip()
+
+
 def _memory_type_for_source(kind: str) -> str:
-    if kind in {"AGENTS.md", "CLAUDE.md", "ai_config", "repo_config"}:
+    if kind in {"AGENTS.md", "CLAUDE.md", "repo_config"}:
         return "convention"
     if kind in {"codex_transcript", "claude_transcript", "terminal_capture"}:
         return "workflow"

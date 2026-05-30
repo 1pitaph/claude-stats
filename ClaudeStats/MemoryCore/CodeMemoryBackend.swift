@@ -21,6 +21,7 @@ protocol CodeMemoryBackend: Sendable {
     func drainProjections() async throws -> CodeMemoryProjectionDrainResponse
     func drainProjections(includeFailed: Bool) async throws -> CodeMemoryProjectionDrainResponse
     func reindex(projectID: String?) async throws -> CodeMemoryProjectionDrainResponse
+    func reinferSources(projectID: String?) async throws -> CodeMemoryReinferSourcesResponse
     func ingestSource(_ source: CodeMemorySourceInput) async throws -> CodeMemorySyncSourceResponse
     func recordEvent(_ event: CodeMemoryEventInput) async throws
 }
@@ -80,6 +81,7 @@ extension CodeMemoryBackend {
     func drainProjections() async throws -> CodeMemoryProjectionDrainResponse { CodeMemoryProjectionDrainResponse() }
     func drainProjections(includeFailed: Bool) async throws -> CodeMemoryProjectionDrainResponse { try await drainProjections() }
     func reindex(projectID: String?) async throws -> CodeMemoryProjectionDrainResponse { CodeMemoryProjectionDrainResponse() }
+    func reinferSources(projectID: String?) async throws -> CodeMemoryReinferSourcesResponse { CodeMemoryReinferSourcesResponse() }
     func ingestSource(_ source: CodeMemorySourceInput) async throws -> CodeMemorySyncSourceResponse {
         CodeMemorySyncSourceResponse(status: "unsupported", created: nil, proposed: nil)
     }
@@ -224,6 +226,10 @@ struct CodeMemoryHTTPClient: CodeMemoryBackend {
         try await post("/v1/reindex", body: CodeMemoryProjectRequest(projectID: projectID))
     }
 
+    func reinferSources(projectID: String?) async throws -> CodeMemoryReinferSourcesResponse {
+        try await post("/v1/sources/reinfer", body: CodeMemoryReinferSourcesRequest(projectID: projectID, sourceID: nil, limit: 50))
+    }
+
     func ingestSource(_ source: CodeMemorySourceInput) async throws -> CodeMemorySyncSourceResponse {
         try await post("/v1/sync/source", body: source)
     }
@@ -322,6 +328,18 @@ private struct CodeMemoryProjectRequest: Encodable {
 
     enum CodingKeys: String, CodingKey {
         case projectID = "project_id"
+    }
+}
+
+private struct CodeMemoryReinferSourcesRequest: Encodable {
+    var projectID: String?
+    var sourceID: String?
+    var limit: Int
+
+    enum CodingKeys: String, CodingKey {
+        case projectID = "project_id"
+        case sourceID = "source_id"
+        case limit
     }
 }
 

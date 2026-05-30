@@ -82,6 +82,8 @@ class MemoryHTTPRequestHandler(BaseHTTPRequestHandler):
                 self._json(self.store.append_event(body))
             elif parsed.path == "/v1/sync/source":
                 self._json(self.store.ingest_source(body))
+            elif parsed.path in {"/v1/sources/reinfer", "/v1/sync/reinfer"}:
+                self._json(self.store.reinfer_sources(body if isinstance(body, dict) else {}))
             elif parsed.path == "/v1/sync/start":
                 self._json({"status": "ok"})
             elif parsed.path == "/v1/search":
@@ -156,6 +158,7 @@ class MemoryHTTPRequestHandler(BaseHTTPRequestHandler):
                     {"name": "code_memory.search", "description": "Search Code Agent memories."},
                     {"name": "code_memory.context_pack", "description": "Build a compact memory context pack."},
                     {"name": "code_memory.ingest_source", "description": "Ingest a transcript, config file, or terminal source."},
+                    {"name": "code_memory.reinfer_sources", "description": "Re-run memory inference for eligible source records."},
                     {"name": "code_memory.propose_memory", "description": "Propose a memory for review."},
                     {"name": "code_memory.record_event", "description": "Record a memory event."},
                     {"name": "code_memory.get_trace", "description": "Fetch a memory retrieval trace."},
@@ -174,6 +177,8 @@ class MemoryHTTPRequestHandler(BaseHTTPRequestHandler):
                 result = self.store.append_event(arguments)
             elif name == "code_memory.ingest_source":
                 result = self.store.ingest_source(arguments)
+            elif name == "code_memory.reinfer_sources":
+                result = self.store.reinfer_sources(arguments)
             elif name == "code_memory.get_trace":
                 result = self.store.trace(str(arguments.get("run_id") or ""))
             else:
