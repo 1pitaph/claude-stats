@@ -21,6 +21,18 @@ CONFIG_SOURCE_ONLY_KINDS = {"ai_config", "provider_config", "plugin_config", "pl
 REINFER_SOURCE_KINDS = TRANSCRIPT_SOURCE_KINDS | {"terminal_capture", "manual", "user_instruction"}
 MEM0_CAPTURE_SOURCE_KINDS = TRANSCRIPT_SOURCE_KINDS | INSTRUCTION_SOURCE_KINDS | {"terminal_capture", "manual", "user_instruction"}
 MEM0_CAPTURE_VERSION = "mem0-direct-extract-v3"
+MEMORY_VERSION_EVENT_TYPES = {
+    "memory.observed",
+    "memory.created",
+    "memory.proposed",
+    "memory.accepted",
+    "memory.updated",
+    "memory.deprecated",
+    "memory.retracted",
+    "memory.superseded",
+    "memory.conflict_detected",
+}
+GRAPHITI_PROJECTION_ADAPTER = "graphiti"
 RAW_TRANSCRIPT_REDACTION = (
     "[Legacy raw transcript excerpt redacted. Re-sync this session to store parsed "
     "user/assistant conversation text.]"
@@ -59,8 +71,8 @@ def canonical_json(value: Any) -> str:
 
 
 class MemoryStore:
-    schema_version = 10
-    api_version = 15
+    schema_version = 11
+    api_version = 16
 
     def __init__(self, root: Path, adapters: MemoryAdapters | None = None):
         self.root = root
@@ -93,16 +105,16 @@ class MemoryStore:
             "total_memory_count": counts["total_memory_count"],
             "proposal_count": counts["proposal_count"],
             "module_count": counts["module_count"],
-            "projection_pending": 0,
-            "projection_failed": 0,
+            "projection_pending": counts["projection_pending"],
+            "projection_failed": counts["projection_failed"],
             "capture_pending": pending,
             "capture_failed": failed,
             "capture_running": bool(capture_gate.get("running")),
             "migration_pending": counts["migration_pending"],
             "adapters": self.adapters.health()
             | {
-                "projection_pending": "0",
-                "projection_failed": "0",
+                "projection_pending": str(counts["projection_pending"]),
+                "projection_failed": str(counts["projection_failed"]),
                 "capture_pending": str(pending),
                 "capture_failed": str(failed),
                 "capture_running": "1" if capture_gate.get("running") else "0",
@@ -121,6 +133,8 @@ class MemoryStore:
                 "module_count": ("SELECT COUNT(*) FROM modules", ()),
                 "capture_pending": ("SELECT COUNT(*) FROM source_captures WHERE status = 'pending' AND capture_version = ?", (MEM0_CAPTURE_VERSION,)),
                 "capture_failed": ("SELECT COUNT(*) FROM source_captures WHERE status = 'failed' AND capture_version = ?", (MEM0_CAPTURE_VERSION,)),
+                "projection_pending": ("SELECT COUNT(*) FROM projection_jobs WHERE adapter = ? AND status = 'pending'", (GRAPHITI_PROJECTION_ADAPTER,)),
+                "projection_failed": ("SELECT COUNT(*) FROM projection_jobs WHERE adapter = ? AND status = 'failed'", (GRAPHITI_PROJECTION_ADAPTER,)),
                 "migration_pending": ("SELECT COUNT(*) FROM legacy_memory_migrations WHERE status = 'pending'", ()),
                 "migration_failed": ("SELECT COUNT(*) FROM legacy_memory_migrations WHERE status = 'failed'", ()),
             }
@@ -220,6 +234,15 @@ class MemoryStore:
 
         self.conn.commit()
         event = self.event(event_id)
+        if event_type in MEMORY_VERSION_EVENT_TYPES:
+            memory_id = str(event.get("memory_id") or memory_id or "")
+            if memory_id:
+                row = self.conn.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)).fetchone()
+                if row is not None:
+                    memory = self._memory_row(row)
+                    self._record_memory_version(memory, event)
+                    self._enqueue_projection_jobs(memory, event)
+                    self.conn.commit()
         return event | ({"memory": memory} if memory else {})
 
     def propose_memory(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -358,6 +381,34 @@ class MemoryStore:
             params,
         ).fetchall()
         return {"events": [self._event_row(row) for row in rows]}
+
+    def memory_history(self, memory_id: str, *, limit: int = 200) -> dict[str, Any]:
+        bounded_limit = max(1, min(limit, 500))
+        version_rows = self.conn.execute(
+            """
+            SELECT *
+            FROM memory_versions
+            WHERE memory_id = ?
+            ORDER BY version DESC
+            LIMIT ?
+            """,
+            (memory_id, bounded_limit),
+        ).fetchall()
+        event_rows = self.conn.execute(
+            """
+            SELECT *
+            FROM memory_events
+            WHERE memory_id = ?
+            ORDER BY seq DESC
+            LIMIT ?
+            """,
+            (memory_id, bounded_limit),
+        ).fetchall()
+        return {
+            "memory_id": memory_id,
+            "versions": [self._version_row(row) for row in version_rows],
+            "events": [self._event_row(row) for row in event_rows],
+        }
 
     def modules(self, *, project_id: str | None = None) -> dict[str, Any]:
         params: list[Any] = []
@@ -575,17 +626,79 @@ class MemoryStore:
         }
 
     def reindex(self, *, project_id: str | None = None, drain: bool = False, drain_limit: int | None = None) -> dict[str, Any]:
+        event_types = sorted(MEMORY_VERSION_EVENT_TYPES)
+        params: list[Any] = list(event_types)
+        placeholders = ",".join("?" for _ in event_types)
+        where = [f"event_type IN ({placeholders})", "memory_id IS NOT NULL"]
+        if project_id:
+            where.append("project_id = ?")
+            params.append(project_id)
+        rows = self.conn.execute(
+            f"""
+            SELECT *
+            FROM memory_events
+            WHERE {' AND '.join(where)}
+            ORDER BY seq ASC
+            LIMIT 1000
+            """,
+            params,
+        ).fetchall()
+        enqueued = 0
+        for row in rows:
+            event = self._event_row(row)
+            memory_id = str(event.get("memory_id") or "")
+            memory_row = self.conn.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)).fetchone()
+            if memory_row is None:
+                continue
+            enqueued += self._enqueue_projection_jobs(self._memory_row(memory_row), event, force=True)
+        self.conn.commit()
+        drained = None
+        if drain:
+            drained = self._drain_graphiti_projection_jobs(limit=drain_limit or 10, include_failed=False)
+        pending = self._projection_count("pending")
+        failed_total = self._projection_count("failed")
         return {
-            "enqueued": 0,
-            "remaining": 0,
-            "pending": 0,
-            "failed_total": 0,
+            "enqueued": enqueued,
+            "remaining": pending + failed_total,
+            "pending": pending,
+            "failed_total": failed_total,
             "skipped": False,
-            "message": "mem0 is the canonical memory store; projection reindex is no longer used.",
+            "message": f"Graphiti reindex enqueued {enqueued} projection job(s).",
+            "drained": drained,
         }
 
     def drain_projection_jobs(self, *, limit: int = 10, include_failed: bool = False) -> dict[str, Any]:
-        return self._drain_capture_jobs(limit=limit, include_failed=include_failed)
+        capture = self._drain_capture_jobs(limit=limit, include_failed=include_failed)
+        projection = self._drain_graphiti_projection_jobs(limit=limit, include_failed=include_failed)
+        delivered = int(capture.get("delivered") or 0) + int(projection.get("delivered") or 0)
+        failed = int(capture.get("failed") or 0) + int(projection.get("failed") or 0)
+        pending = int(capture.get("pending") or 0) + int(projection.get("pending") or 0)
+        failed_total = int(capture.get("failed_total") or 0) + int(projection.get("failed_total") or 0)
+        skipped_messages = [
+            str(result.get("message") or "")
+            for result in (capture, projection)
+            if result.get("skipped") and result.get("message")
+        ]
+        message = (
+            " ".join(skipped_messages)
+            if skipped_messages
+            else (
+                f"Mem0 capture: {capture.get('delivered', 0)} captured, {capture.get('failed', 0)} failed. "
+                f"Graphiti projection: {projection.get('delivered', 0)} delivered, {projection.get('failed', 0)} failed."
+            )
+        )
+        return {
+            "delivered": delivered,
+            "failed": failed,
+            "remaining": pending + failed_total,
+            "pending": pending,
+            "failed_total": failed_total,
+            "skipped": bool(capture.get("skipped")) or bool(projection.get("skipped")),
+            "message": message,
+            "blockers": (capture.get("blockers") or {}) | (projection.get("blockers") or {}),
+            "capture": capture,
+            "projection": projection,
+        }
 
     def _drain_capture_jobs(self, *, limit: int = 10, include_failed: bool = False) -> dict[str, Any]:
         with self._capture_drain_gate.run() as lease:
@@ -1496,52 +1609,186 @@ class MemoryStore:
         return ""
 
     def _projection_count(self, status: str) -> int:
-        row = self.conn.execute("SELECT COUNT(*) AS count FROM projection_jobs WHERE status = ?", (status,)).fetchone()
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS count FROM projection_jobs WHERE adapter = ? AND status = ?",
+            (GRAPHITI_PROJECTION_ADAPTER, status),
+        ).fetchone()
         return int(row["count"])
 
     def _projection_adapter_blockers(self) -> dict[str, str]:
         names = set(self.adapters.names())
-        if not names:
-            return {}
+        if GRAPHITI_PROJECTION_ADAPTER not in names:
+            return {GRAPHITI_PROJECTION_ADAPTER: "graphiti adapter is not configured"}
         health = self.adapters.health()
         blockers: dict[str, str] = {}
-        for name in sorted(names):
-            status = str(health.get(name, "unavailable")).strip()
-            normalized = status.lower()
-            if (
-                "endpoint unavailable" in normalized
-                or normalized.startswith("unavailable")
-                or normalized.startswith("disabled")
-                or normalized.startswith("error")
-            ):
-                blockers[name] = status
+        status = str(health.get(GRAPHITI_PROJECTION_ADAPTER, "unavailable")).strip()
+        normalized = status.lower()
+        if (
+            "endpoint unavailable" in normalized
+            or normalized.startswith("unavailable")
+            or normalized.startswith("disabled")
+            or normalized.startswith("error")
+        ):
+            blockers[GRAPHITI_PROJECTION_ADAPTER] = status
         return blockers
 
     def _enqueue_projection_jobs(self, memory: dict[str, Any], event: dict[str, Any], *, force: bool = False) -> int:
-        if memory.get("status") != "active":
+        if GRAPHITI_PROJECTION_ADAPTER not in set(self.adapters.names()):
             return 0
-        adapters = self.adapters.names()
         now = time.time()
         count = 0
-        for adapter in adapters:
-            job_id = "job:" + hashlib.sha256(canonical_json({
-                "adapter": adapter,
-                "memory_id": memory["id"],
-                "event_id": event.get("event_id"),
-            }).encode("utf-8")).hexdigest()[:24]
-            if force:
-                self.conn.execute("DELETE FROM projection_jobs WHERE id = ?", (job_id,))
-            cursor = self.conn.execute(
-                """
-                INSERT OR IGNORE INTO projection_jobs (
-                    id, adapter, memory_id, event_id, status, attempt_count,
-                    last_error, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, 'pending', 0, NULL, ?, ?)
-                """,
-                (job_id, adapter, memory["id"], event.get("event_id") or "", now, now),
-            )
-            count += max(0, cursor.rowcount)
+        adapter = GRAPHITI_PROJECTION_ADAPTER
+        job_id = "job:" + hashlib.sha256(canonical_json({
+            "adapter": adapter,
+            "memory_id": memory["id"],
+            "event_id": event.get("event_id"),
+        }).encode("utf-8")).hexdigest()[:24]
+        if force:
+            self.conn.execute("DELETE FROM projection_jobs WHERE id = ?", (job_id,))
+        cursor = self.conn.execute(
+            """
+            INSERT OR IGNORE INTO projection_jobs (
+                id, adapter, memory_id, event_id, status, attempt_count,
+                last_error, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, 'pending', 0, NULL, ?, ?)
+            """,
+            (job_id, adapter, memory["id"], event.get("event_id") or "", now, now),
+        )
+        count += max(0, cursor.rowcount)
         return count
+
+    def _drain_graphiti_projection_jobs(self, *, limit: int = 10, include_failed: bool = False) -> dict[str, Any]:
+        bounded_limit = max(1, min(limit, 25))
+        pending_before = self._projection_count("pending")
+        failed_before = self._projection_count("failed")
+        if pending_before == 0 and (not include_failed or failed_before == 0):
+            return {
+                "delivered": 0,
+                "failed": 0,
+                "remaining": pending_before + failed_before,
+                "pending": pending_before,
+                "failed_total": failed_before,
+                "skipped": False,
+                "message": "Graphiti projection queue is empty.",
+            }
+
+        statuses = ["pending"]
+        if include_failed:
+            statuses.append("failed")
+        placeholders = ",".join("?" for _ in statuses)
+        rows = self.conn.execute(
+            f"""
+            SELECT *
+            FROM projection_jobs
+            WHERE adapter = ?
+              AND status IN ({placeholders})
+            ORDER BY updated_at ASC
+            LIMIT ?
+            """,
+            (GRAPHITI_PROJECTION_ADAPTER, *statuses, bounded_limit),
+        ).fetchall()
+        blockers = self._projection_adapter_blockers()
+        if blockers:
+            now = time.time()
+            failed_ids = [str(row["id"]) for row in rows if row["status"] == "pending"]
+            if failed_ids:
+                placeholders = ",".join("?" for _ in failed_ids)
+                self.conn.execute(
+                    f"""
+                    UPDATE projection_jobs
+                    SET status = 'failed',
+                        attempt_count = attempt_count + 1,
+                        last_error = ?,
+                        updated_at = ?
+                    WHERE id IN ({placeholders})
+                    """,
+                    (next(iter(blockers.values())), now, *failed_ids),
+                )
+                self.conn.commit()
+            pending_after = self._projection_count("pending")
+            failed_after = self._projection_count("failed")
+            return {
+                "delivered": 0,
+                "failed": len(failed_ids),
+                "remaining": pending_after + failed_after,
+                "pending": pending_after,
+                "failed_total": failed_after,
+                "skipped": True,
+                "message": "Graphiti projection skipped because graphiti is unavailable.",
+                "blockers": blockers,
+            }
+
+        delivered = 0
+        failed = 0
+        now = time.time()
+        for row in rows:
+            job_id = str(row["id"])
+            try:
+                event = self.event(str(row["event_id"]))
+                memory_id = str(row["memory_id"])
+                memory_row = self.conn.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)).fetchone()
+                memory = self._memory_row(memory_row) if memory_row is not None else event.get("after")
+                if not isinstance(memory, dict):
+                    raise KeyError(memory_id)
+                result = self.adapters.index_memory(memory, event, adapter_name=GRAPHITI_PROJECTION_ADAPTER)
+                status = str(result.get(GRAPHITI_PROJECTION_ADAPTER) or "")
+                if not status.startswith("ok:"):
+                    raise RuntimeError(status or "graphiti projection returned no adapter status")
+                adapter_id = status.removeprefix("ok:")
+                self.conn.execute(
+                    """
+                    INSERT OR REPLACE INTO adapter_mappings (
+                        memory_id, adapter, adapter_id, metadata_json, updated_at
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        memory_id,
+                        GRAPHITI_PROJECTION_ADAPTER,
+                        adapter_id,
+                        canonical_json({"event_id": event.get("event_id"), "job_id": job_id}),
+                        now,
+                    ),
+                )
+                self.conn.execute(
+                    """
+                    UPDATE projection_jobs
+                    SET status = 'done',
+                        attempt_count = attempt_count + 1,
+                        last_error = NULL,
+                        updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (now, job_id),
+                )
+                delivered += 1
+            except Exception as error:  # noqa: BLE001
+                self.conn.execute(
+                    """
+                    UPDATE projection_jobs
+                    SET status = 'failed',
+                        attempt_count = attempt_count + 1,
+                        last_error = ?,
+                        updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (_compact_exception(error), now, job_id),
+                )
+                failed += 1
+        self.conn.commit()
+        pending_after = self._projection_count("pending")
+        failed_after = self._projection_count("failed")
+        return {
+            "delivered": delivered,
+            "failed": failed,
+            "remaining": pending_after + failed_after,
+            "pending": pending_after,
+            "failed_total": failed_after,
+            "skipped": False,
+            "message": (
+                f"Graphiti projection: {delivered} event(s) delivered, "
+                f"{failed} job(s) failed, {pending_after + failed_after} remaining."
+            ),
+        }
 
     def _upsert_source(self, project_id: str, payload: dict[str, Any]) -> None:
         kind = str(payload.get("kind") or "source")
@@ -1904,6 +2151,76 @@ class MemoryStore:
             "updated_at": row["updated_at"],
         }
 
+    def _record_memory_version(self, memory: dict[str, Any], event: dict[str, Any]) -> dict[str, Any]:
+        memory_id = str(memory.get("id") or event.get("memory_id") or "")
+        if not memory_id:
+            raise ValueError("memory version requires memory_id")
+        row = self.conn.execute(
+            "SELECT COALESCE(MAX(version), 0) AS version FROM memory_versions WHERE memory_id = ?",
+            (memory_id,),
+        ).fetchone()
+        version = int(row["version"] or 0) + 1
+        timestamp = float(event.get("timestamp") or time.time())
+        self.conn.execute(
+            """
+            INSERT OR REPLACE INTO memory_versions (
+                memory_id, version, event_id, event_type, project_id, timestamp,
+                title, body, type, status, normalized_claim, confidence,
+                importance, source_refs_json, metadata_json, valid_at,
+                invalid_at, review_reason, extracted_by, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                memory_id,
+                version,
+                event.get("event_id"),
+                event.get("event_type"),
+                memory.get("project_id") or event.get("project_id"),
+                timestamp,
+                memory.get("title") or "",
+                memory.get("body") or "",
+                memory.get("type") or "fact",
+                memory.get("status") or "active",
+                memory.get("normalized_claim") or "",
+                float(memory.get("confidence") or 0),
+                float(memory.get("importance") or 0),
+                canonical_json(memory.get("source_refs") if isinstance(memory.get("source_refs"), list) else []),
+                canonical_json(memory.get("metadata") if isinstance(memory.get("metadata"), dict) else {}),
+                memory.get("valid_at"),
+                memory.get("invalid_at"),
+                memory.get("review_reason"),
+                memory.get("extracted_by"),
+                memory.get("created_at") or timestamp,
+                memory.get("updated_at") or timestamp,
+            ),
+        )
+        return {"memory_id": memory_id, "version": version, "event_id": event.get("event_id")}
+
+    def _version_row(self, row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "memory_id": row["memory_id"],
+            "version": row["version"],
+            "event_id": row["event_id"],
+            "event_type": row["event_type"],
+            "project_id": row["project_id"],
+            "timestamp": row["timestamp"],
+            "title": row["title"],
+            "body": row["body"],
+            "type": row["type"],
+            "status": row["status"],
+            "normalized_claim": row["normalized_claim"],
+            "confidence": row["confidence"],
+            "importance": row["importance"],
+            "source_refs": json.loads(row["source_refs_json"] or "[]"),
+            "metadata": string_map(json.loads(row["metadata_json"] or "{}")),
+            "valid_at": row["valid_at"],
+            "invalid_at": row["invalid_at"],
+            "review_reason": row["review_reason"],
+            "extracted_by": row["extracted_by"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
     def _scope_row(self, row: sqlite3.Row) -> dict[str, Any]:
         return {
             "id": row["id"],
@@ -1984,6 +2301,31 @@ class MemoryStore:
                 extracted_by TEXT,
                 created_at REAL NOT NULL,
                 updated_at REAL NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS memory_versions (
+                memory_id TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                event_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                project_id TEXT NOT NULL,
+                timestamp REAL NOT NULL,
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                normalized_claim TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                importance REAL NOT NULL,
+                source_refs_json TEXT NOT NULL,
+                metadata_json TEXT NOT NULL,
+                valid_at REAL,
+                invalid_at REAL,
+                review_reason TEXT,
+                extracted_by TEXT,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                PRIMARY KEY(memory_id, version)
             );
 
             CREATE TABLE IF NOT EXISTS scopes (

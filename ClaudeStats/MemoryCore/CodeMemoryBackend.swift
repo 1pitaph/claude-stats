@@ -11,6 +11,7 @@ protocol CodeMemoryBackend: Sendable {
     func graph(projectID: String) async throws -> CodeMemoryGraph
     func trace(runID: String) async throws -> CodeMemoryRunTrace
     func events(projectID: String?, afterSeq: Int?, limit: Int) async throws -> [CodeMemoryEvent]
+    func memoryHistory(memoryID: String, limit: Int) async throws -> CodeMemoryMemoryHistory
     func proposals(projectID: String?, limit: Int) async throws -> [CodeMemoryMemory]
     func reviewItems(projectID: String?, limit: Int) async throws -> CodeMemoryReviewItemsResponse
     func accept(memoryID: String) async throws
@@ -49,6 +50,9 @@ extension CodeMemoryBackend {
         )
     }
     func events(projectID: String?, afterSeq: Int?, limit: Int) async throws -> [CodeMemoryEvent] { [] }
+    func memoryHistory(memoryID: String, limit: Int) async throws -> CodeMemoryMemoryHistory {
+        CodeMemoryMemoryHistory(memoryID: memoryID, versions: [], events: [])
+    }
     func proposals(projectID: String?, limit: Int) async throws -> [CodeMemoryMemory] { [] }
     func reviewItems(projectID: String?, limit: Int) async throws -> CodeMemoryReviewItemsResponse {
         CodeMemoryReviewItemsResponse(proposals: try await proposals(projectID: projectID, limit: limit), conflicts: [], lowConfidence: [], graphFacts: [])
@@ -95,8 +99,9 @@ struct CodeMemoryHTTPClient: CodeMemoryBackend {
     var baseURL: URL
     var session: URLSession = .shared
 
-    init(baseURL: URL = URL(string: "http://127.0.0.1:8765")!) {
+    init(baseURL: URL = URL(string: "http://127.0.0.1:8765")!, session: URLSession = .shared) {
         self.baseURL = baseURL
+        self.session = session
     }
 
     func health() async throws -> CodeMemoryHealth {
@@ -172,6 +177,13 @@ struct CodeMemoryHTTPClient: CodeMemoryBackend {
         }
         let response: CodeMemoryEventsResponse = try await get("/v1/events", queryItems: items)
         return response.events
+    }
+
+    func memoryHistory(memoryID: String, limit: Int = 200) async throws -> CodeMemoryMemoryHistory {
+        try await get(
+            "/v1/memories/\(Self.pathSegment(memoryID))/history",
+            queryItems: [URLQueryItem(name: "limit", value: "\(limit)")]
+        )
     }
 
     func proposals(projectID: String?, limit: Int = 100) async throws -> [CodeMemoryMemory] {
@@ -251,11 +263,7 @@ struct CodeMemoryHTTPClient: CodeMemoryBackend {
     }
 
     private func get<T: Decodable>(_ path: String, queryItems: [URLQueryItem] = []) async throws -> T {
-        var components = URLComponents(url: baseURL.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))), resolvingAgainstBaseURL: false)
-        if !queryItems.isEmpty {
-            components?.queryItems = queryItems
-        }
-        guard let url = components?.url else { throw URLError(.badURL) }
+        let url = try makeURL(path, queryItems: queryItems)
         var request = URLRequest(url: url)
         request.timeoutInterval = 8
         let (data, response) = try await session.data(for: request)
@@ -264,7 +272,7 @@ struct CodeMemoryHTTPClient: CodeMemoryBackend {
     }
 
     private func post<T: Decodable, Body: Encodable>(_ path: String, body: Body, timeout: TimeInterval = 20) async throws -> T {
-        let url = baseURL.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
+        let url = try makeURL(path)
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = timeout
@@ -278,6 +286,26 @@ struct CodeMemoryHTTPClient: CodeMemoryBackend {
         return try JSONDecoder.codeMemoryDecoder.decode(T.self, from: data)
     }
 
+    private func makeURL(_ path: String, queryItems: [URLQueryItem] = []) throws -> URL {
+        guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
+            throw URLError(.badURL)
+        }
+
+        let slashSet = CharacterSet(charactersIn: "/")
+        let basePath = components.percentEncodedPath.trimmingCharacters(in: slashSet)
+        let requestPath = path.trimmingCharacters(in: slashSet)
+        let percentEncodedPath = [basePath, requestPath]
+            .filter { !$0.isEmpty }
+            .joined(separator: "/")
+        components.percentEncodedPath = percentEncodedPath.isEmpty ? "/" : "/\(percentEncodedPath)"
+        if !queryItems.isEmpty {
+            components.queryItems = queryItems
+        }
+
+        guard let url = components.url else { throw URLError(.badURL) }
+        return url
+    }
+
     private func validate(response: URLResponse, data: Data) throws {
         guard let http = response as? HTTPURLResponse else { return }
         guard (200..<300).contains(http.statusCode) else {
@@ -288,7 +316,7 @@ struct CodeMemoryHTTPClient: CodeMemoryBackend {
 
     private static func pathSegment(_ value: String) -> String {
         var allowed = CharacterSet.urlPathAllowed
-        allowed.remove(charactersIn: "/?#[]@!$&'()*+,;=")
+        allowed.remove(charactersIn: "%/?#[]@!$&'()*+,;=")
         return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
 }

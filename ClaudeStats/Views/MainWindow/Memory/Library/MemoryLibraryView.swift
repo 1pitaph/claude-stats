@@ -4,6 +4,7 @@ struct MemoryLibraryView: View {
     @Bindable var store: MemoryStore
 
     private let sidebarWidth: CGFloat = 290
+    @State private var sidebarScope: MemoryLibrarySidebarScope = .projects
 
     var body: some View {
         HStack(spacing: 0) {
@@ -18,38 +19,78 @@ struct MemoryLibraryView: View {
     }
 
     private var librarySidebar: some View {
-        AppScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                projectSection
-                moduleSection
+        VStack(alignment: .leading, spacing: 0) {
+            sidebarScopePicker
+                .padding(.horizontal, 14)
+                .padding(.top, 14)
+                .padding(.bottom, 10)
+
+            AppScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    switch sidebarScope {
+                    case .projects:
+                        projectList
+                    case .modules:
+                        moduleList
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.bottom, 14)
             }
-            .padding(14)
+            .id(sidebarScope)
         }
     }
 
-    private var projectSection: some View {
-        MemorySection(title: "Projects", count: store.codeProjects.count, symbol: "folder") {
-            LazyVStack(alignment: .leading, spacing: 8) {
-                if store.codeProjects.isEmpty {
-                    MemoryMutedLine(text: store.codeHealth == nil ? "sidecar offline" : "No projects")
-                        .padding(.vertical, 8)
-                } else {
-                    ForEach(store.codeProjects) { project in
-                        ProjectButton(
-                            project: project,
-                            isSelected: store.codeSelectedProjectID == project.projectID
-                        ) {
-                            Task { await store.selectCodeProject(project.projectID) }
-                        }
+    private var sidebarScopePicker: some View {
+        PillSegmentedBar(
+            MemoryLibrarySidebarScope.allCases,
+            selection: $sidebarScope,
+            help: { $0.help },
+            accessibilityLabel: { $0.title },
+            onSelect: { scope in
+                if scope == .projects, store.library.selectedModuleID != nil {
+                    Task { await store.selectModule(nil) }
+                }
+            }
+        ) { scope, isSelected in
+            HStack(spacing: 6) {
+                Image(systemName: scope.symbol)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(scope.title)
+                AIConfigsBadge(
+                    text: "\(count(for: scope))",
+                    color: isSelected ? Color.stxAccent : Color.stxMuted
+                )
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var projectList: some View {
+        LazyVStack(alignment: .leading, spacing: 8) {
+            if store.codeProjects.isEmpty {
+                MemoryMutedLine(text: store.codeHealth == nil ? "sidecar offline" : "No projects")
+                    .padding(.vertical, 8)
+            } else {
+                ForEach(store.codeProjects) { project in
+                    ProjectButton(
+                        project: project,
+                        isSelected: store.codeSelectedProjectID == project.projectID
+                    ) {
+                        Task { await store.selectLibraryProject(project.projectID) }
                     }
                 }
             }
         }
     }
 
-    private var moduleSection: some View {
-        MemorySection(title: "Modules", count: store.codeModules.count, symbol: "square.stack.3d.up") {
-            LazyVStack(alignment: .leading, spacing: 8) {
+    private var moduleList: some View {
+        LazyVStack(alignment: .leading, spacing: 8) {
+            if store.codeHealth == nil {
+                MemoryMutedLine(text: "sidecar offline")
+                    .padding(.vertical, 8)
+            } else {
                 ModuleButton(
                     title: "All Modules",
                     subtitle: "\(store.codeHealth?.memoryCount ?? store.codeMemories.count) active",
@@ -70,6 +111,15 @@ struct MemoryLibraryView: View {
                     }
                 }
             }
+        }
+    }
+
+    private func count(for scope: MemoryLibrarySidebarScope) -> Int {
+        switch scope {
+        case .projects:
+            store.codeProjects.count
+        case .modules:
+            store.codeModules.count
         }
     }
 
@@ -129,6 +179,40 @@ struct MemoryLibraryView: View {
     }
 }
 
+private enum MemoryLibrarySidebarScope: String, CaseIterable, Identifiable {
+    case projects
+    case modules
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .projects:
+            "Project"
+        case .modules:
+            "Modules"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .projects:
+            "folder"
+        case .modules:
+            "square.stack.3d.up"
+        }
+    }
+
+    var help: String {
+        switch self {
+        case .projects:
+            "Show project folders"
+        case .modules:
+            "Show memory modules"
+        }
+    }
+}
+
 private struct ProjectButton: View {
     let project: CodeMemoryProject
     let isSelected: Bool
@@ -142,10 +226,10 @@ private struct ProjectButton: View {
                     .foregroundStyle(isSelected ? Color.stxAccent : Color.stxMuted)
                     .frame(width: 18)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(project.projectID.memoryAbbreviatingHomeDirectory)
+                    Text(project.folderDisplayName)
                         .font(.sora(12, weight: .semibold))
                         .lineLimit(1)
-                        .truncationMode(.middle)
+                        .truncationMode(.tail)
                     Text("\(project.memoryCount) active · \(project.totalMemoryCount ?? project.memoryCount) total")
                         .font(.sora(10).monospaced())
                         .foregroundStyle(Color.stxMuted)

@@ -7,47 +7,43 @@ struct MemoryGraphWorkspaceView: View {
         VStack(alignment: .leading, spacing: 0) {
             toolbar
             StxRule()
-            HStack(spacing: 0) {
-                MemoryGraphCanvasView(graphStore: store.graph)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                Rectangle()
-                    .fill(Color.stxStroke)
-                    .frame(width: 1)
-                MemoryGraphInspectorView(store: store)
-                    .frame(width: 330)
+            if store.graph.layer == .knowledge {
+                HStack(spacing: 0) {
+                    MemoryGraphCanvasView(graphStore: store.graph)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    Rectangle()
+                        .fill(Color.stxStroke)
+                        .frame(width: 1)
+                    MemoryGraphInspectorView(store: store)
+                        .frame(width: 330)
+                }
+            } else {
+                MemoryGraphChangesView(store: store)
             }
         }
         .task(id: store.codeSelectedProjectID) {
-            await store.loadCodeGraphIfNeeded()
+            await loadCurrentLayerIfNeeded()
+        }
+        .task(id: store.graph.layer) {
+            await loadCurrentLayerIfNeeded()
         }
     }
 
     private var toolbar: some View {
         HStack(spacing: 10) {
-            HStack(spacing: 7) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color.stxMuted)
-                TextField("Find node or fact", text: Binding(
-                    get: { store.graph.searchText },
-                    set: { store.graph.searchText = $0 }
-                ))
-                    .textFieldStyle(.plain)
-                    .font(.sora(12))
-                if !store.graph.searchText.isEmpty {
-                    Button {
-                        store.graph.searchText = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Color.stxMuted)
-                    .help("Clear")
+            Picker("Layer", selection: Binding(
+                get: { store.graph.layer },
+                set: { store.graph.layer = $0 }
+            )) {
+                ForEach(MemoryGraphLayer.allCases) { layer in
+                    Text(layer.title).tag(layer)
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 186)
+
+            searchField
 
             Menu {
                 Button("All Projects") {
@@ -65,59 +61,63 @@ struct MemoryGraphWorkspaceView: View {
             .menuStyle(.button)
             .controlSize(.small)
 
-            Menu {
-                Button("All Kinds") {
-                    store.graph.selectedKinds = Set(store.graph.nodeKinds)
-                }
-                Button("None") {
-                    store.graph.selectedKinds = []
-                }
-                Divider()
-                ForEach(store.graph.nodeKinds, id: \.self) { kind in
-                    Button {
-                        if store.graph.selectedKinds.contains(kind) {
-                            store.graph.selectedKinds.remove(kind)
-                        } else {
-                            store.graph.selectedKinds.insert(kind)
-                        }
-                    } label: {
-                        Label(kind, systemImage: store.graph.selectedKinds.contains(kind) ? "checkmark" : "circle")
+            if store.graph.layer == .knowledge {
+                Menu {
+                    Button("All Kinds") {
+                        store.graph.selectedKinds = Set(store.graph.nodeKinds)
                     }
+                    Button("None") {
+                        store.graph.selectedKinds = []
+                    }
+                    Divider()
+                    ForEach(store.graph.nodeKinds, id: \.self) { kind in
+                        Button {
+                            if store.graph.selectedKinds.contains(kind) {
+                                store.graph.selectedKinds.remove(kind)
+                            } else {
+                                store.graph.selectedKinds.insert(kind)
+                            }
+                        } label: {
+                            Label(kind, systemImage: store.graph.selectedKinds.contains(kind) ? "checkmark" : "circle")
+                        }
+                    }
+                } label: {
+                    Label("Kinds", systemImage: "line.3.horizontal.decrease.circle")
                 }
-            } label: {
-                Label("Kinds", systemImage: "line.3.horizontal.decrease.circle")
-            }
-            .menuStyle(.button)
-            .controlSize(.small)
+                .menuStyle(.button)
+                .controlSize(.small)
 
-            Toggle("Canonical", isOn: Binding(
-                get: { store.graph.showCanonical },
-                set: { store.graph.showCanonical = $0 }
-            ))
-                .toggleStyle(.checkbox)
-                .font(.sora(11))
-            Toggle("Episodes", isOn: Binding(
-                get: { store.graph.showEpisodes },
-                set: { store.graph.showEpisodes = $0 }
-            ))
-                .toggleStyle(.checkbox)
-                .font(.sora(11))
-            Toggle("Events", isOn: Binding(
-                get: { store.graph.showEvents },
-                set: { store.graph.showEvents = $0 }
-            ))
-                .toggleStyle(.checkbox)
-                .font(.sora(11))
-            Toggle("Graphiti", isOn: Binding(
-                get: { store.graph.showGraphiti },
-                set: { store.graph.showGraphiti = $0 }
-            ))
-                .toggleStyle(.checkbox)
-                .font(.sora(11))
+                Toggle("Canonical", isOn: Binding(
+                    get: { store.graph.showCanonical },
+                    set: { store.graph.showCanonical = $0 }
+                ))
+                    .toggleStyle(.checkbox)
+                    .font(.sora(11))
+                Toggle("Episodes", isOn: Binding(
+                    get: { store.graph.showEpisodes },
+                    set: { store.graph.showEpisodes = $0 }
+                ))
+                    .toggleStyle(.checkbox)
+                    .font(.sora(11))
+                Toggle("Events", isOn: Binding(
+                    get: { store.graph.showEvents },
+                    set: { store.graph.showEvents = $0 }
+                ))
+                    .toggleStyle(.checkbox)
+                    .font(.sora(11))
+                Toggle("Graphiti", isOn: Binding(
+                    get: { store.graph.showGraphiti },
+                    set: { store.graph.showGraphiti = $0 }
+                ))
+                    .toggleStyle(.checkbox)
+                    .font(.sora(11))
+            }
 
             Spacer(minLength: 8)
 
-            MemoryGraphTimeControl(graphStore: store.graph)
+            if store.graph.layer == .knowledge {
+                MemoryGraphTimeControl(graphStore: store.graph)
+            }
 
             Button {
                 store.graph.zoom = max(0.45, store.graph.zoom - 0.1)
@@ -150,14 +150,81 @@ struct MemoryGraphWorkspaceView: View {
             .help("Reset View")
 
             Button {
-                Task { await store.loadCodeGraph() }
+                Task { await reloadCurrentLayer() }
             } label: {
                 Label("Refresh", systemImage: "arrow.clockwise")
             }
             .controlSize(.small)
-            .disabled(store.codeSelectedProjectID == nil || store.graph.isLoading)
+            .disabled(store.codeSelectedProjectID == nil || store.graph.isLoading || store.graph.isLoadingChanges)
         }
         .padding(14)
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12))
+                .foregroundStyle(Color.stxMuted)
+            TextField(searchPlaceholder, text: Binding(
+                get: { store.graph.layer == .knowledge ? store.graph.searchText : store.graph.changeSearchText },
+                set: { value in
+                    if store.graph.layer == .knowledge {
+                        store.graph.searchText = value
+                    } else {
+                        store.graph.changeSearchText = value
+                    }
+                }
+            ))
+                .textFieldStyle(.plain)
+                .font(.sora(12))
+            if !currentSearchText.isEmpty {
+                Button {
+                    if store.graph.layer == .knowledge {
+                        store.graph.searchText = ""
+                    } else {
+                        store.graph.changeSearchText = ""
+                    }
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.stxMuted)
+                .help("Clear")
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
+        .frame(width: store.graph.layer == .knowledge ? 190 : 240)
+    }
+
+    private var searchPlaceholder: String {
+        store.graph.layer == .knowledge ? "Find node or fact" : "Event type or memory id"
+    }
+
+    private var currentSearchText: String {
+        store.graph.layer == .knowledge ? store.graph.searchText : store.graph.changeSearchText
+    }
+
+    private func loadCurrentLayerIfNeeded() async {
+        switch store.graph.layer {
+        case .knowledge:
+            await store.loadCodeGraphIfNeeded()
+        case .changes:
+            guard let projectID = store.codeSelectedProjectID ?? store.codeProjects.first?.projectID else { return }
+            if store.graph.changeGraph?.projectID != projectID {
+                await store.graph.loadChanges(projectID: projectID)
+            }
+        }
+    }
+
+    private func reloadCurrentLayer() async {
+        switch store.graph.layer {
+        case .knowledge:
+            await store.loadCodeGraph()
+        case .changes:
+            await store.graph.loadChanges(projectID: store.codeSelectedProjectID)
+        }
     }
 }
 
@@ -262,6 +329,9 @@ private struct MemoryGraphInspectorView: View {
             if let sourceRefs = node.sourceRefs, !sourceRefs.isEmpty {
                 MemorySourceRefsView(sourceRefs: sourceRefs)
             }
+            if let memoryID = memoryID(from: node) {
+                MemoryGraphMemoryHistorySection(graphStore: store.graph, memoryID: memoryID)
+            }
             HStack(spacing: 8) {
                 MemoryCopyButton(value: node.id, label: "Copy ID", systemImage: "link")
                 if let body = node.body {
@@ -319,6 +389,18 @@ private struct MemoryGraphInspectorView: View {
                 }
             }
         }
+    }
+
+    private func memoryID(from node: CodeMemoryGraphNode) -> String? {
+        guard node.kind == "memory" else { return nil }
+        if let memoryID = node.metadata?["memory_id"], !memoryID.isEmpty {
+            return memoryID
+        }
+        let prefix = "memory:"
+        if node.id.hasPrefix(prefix) {
+            return String(node.id.dropFirst(prefix.count))
+        }
+        return node.id
     }
 
     private func inspectorFact(_ label: String, _ value: String) -> some View {

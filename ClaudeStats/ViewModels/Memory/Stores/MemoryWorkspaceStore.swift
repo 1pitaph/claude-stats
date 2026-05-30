@@ -172,6 +172,11 @@ final class MemoryWorkspaceStore {
         await review.load(projectID: projectID)
     }
 
+    func selectLibraryProject(_ projectID: String) async {
+        library.selectedModuleID = nil
+        await selectCodeProject(projectID)
+    }
+
     func selectModule(_ moduleID: String?) async {
         library.selectedModuleID = moduleID
         await library.loadMemories(projectID: selectedProjectID)

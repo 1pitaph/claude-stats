@@ -35,7 +35,7 @@ private struct CodeMemorySidecarLaunchMeta: Codable {
 }
 
 struct CodeMemorySidecarManager: Sendable {
-    static let requiredAPIVersion = 15
+    static let requiredAPIVersion = 16
 
     var configuration: CodeMemorySidecarConfiguration = CodeMemorySidecarConfiguration()
     var pidURL: URL = MemoryPaths.sidecarPIDURL()

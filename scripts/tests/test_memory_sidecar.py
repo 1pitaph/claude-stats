@@ -101,6 +101,52 @@ class FakeMem0Adapters:
         return {"nodes": [], "edges": []}
 
 
+class FakeGraphitiAdapters:
+    def __init__(self, *, health="enabled: fake graphiti", fail=False):
+        self.health_status = health
+        self.fail = fail
+        self.indexed = []
+
+    def names(self):
+        return ["graphiti"]
+
+    def health(self):
+        return {"graphiti": self.health_status}
+
+    def index_memory(self, memory, event, *, adapter_name=None):
+        if self.fail:
+            return {"graphiti": "error: offline"}
+        self.indexed.append({"memory": memory, "event": event, "adapter": adapter_name})
+        return {"graphiti": f"ok:{event['event_id']}"}
+
+    def capture_source(self, source, chunks):
+        return []
+
+    def capture_memory(self, memory):
+        return None
+
+    def list_memories(self, *, project_id, status, memory_type, limit):
+        return []
+
+    def get_memory(self, memory_id):
+        return None
+
+    def update_memory(self, memory_id, updates):
+        return None
+
+    def infer_memories(self, source):
+        return []
+
+    def inference_errors(self):
+        return []
+
+    def search(self, query, *, project_id, limit):
+        return []
+
+    def graph(self, project_id, *, limit=80):
+        return {"nodes": [], "edges": []}
+
+
 class MemorySidecarTests(unittest.TestCase):
     def setUp(self):
         import sys
@@ -256,7 +302,7 @@ class MemorySidecarTests(unittest.TestCase):
 
             self.assertIsNone(first["prev_hash"])
             self.assertEqual(second["prev_hash"], first["hash"])
-            self.assertEqual(store.health()["api_version"], 15)
+            self.assertEqual(store.health()["api_version"], 16)
 
             hits = store.search("run-debug", project_id="claude-stats")
             self.assertEqual(hits["results"], [])
@@ -265,6 +311,38 @@ class MemorySidecarTests(unittest.TestCase):
             node_kinds = {node["kind"] for node in graph["nodes"]}
             edge_kinds = {edge["kind"] for edge in graph["edges"]}
             self.assertIn("event", node_kinds)
+
+    def test_memory_versions_history_and_graphiti_projection_backfill(self):
+        from memoryd.store import MemoryStore
+
+        with tempfile.TemporaryDirectory() as tmp:
+            adapters = FakeGraphitiAdapters()
+            store = MemoryStore(Path(tmp), adapters=adapters)
+            created = store.append_event(
+                {
+                    "project_id": "p",
+                    "event_type": "memory.observed",
+                    "after": {"title": "Fact", "body": "Initial body.", "type": "fact"},
+                    "source_refs": [{"kind": "manual", "uri": "one"}],
+                }
+            )
+            memory_id = created["memory"]["id"]
+            store.update_memory(memory_id, {"body": "Updated body.", "actor": {"kind": "human"}})
+            store.deprecate_memory(memory_id)
+
+            history = store.memory_history(memory_id)
+            self.assertEqual([version["version"] for version in history["versions"]], [3, 2, 1])
+            self.assertEqual(history["versions"][0]["status"], "deprecated")
+            self.assertEqual(history["events"][0]["event_type"], "memory.deprecated")
+            self.assertIsNotNone(history["events"][1]["before"])
+            self.assertIsNotNone(history["events"][1]["after"])
+
+            reindex = store.reindex(project_id="p")
+            self.assertEqual(reindex["enqueued"], 3)
+            drained = store.drain_projection_jobs(limit=10)
+            self.assertEqual(drained["projection"]["delivered"], 3)
+            self.assertEqual({item["adapter"] for item in adapters.indexed}, {"graphiti"})
+            self.assertEqual(adapters.indexed[0]["event"]["event_type"], "memory.observed")
 
     def test_projects_modules_and_health_count_active_only(self):
         from memoryd.store import MemoryStore
@@ -1162,34 +1240,8 @@ class MemorySidecarTests(unittest.TestCase):
     def test_projection_drain_skips_failed_jobs_by_default(self):
         from memoryd.store import MemoryStore
 
-        class FlakyAdapters:
-            def __init__(self):
-                self.fail = True
-                self.indexed = []
-
-            def names(self):
-                return ["fake"]
-
-            def health(self):
-                return {"fake": "enabled"}
-
-            def index_memory(self, memory, event, *, adapter_name=None):
-                if self.fail:
-                    return {"fake": "error: offline"}
-                self.indexed.append(memory["id"])
-                return {"fake": "ok:fake-id"}
-
-            def infer_memories(self, source):
-                return []
-
-            def search(self, query, *, project_id, limit):
-                return []
-
-            def graph(self, project_id, *, limit=80):
-                return {"nodes": [], "edges": []}
-
         with tempfile.TemporaryDirectory() as tmp:
-            adapters = FlakyAdapters()
+            adapters = FakeGraphitiAdapters(fail=True)
             store = MemoryStore(Path(tmp), adapters=adapters)
             first = store.append_event(
                 {
@@ -1209,18 +1261,18 @@ class MemorySidecarTests(unittest.TestCase):
             )
 
             failed = store.drain_projection_jobs(limit=1)
-            self.assertEqual(failed["failed"], 0)
-            self.assertEqual(failed["remaining"], 0)
+            self.assertEqual(failed["projection"]["failed"], 1)
+            self.assertEqual(failed["projection"]["failed_total"], 1)
             adapters.fail = False
 
             pending_only = store.drain_projection_jobs(limit=10)
-            self.assertEqual(pending_only["delivered"], 0)
-            self.assertEqual(adapters.indexed, [])
-            self.assertEqual(pending_only["failed_total"], 0)
+            self.assertEqual(pending_only["projection"]["delivered"], 1)
+            self.assertEqual([item["memory"]["id"] for item in adapters.indexed], [second["memory"]["id"]])
+            self.assertEqual(pending_only["projection"]["failed_total"], 1)
 
             retried = store.drain_projection_jobs(limit=10, include_failed=True)
-            self.assertEqual(retried["delivered"], 0)
-            self.assertIn("capture queue is empty", retried["message"])
+            self.assertEqual(retried["projection"]["delivered"], 1)
+            self.assertEqual(retried["projection"]["failed_total"], 0)
 
     def test_projection_drain_skips_when_adapter_endpoint_is_unavailable(self):
         from memoryd.store import MemoryStore
@@ -1259,11 +1311,12 @@ class MemorySidecarTests(unittest.TestCase):
             )
 
             skipped = store.drain_projection_jobs(limit=10)
-            self.assertFalse(skipped["skipped"])
-            self.assertEqual(skipped["delivered"], 0)
-            self.assertEqual(skipped["failed"], 0)
-            self.assertEqual(skipped["pending"], 0)
-            self.assertIn("capture queue is empty", skipped["message"])
+            self.assertTrue(skipped["projection"]["skipped"])
+            self.assertEqual(skipped["projection"]["delivered"], 0)
+            self.assertEqual(skipped["projection"]["failed"], 1)
+            self.assertEqual(skipped["projection"]["pending"], 0)
+            self.assertEqual(skipped["projection"]["failed_total"], 1)
+            self.assertIn("graphiti", skipped["projection"]["blockers"])
 
     def test_adapter_search_must_resolve_to_canonical_memory(self):
         from memoryd.store import MemoryStore

@@ -240,6 +240,156 @@ struct CodeMemoryStoreTests {
         #expect(graphStore.selectedEdge?.kind == "SCOPED_TO")
     }
 
+    @Test("HTTP client encodes path parameters once")
+    func httpClientEncodesPathParametersOnce() async throws {
+        MockCodeMemoryURLProtocol.capturedURLs = []
+        MockCodeMemoryURLProtocol.handler = { request in
+            MockCodeMemoryResponse(
+                status: 200,
+                headers: [:],
+                data: Data(#"{"project_id":"/Users/1pitaph/dev/mac/claude-stats","nodes":[],"edges":[]}"#.utf8)
+            )
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockCodeMemoryURLProtocol.self]
+        let client = CodeMemoryHTTPClient(
+            baseURL: URL(string: "http://memory.test")!,
+            session: URLSession(configuration: configuration)
+        )
+
+        _ = try await client.graph(projectID: "/Users/1pitaph/dev/mac/claude-stats")
+
+        let url = try #require(MockCodeMemoryURLProtocol.capturedURLs.first)
+        let encodedPath = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath)
+        #expect(encodedPath.contains("/v1/projects/%2FUsers%2F1pitaph%2Fdev%2Fmac%2Fclaude-stats/graph"))
+        #expect(!encodedPath.contains("%252FUsers"))
+    }
+
+    @Test("Code memory events decode dynamic before after and delta payloads")
+    func codeMemoryEventsDecodeDynamicPayloads() throws {
+        let data = """
+        {
+          "event_id": "event:update",
+          "seq": 12,
+          "timestamp": 42,
+          "project_id": "claude-stats",
+          "actor": {"kind": "human", "id": "tester"},
+          "event_type": "updated",
+          "memory_id": "memory:one",
+          "before": {"title": "Old", "confidence": 0.7, "active": true},
+          "after": {"title": "New", "status": "active", "nested": {"count": 2}},
+          "delta": {"title": ["Old", "New"]},
+          "source_refs": [],
+          "hash": "h",
+          "prev_hash": "p"
+        }
+        """.data(using: .utf8)!
+
+        let event = try JSONDecoder.codeMemoryDecoder.decode(CodeMemoryEvent.self, from: data)
+
+        #expect(event.before?.displayValue("title") == "Old")
+        #expect(event.before?.displayValue("confidence") == "0.7")
+        #expect(event.before?.displayValue("active") == "true")
+        #expect(event.after?["nested"]?.objectValue?["count"]?.displayString == "2")
+        #expect(event.delta?["title"]?.arrayValue?.map(\.displayString) == ["Old", "New"])
+    }
+
+    @Test("Kinds none hides every knowledge graph node")
+    func kindsNoneHidesKnowledgeGraphNodes() {
+        let nodes = [
+            CodeMemoryGraphNode(id: "memory:one", kind: "memory", title: "One", type: nil, status: nil, seq: nil, body: nil, sourceRefs: nil, metadata: nil),
+            CodeMemoryGraphNode(id: "episode:one", kind: "episode", title: "Episode", type: nil, status: nil, seq: nil, body: nil, sourceRefs: nil, metadata: nil),
+        ]
+
+        let none = MemoryKnowledgeGraphFilter.nodes(
+            nodes,
+            selectedKinds: [],
+            showCanonical: true,
+            showEpisodes: true,
+            showEvents: true,
+            showGraphiti: true,
+            asOf: nil,
+            searchText: ""
+        )
+        let all = MemoryKnowledgeGraphFilter.nodes(
+            nodes,
+            selectedKinds: Set(nodes.map(\.kind)),
+            showCanonical: true,
+            showEpisodes: true,
+            showEvents: true,
+            showGraphiti: true,
+            asOf: nil,
+            searchText: ""
+        )
+
+        #expect(none.isEmpty)
+        #expect(all.count == 2)
+    }
+
+    @Test("Change graph builder creates event memory source nodes and change edges")
+    func changeGraphBuilderCreatesChangeTopology() {
+        let events = [
+            Self.event(eventID: "event:1", seq: 1, eventType: "created", memoryID: "one", title: "One", sourceID: "src:1"),
+            Self.event(eventID: "event:2", seq: 2, eventType: "updated", memoryID: "one", title: "One updated", sourceID: "src:2"),
+        ]
+
+        let graph = MemoryChangeGraphBuilder.build(projectID: "claude-stats", events: events)
+
+        #expect(graph.nodes.contains { $0.id == "change:event:event:1" && $0.kind == "change_event" })
+        #expect(graph.nodes.contains { $0.id == "memory:one" && $0.kind == "memory" })
+        #expect(graph.nodes.contains { $0.kind == "source" })
+        #expect(graph.edges.contains { $0.kind == "AFFECTS" })
+        #expect(graph.edges.contains { $0.kind == "NEXT_EVENT" })
+        #expect(graph.edges.contains { $0.kind == "FROM_SOURCE" })
+    }
+
+    @MainActor
+    @Test("Memory history store loads without disturbing change event selection")
+    func memoryHistoryStoreLoadsWithoutDisturbingSelection() async throws {
+        let backend = FakeCodeMemoryBackend()
+        backend.eventResponse = [
+            Self.event(eventID: "event:1", seq: 1, eventType: "created", memoryID: "one", title: "One", sourceID: "src:1"),
+        ]
+        backend.historyResponses["one"] = CodeMemoryMemoryHistory(
+            memoryID: "one",
+            versions: [
+                CodeMemoryMemoryVersion(
+                    memoryID: "one",
+                    version: 1,
+                    eventID: "event:1",
+                    eventType: "created",
+                    projectID: "claude-stats",
+                    timestamp: 1,
+                    title: "One",
+                    body: "Body",
+                    type: "fact",
+                    status: "active",
+                    normalizedClaim: "one",
+                    confidence: 1,
+                    importance: 1,
+                    sourceRefs: [],
+                    metadata: nil,
+                    validAt: nil,
+                    invalidAt: nil,
+                    reviewReason: nil,
+                    extractedBy: "mem0",
+                    createdAt: 1,
+                    updatedAt: 1
+                ),
+            ],
+            events: backend.eventResponse
+        )
+        let graphStore = MemoryGraphStore(backend: backend)
+
+        await graphStore.loadChanges(projectID: "claude-stats")
+        graphStore.selectChangeEvent("event:1")
+        await graphStore.loadHistory(memoryID: "one")
+
+        #expect(graphStore.selectedChangeEvent?.eventID == "event:1")
+        #expect(graphStore.history(for: "one")?.versions.first?.version == 1)
+        #expect(backend.historyMemoryIDs == ["one"])
+    }
+
     @Test("Typed source refs decode dynamic provenance metadata")
     func typedSourceRefsDecodeDynamicMetadata() throws {
         let data = """
@@ -266,6 +416,31 @@ struct CodeMemoryStoreTests {
 
     private static func memory(id: String, status: String) -> CodeMemoryMemory {
         FakeCodeMemoryBackend.memory(id: id, status: status)
+    }
+
+    private static func event(
+        eventID: String,
+        seq: Int,
+        eventType: String,
+        memoryID: String,
+        title: String,
+        sourceID: String
+    ) -> CodeMemoryEvent {
+        CodeMemoryEvent(
+            eventID: eventID,
+            seq: seq,
+            timestamp: Double(seq),
+            projectID: "claude-stats",
+            actor: ["kind": "human", "id": "tester"],
+            eventType: eventType,
+            memoryID: memoryID,
+            before: seq == 1 ? nil : ["title": .string("One"), "status": .string("active")],
+            after: ["title": .string(title), "body": .string("\(title) body"), "status": .string("active"), "type": .string("fact")],
+            delta: nil,
+            sourceRefs: [CodeMemorySourceRef(kind: "manual", sourceID: sourceID, quote: "\(title) quote")],
+            hash: "h\(seq)",
+            prevHash: seq == 1 ? nil : "h\(seq - 1)"
+        )
     }
 
     private static func configDocument(
@@ -308,6 +483,9 @@ private final class FakeCodeMemoryBackend: CodeMemoryBackend, @unchecked Sendabl
     var unifiedSearchResponse: CodeMemoryUnifiedSearchResponse?
     var contextPackResponse: CodeMemoryContextPack?
     var graphResponse: CodeMemoryGraph?
+    var eventResponse: [CodeMemoryEvent] = []
+    var historyResponses: [String: CodeMemoryMemoryHistory] = [:]
+    var historyMemoryIDs: [String] = []
     var ingestedSources: [CodeMemorySourceInput] = []
     var reinferProjectIDs: [String?] = []
     var reinferResponse = CodeMemoryReinferSourcesResponse(status: "ok", scanned: 0, attempted: 0, proposed: 0, skipped: 0, errors: [])
@@ -409,6 +587,15 @@ private final class FakeCodeMemoryBackend: CodeMemoryBackend, @unchecked Sendabl
         graphResponse ?? CodeMemoryGraph(projectID: projectID, nodes: [], edges: [])
     }
 
+    func events(projectID: String?, afterSeq: Int?, limit: Int) async throws -> [CodeMemoryEvent] {
+        eventResponse
+    }
+
+    func memoryHistory(memoryID: String, limit: Int) async throws -> CodeMemoryMemoryHistory {
+        historyMemoryIDs.append(memoryID)
+        return historyResponses[memoryID] ?? CodeMemoryMemoryHistory(memoryID: memoryID, versions: [], events: [])
+    }
+
     func trace(runID: String) async throws -> CodeMemoryRunTrace {
         CodeMemoryRunTrace(runID: runID, projectID: nil, timestamp: nil, request: nil, repoState: [:], memoryUsage: [])
     }
@@ -443,4 +630,49 @@ private final class FakeCodeMemoryBackend: CodeMemoryBackend, @unchecked Sendabl
             updatedAt: 0
         )
     }
+}
+
+private struct MockCodeMemoryResponse: Sendable {
+    var status: Int
+    var headers: [String: String]
+    var data: Data
+}
+
+private final class MockCodeMemoryURLProtocol: URLProtocol, @unchecked Sendable {
+    nonisolated(unsafe) static var handler: (@Sendable (URLRequest) throws -> MockCodeMemoryResponse)?
+    nonisolated(unsafe) static var capturedURLs: [URL] = []
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        if let url = request.url {
+            Self.capturedURLs.append(url)
+        }
+        guard let handler = Self.handler else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        do {
+            let mock = try handler(request)
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: mock.status,
+                httpVersion: nil,
+                headerFields: mock.headers
+            )!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: mock.data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
 }

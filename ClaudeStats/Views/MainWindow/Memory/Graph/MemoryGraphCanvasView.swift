@@ -98,39 +98,20 @@ struct MemoryGraphCanvasView: View {
     }
 
     private func filteredNodes(_ nodes: [CodeMemoryGraphNode]) -> [CodeMemoryGraphNode] {
-        nodes.filter { node in
-            if !graphStore.selectedKinds.isEmpty, !graphStore.selectedKinds.contains(node.kind) {
-                return false
-            }
-            if !graphStore.showCanonical, node.kind == "memory" {
-                return false
-            }
-            if !graphStore.showEvents, node.kind == "event" {
-                return false
-            }
-            if !graphStore.showEpisodes, node.kind == "source" || node.kind == "episode" {
-                return false
-            }
-            if !graphStore.showGraphiti, MemoryGraphStyle.isGraphitiKind(node.kind) {
-                return false
-            }
-            if !isValid(node.metadata) {
-                return false
-            }
-            let search = graphStore.searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            guard !search.isEmpty else { return true }
-            return "\(node.title) \(node.body ?? "") \(node.kind) \(node.type ?? "")"
-                .lowercased()
-                .contains(search)
-        }
+        MemoryKnowledgeGraphFilter.nodes(
+            nodes,
+            selectedKinds: graphStore.selectedKinds,
+            showCanonical: graphStore.showCanonical,
+            showEpisodes: graphStore.showEpisodes,
+            showEvents: graphStore.showEvents,
+            showGraphiti: graphStore.showGraphiti,
+            asOf: graphStore.asOf,
+            searchText: graphStore.searchText
+        )
     }
 
     private func filteredEdges(_ edges: [CodeMemoryGraphEdge], nodeIDs: Set<String>) -> [CodeMemoryGraphEdge] {
-        edges.filter { edge in
-            nodeIDs.contains(edge.source)
-                && nodeIDs.contains(edge.target)
-                && isValid(edge.metadata, validAt: edge.validAt, invalidAt: edge.invalidAt)
-        }
+        MemoryKnowledgeGraphFilter.edges(edges, nodeIDs: nodeIDs, asOf: graphStore.asOf)
     }
 
     private func isHighlighted(_ node: CodeMemoryGraphNode) -> Bool {
@@ -141,21 +122,9 @@ struct MemoryGraphCanvasView: View {
             .contains(search)
     }
 
-    private func isValid(_ metadata: [String: String]?, validAt: String? = nil, invalidAt: String? = nil) -> Bool {
-        guard let asOf = graphStore.asOf else { return true }
-        let start = GraphTemporalValue.parse(validAt ?? metadata?["valid_at"])
-        let end = GraphTemporalValue.parse(invalidAt ?? metadata?["invalid_at"])
-        if let start, start > asOf {
-            return false
-        }
-        if let end, end <= asOf {
-            return false
-        }
-        return true
-    }
 }
 
-private struct MemoryGraphNodeView: View {
+struct MemoryGraphNodeView: View {
     let node: CodeMemoryGraphNode
     let isSelected: Bool
     let isHighlighted: Bool
@@ -189,6 +158,8 @@ private struct MemoryGraphNodeView: View {
             176
         case "memory":
             190
+        case "change_event":
+            178
         default:
             156
         }
@@ -226,6 +197,8 @@ enum MemoryGraphStyle {
             Color(red: 0.42, green: 0.72, blue: 0.35)
         case "event":
             Color(red: 0.9, green: 0.56, blue: 0.22)
+        case "change_event":
+            Color(red: 0.95, green: 0.38, blue: 0.28)
         case "source", "episode":
             Color(red: 0.76, green: 0.48, blue: 0.86)
         default:
@@ -243,6 +216,8 @@ enum MemoryGraphStyle {
             "text.badge.checkmark"
         case "event":
             "bolt.horizontal"
+        case "change_event":
+            "arrow.triangle.2.circlepath"
         case "source":
             "doc.text"
         case "episode":
@@ -299,7 +274,7 @@ enum MemoryGraphLayout {
             maxRadius * 0.35
         case "memory":
             maxRadius * 0.58
-        case "event":
+        case "event", "change_event":
             maxRadius * 0.78
         case "source", "episode":
             maxRadius * 0.92
@@ -317,10 +292,70 @@ enum MemoryGraphLayout {
         case "project": 0
         case "module", "scope": 1
         case "memory": 2
-        case "event": 3
+        case "event", "change_event": 3
         case "source", "episode": 4
         default: MemoryGraphStyle.isGraphitiKind(kind) ? 5 : 6
         }
+    }
+}
+
+enum MemoryKnowledgeGraphFilter {
+    static func nodes(
+        _ nodes: [CodeMemoryGraphNode],
+        selectedKinds: Set<String>,
+        showCanonical: Bool,
+        showEpisodes: Bool,
+        showEvents: Bool,
+        showGraphiti: Bool,
+        asOf: Double?,
+        searchText: String
+    ) -> [CodeMemoryGraphNode] {
+        nodes.filter { node in
+            if !selectedKinds.contains(node.kind) {
+                return false
+            }
+            if !showCanonical, node.kind == "memory" {
+                return false
+            }
+            if !showEvents, node.kind == "event" {
+                return false
+            }
+            if !showEpisodes, node.kind == "source" || node.kind == "episode" {
+                return false
+            }
+            if !showGraphiti, MemoryGraphStyle.isGraphitiKind(node.kind) {
+                return false
+            }
+            if !isValid(node.metadata, asOf: asOf) {
+                return false
+            }
+            let search = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !search.isEmpty else { return true }
+            return "\(node.title) \(node.body ?? "") \(node.kind) \(node.type ?? "")"
+                .lowercased()
+                .contains(search)
+        }
+    }
+
+    static func edges(_ edges: [CodeMemoryGraphEdge], nodeIDs: Set<String>, asOf: Double?) -> [CodeMemoryGraphEdge] {
+        edges.filter { edge in
+            nodeIDs.contains(edge.source)
+                && nodeIDs.contains(edge.target)
+                && isValid(edge.metadata, validAt: edge.validAt, invalidAt: edge.invalidAt, asOf: asOf)
+        }
+    }
+
+    private static func isValid(_ metadata: [String: String]?, validAt: String? = nil, invalidAt: String? = nil, asOf: Double?) -> Bool {
+        guard let asOf else { return true }
+        let start = GraphTemporalValue.parse(validAt ?? metadata?["valid_at"])
+        let end = GraphTemporalValue.parse(invalidAt ?? metadata?["invalid_at"])
+        if let start, start > asOf {
+            return false
+        }
+        if let end, end <= asOf {
+            return false
+        }
+        return true
     }
 }
 

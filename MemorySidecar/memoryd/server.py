@@ -59,6 +59,9 @@ class MemoryHTTPRequestHandler(BaseHTTPRequestHandler):
                         limit=int(query.get("limit", ["100"])[0]),
                     )
                 )
+            elif parsed.path.startswith("/v1/memories/") and parsed.path.endswith("/history"):
+                memory_id = unquote(parsed.path.split("/")[3])
+                self._json(self.store.memory_history(memory_id, limit=int(query.get("limit", ["200"])[0])))
             elif parsed.path == "/v1/review/items":
                 project_id = query.get("project_id", [None])[0]
                 limit = int(query.get("limit", ["100"])[0])

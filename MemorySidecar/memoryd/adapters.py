@@ -736,6 +736,26 @@ class GraphitiAdapter:
             return {"graphiti": f"unavailable: {endpoint_error}"}
         episode_name = str(event.get("event_id") or memory.get("id") or "memory")
         project_id = str(memory.get("project_id") or "default")
+        before = event.get("before") if isinstance(event.get("before"), dict) else {}
+        after = event.get("after") if isinstance(event.get("after"), dict) else {}
+        change_summary = {
+            "event_type": event.get("event_type"),
+            "memory_id": memory.get("id") or event.get("memory_id"),
+            "before": {
+                "title": before.get("title"),
+                "body": before.get("body"),
+                "status": before.get("status"),
+                "valid_at": before.get("valid_at"),
+                "invalid_at": before.get("invalid_at"),
+            },
+            "after": {
+                "title": after.get("title") or memory.get("title"),
+                "body": after.get("body") or memory.get("body"),
+                "status": after.get("status") or memory.get("status"),
+                "valid_at": after.get("valid_at") or memory.get("valid_at"),
+                "invalid_at": after.get("invalid_at") or memory.get("invalid_at"),
+            },
+        }
         body = json.dumps(
             {
                 "memory_id": memory.get("id"),
@@ -746,6 +766,7 @@ class GraphitiAdapter:
                 "body": memory.get("body"),
                 "scopes": memory.get("scopes") or [],
                 "source_refs": memory.get("source_refs") or [],
+                "change_summary": change_summary,
                 "event": event,
             },
             sort_keys=True,

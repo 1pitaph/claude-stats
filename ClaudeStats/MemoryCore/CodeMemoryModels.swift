@@ -327,6 +327,18 @@ struct CodeMemoryProject: Codable, Identifiable, Sendable, Hashable {
     var updatedAt: Double?
 
     var id: String { projectID }
+    var folderDisplayName: String {
+        let trimmedProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedProjectID.isEmpty else { return "Untitled" }
+
+        let expandedPath = (trimmedProjectID as NSString).expandingTildeInPath
+        let lastPathComponent = (expandedPath as NSString).lastPathComponent
+        if !lastPathComponent.isEmpty {
+            return lastPathComponent
+        }
+
+        return trimmedProjectID.memoryAbbreviatingHomeDirectory
+    }
 
     enum CodingKeys: String, CodingKey {
         case projectID = "project_id"
@@ -597,6 +609,114 @@ struct CodeMemoryModulesResponse: Codable, Sendable, Hashable {
     var modules: [CodeMemoryModule]
 }
 
+enum CodeMemoryEventPayloadValue: Codable, Sendable, Hashable {
+    case string(String)
+    case int(Int)
+    case double(Double)
+    case bool(Bool)
+    case object([String: CodeMemoryEventPayloadValue])
+    case array([CodeMemoryEventPayloadValue])
+    case null
+
+    var displayString: String {
+        switch self {
+        case .string(let value):
+            value
+        case .int(let value):
+            "\(value)"
+        case .double(let value):
+            "\(value)"
+        case .bool(let value):
+            value ? "true" : "false"
+        case .object(let value):
+            value
+                .sorted { $0.key < $1.key }
+                .map { "\($0.key): \($0.value.displayString)" }
+                .joined(separator: ", ")
+        case .array(let value):
+            value.map(\.displayString).joined(separator: ", ")
+        case .null:
+            "null"
+        }
+    }
+
+    var objectValue: [String: CodeMemoryEventPayloadValue]? {
+        if case .object(let value) = self {
+            value
+        } else {
+            nil
+        }
+    }
+
+    var arrayValue: [CodeMemoryEventPayloadValue]? {
+        if case .array(let value) = self {
+            value
+        } else {
+            nil
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let single = try decoder.singleValueContainer()
+        if single.decodeNil() {
+            self = .null
+        } else if let value = try? single.decode(Bool.self) {
+            self = .bool(value)
+        } else if let value = try? single.decode(Int.self) {
+            self = .int(value)
+        } else if let value = try? single.decode(Double.self) {
+            self = .double(value)
+        } else if let value = try? single.decode(String.self) {
+            self = .string(value)
+        } else if let value = try? single.decode([CodeMemoryEventPayloadValue].self) {
+            self = .array(value)
+        } else {
+            let keyed = try decoder.container(keyedBy: CodeMemoryDynamicCodingKey.self)
+            var value: [String: CodeMemoryEventPayloadValue] = [:]
+            for key in keyed.allKeys {
+                value[key.stringValue] = try keyed.decode(CodeMemoryEventPayloadValue.self, forKey: key)
+            }
+            self = .object(value)
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        switch self {
+        case .string(let value):
+            var container = encoder.singleValueContainer()
+            try container.encode(value)
+        case .int(let value):
+            var container = encoder.singleValueContainer()
+            try container.encode(value)
+        case .double(let value):
+            var container = encoder.singleValueContainer()
+            try container.encode(value)
+        case .bool(let value):
+            var container = encoder.singleValueContainer()
+            try container.encode(value)
+        case .object(let value):
+            var container = encoder.container(keyedBy: CodeMemoryDynamicCodingKey.self)
+            for (key, item) in value {
+                try container.encode(item, forKey: CodeMemoryDynamicCodingKey(key))
+            }
+        case .array(let value):
+            var container = encoder.singleValueContainer()
+            try container.encode(value)
+        case .null:
+            var container = encoder.singleValueContainer()
+            try container.encodeNil()
+        }
+    }
+}
+
+typealias CodeMemoryEventPayload = [String: CodeMemoryEventPayloadValue]
+
+extension Dictionary where Key == String, Value == CodeMemoryEventPayloadValue {
+    func displayValue(_ key: String) -> String? {
+        self[key]?.displayString
+    }
+}
+
 struct CodeMemoryEvent: Codable, Identifiable, Sendable, Hashable {
     var eventID: String
     var seq: Int
@@ -605,11 +725,30 @@ struct CodeMemoryEvent: Codable, Identifiable, Sendable, Hashable {
     var actor: [String: String]
     var eventType: String
     var memoryID: String?
+    var before: CodeMemoryEventPayload?
+    var after: CodeMemoryEventPayload?
+    var delta: CodeMemoryEventPayload?
     var sourceRefs: [CodeMemorySourceRef]
     var hash: String
     var prevHash: String?
 
     var id: String { eventID }
+    var titleCandidate: String {
+        after?.displayValue("title")
+            ?? before?.displayValue("title")
+            ?? delta?.displayValue("title")
+            ?? memoryID
+            ?? eventID
+    }
+
+    var statusTransition: String? {
+        let beforeStatus = before?.displayValue("status")
+        let afterStatus = after?.displayValue("status")
+        if let beforeStatus, let afterStatus, beforeStatus != afterStatus {
+            return "\(beforeStatus) -> \(afterStatus)"
+        }
+        return afterStatus ?? beforeStatus
+    }
 
     enum CodingKeys: String, CodingKey {
         case eventID = "event_id"
@@ -619,6 +758,9 @@ struct CodeMemoryEvent: Codable, Identifiable, Sendable, Hashable {
         case actor
         case eventType = "event_type"
         case memoryID = "memory_id"
+        case before
+        case after
+        case delta
         case sourceRefs = "source_refs"
         case hash
         case prevHash = "prev_hash"
@@ -629,6 +771,68 @@ struct CodeMemoryEventsResponse: Codable, Sendable, Hashable {
     var events: [CodeMemoryEvent]
 }
 
+struct CodeMemoryMemoryVersion: Codable, Identifiable, Sendable, Hashable {
+    var memoryID: String
+    var version: Int
+    var eventID: String
+    var eventType: String
+    var projectID: String
+    var timestamp: Double
+    var title: String
+    var body: String
+    var type: String
+    var status: String
+    var normalizedClaim: String
+    var confidence: Double
+    var importance: Double
+    var sourceRefs: [CodeMemorySourceRef]
+    var metadata: [String: String]?
+    var validAt: Double?
+    var invalidAt: Double?
+    var reviewReason: String?
+    var extractedBy: String?
+    var createdAt: Double
+    var updatedAt: Double
+
+    var id: String { "\(memoryID):v\(version)" }
+
+    enum CodingKeys: String, CodingKey {
+        case memoryID = "memory_id"
+        case version
+        case eventID = "event_id"
+        case eventType = "event_type"
+        case projectID = "project_id"
+        case timestamp
+        case title
+        case body
+        case type
+        case status
+        case normalizedClaim = "normalized_claim"
+        case confidence
+        case importance
+        case sourceRefs = "source_refs"
+        case metadata
+        case validAt = "valid_at"
+        case invalidAt = "invalid_at"
+        case reviewReason = "review_reason"
+        case extractedBy = "extracted_by"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+struct CodeMemoryMemoryHistory: Codable, Sendable, Hashable {
+    var memoryID: String
+    var versions: [CodeMemoryMemoryVersion]
+    var events: [CodeMemoryEvent]
+
+    enum CodingKeys: String, CodingKey {
+        case memoryID = "memory_id"
+        case versions
+        case events
+    }
+}
+
 struct CodeMemoryProjectionDrainResponse: Codable, Sendable, Hashable {
     var delivered: Int? = nil
     var failed: Int? = nil
@@ -637,6 +841,8 @@ struct CodeMemoryProjectionDrainResponse: Codable, Sendable, Hashable {
     var failedTotal: Int? = nil
     var enqueued: Int? = nil
     var drained: CodeMemoryProjectionDrainStats? = nil
+    var capture: CodeMemoryProjectionDrainStage? = nil
+    var projection: CodeMemoryProjectionDrainStage? = nil
     var skipped: Bool? = nil
     var message: String? = nil
     var blockers: [String: String]? = nil
@@ -649,6 +855,8 @@ struct CodeMemoryProjectionDrainResponse: Codable, Sendable, Hashable {
         case failedTotal = "failed_total"
         case enqueued
         case drained
+        case capture
+        case projection
         case skipped
         case message
         case blockers
@@ -659,6 +867,30 @@ struct CodeMemoryProjectionDrainStats: Codable, Sendable, Hashable {
     var delivered: Int? = nil
     var failed: Int? = nil
     var remaining: Int? = nil
+}
+
+struct CodeMemoryProjectionDrainStage: Codable, Sendable, Hashable {
+    var delivered: Int? = nil
+    var failed: Int? = nil
+    var remaining: Int? = nil
+    var pending: Int? = nil
+    var failedTotal: Int? = nil
+    var enqueued: Int? = nil
+    var skipped: Bool? = nil
+    var message: String? = nil
+    var blockers: [String: String]? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case delivered
+        case failed
+        case remaining
+        case pending
+        case failedTotal = "failed_total"
+        case enqueued
+        case skipped
+        case message
+        case blockers
+    }
 }
 
 struct CodeMemoryInferenceError: Codable, Identifiable, Sendable, Hashable {
