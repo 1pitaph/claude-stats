@@ -160,7 +160,16 @@ struct CodeMemoryHTTPClient: CodeMemoryBackend {
     }
 
     func graph(projectID: String) async throws -> CodeMemoryGraph {
-        try await get("/v1/projects/\(Self.pathSegment(projectID))/graph")
+        try await get(
+            "/v1/projects/\(Self.pathSegment(projectID))/graph",
+            queryItems: [
+                URLQueryItem(name: "node_limit", value: "700"),
+                URLQueryItem(name: "edge_limit", value: "1200"),
+                URLQueryItem(name: "include_events", value: "false"),
+                URLQueryItem(name: "include_sources", value: "true"),
+                URLQueryItem(name: "include_adapter", value: "true"),
+            ]
+        )
     }
 
     func trace(runID: String) async throws -> CodeMemoryRunTrace {

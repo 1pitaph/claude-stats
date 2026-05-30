@@ -99,12 +99,6 @@ struct MemoryGraphWorkspaceView: View {
                 ))
                     .toggleStyle(.checkbox)
                     .font(.sora(11))
-                Toggle("Events", isOn: Binding(
-                    get: { store.graph.showEvents },
-                    set: { store.graph.showEvents = $0 }
-                ))
-                    .toggleStyle(.checkbox)
-                    .font(.sora(11))
                 Toggle("Graphiti", isOn: Binding(
                     get: { store.graph.showGraphiti },
                     set: { store.graph.showGraphiti = $0 }
@@ -277,6 +271,11 @@ private struct MemoryGraphInspectorView: View {
             HStack(spacing: 10) {
                 AIConfigsMiniStat(value: "\(store.codeGraph?.nodes.count ?? 0)", label: "nodes")
                 AIConfigsMiniStat(value: "\(store.codeGraph?.edges.count ?? 0)", label: "edges")
+            }
+            if let graph = store.codeGraph, graph.truncated == true {
+                let totalNodes = graph.totalNodes ?? graph.nodes.count
+                let totalEdges = graph.totalEdges ?? graph.edges.count
+                inspectorFact("limited", "\(graph.nodes.count)/\(totalNodes) nodes, \(graph.edges.count)/\(totalEdges) edges")
             }
             if let projectID = store.codeGraph?.projectID {
                 inspectorFact("project", projectID.memoryAbbreviatingHomeDirectory)

@@ -68,7 +68,16 @@ class MemoryHTTPRequestHandler(BaseHTTPRequestHandler):
                 self._json(self.store.review_items(project_id=project_id, limit=limit))
             elif parsed.path.startswith("/v1/projects/") and parsed.path.endswith("/graph"):
                 project_id = _project_id_from_graph_path(parsed.path)
-                self._json(self.store.graph(project_id))
+                self._json(
+                    self.store.graph(
+                        project_id,
+                        node_limit=_bounded_int(query.get("node_limit", [None])[0], default=700, minimum=50, maximum=2000),
+                        edge_limit=_bounded_int(query.get("edge_limit", [None])[0], default=1200, minimum=50, maximum=4000),
+                        include_events=_bool_value(query.get("include_events", ["false"])[0]),
+                        include_sources=_bool_value(query.get("include_sources", ["true"])[0]),
+                        include_adapter=_bool_value(query.get("include_adapter", ["true"])[0]),
+                    )
+                )
             elif parsed.path.startswith("/v1/runs/") and parsed.path.endswith("/trace"):
                 run_id = unquote(parsed.path.split("/")[3])
                 self._json(self.store.trace(run_id))

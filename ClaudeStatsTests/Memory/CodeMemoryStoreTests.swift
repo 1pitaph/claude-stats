@@ -263,6 +263,9 @@ struct CodeMemoryStoreTests {
         let encodedPath = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath)
         #expect(encodedPath.contains("/v1/projects/%2FUsers%2F1pitaph%2Fdev%2Fmac%2Fclaude-stats/graph"))
         #expect(!encodedPath.contains("%252FUsers"))
+        let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        #expect(queryItems.contains { $0.name == "include_events" && $0.value == "false" })
+        #expect(queryItems.contains { $0.name == "node_limit" && $0.value == "700" })
     }
 
     @Test("Code memory events decode dynamic before after and delta payloads")
@@ -324,6 +327,70 @@ struct CodeMemoryStoreTests {
 
         #expect(none.isEmpty)
         #expect(all.count == 2)
+    }
+
+    @Test("Graph render limiter caps large graphs and keeps valid edges")
+    func graphRenderLimiterCapsLargeGraphs() {
+        let nodes = [
+            CodeMemoryGraphNode(id: "project:p", kind: "project", title: "p", type: nil, status: nil, seq: nil, body: nil, sourceRefs: nil, metadata: nil),
+        ] + (0..<240).map { index in
+            CodeMemoryGraphNode(id: "memory:\(index)", kind: "memory", title: "Memory \(index)", type: nil, status: "active", seq: nil, body: nil, sourceRefs: nil, metadata: nil)
+        }
+        let edges = (0..<240).map { index in
+            CodeMemoryGraphEdge(source: "memory:\(index)", target: "project:p", kind: "SCOPED_TO", primary: true, fact: nil, validAt: nil, invalidAt: nil, metadata: nil)
+        }
+
+        let render = MemoryGraphRenderLimiter.limit(
+            nodes: nodes,
+            edges: edges,
+            maxNodes: 80,
+            maxEdges: 90,
+            selectedNodeID: nil,
+            selectedEdgeID: nil
+        )
+
+        #expect(render.isLimited)
+        #expect(render.nodes.count == 80)
+        #expect(render.edges.count <= 90)
+        #expect(render.nodes.contains { $0.id == "project:p" })
+        let visibleNodeIDs = Set(render.nodes.map(\.id))
+        #expect(render.edges.allSatisfy { visibleNodeIDs.contains($0.source) && visibleNodeIDs.contains($0.target) })
+        #expect(render.usesCompactNodes)
+        #expect(!render.showsEdgeHitTargets)
+    }
+
+    @Test("Graph edges keep legacy ids unless metadata differentiates duplicates")
+    func graphEdgesKeepStableAndDistinctIDs() {
+        let plain = CodeMemoryGraphEdge(source: "memory:one", target: "project:p", kind: "SCOPED_TO", primary: true, fact: nil, validAt: nil, invalidAt: nil, metadata: nil)
+        let first = CodeMemoryGraphEdge(source: "memory:one", target: "project:p", kind: "SCOPED_TO", primary: nil, fact: nil, validAt: nil, invalidAt: nil, metadata: ["uuid": "one"])
+        let second = CodeMemoryGraphEdge(source: "memory:one", target: "project:p", kind: "SCOPED_TO", primary: nil, fact: nil, validAt: nil, invalidAt: nil, metadata: ["uuid": "two"])
+
+        #expect(plain.id == "memory:one-SCOPED_TO-project:p")
+        #expect(first.id != second.id)
+    }
+
+    @Test("Graph response decodes truncation metadata")
+    func graphResponseDecodesTruncationMetadata() throws {
+        let data = """
+        {
+          "project_id": "p",
+          "nodes": [],
+          "edges": [],
+          "truncated": true,
+          "total_nodes": 1200,
+          "total_edges": 2400,
+          "visible_nodes": 700,
+          "visible_edges": 1200,
+          "node_limit": 700,
+          "edge_limit": 1200
+        }
+        """.data(using: .utf8)!
+
+        let graph = try JSONDecoder.codeMemoryDecoder.decode(CodeMemoryGraph.self, from: data)
+
+        #expect(graph.truncated == true)
+        #expect(graph.totalNodes == 1200)
+        #expect(graph.edgeLimit == 1200)
     }
 
     @Test("Change graph builder creates event memory source nodes and change edges")

@@ -910,7 +910,16 @@ class MemoryStore:
             )
         return sorted(projects.values(), key=lambda item: float(item.get("updated_at") or 0), reverse=True)
 
-    def graph(self, project_id: str) -> dict[str, Any]:
+    def graph(
+        self,
+        project_id: str,
+        *,
+        node_limit: int | None = None,
+        edge_limit: int | None = None,
+        include_events: bool = True,
+        include_sources: bool = True,
+        include_adapter: bool = True,
+    ) -> dict[str, Any]:
         nodes: dict[str, dict[str, Any]] = {}
         edges: list[dict[str, Any]] = []
         nodes[f"project:{project_id}"] = {"id": f"project:{project_id}", "kind": "project", "title": project_id}
@@ -944,49 +953,129 @@ class MemoryStore:
             for link in self.conn.execute("SELECT scope_id, primary_scope FROM memory_scopes WHERE memory_id = ?", (memory["id"],)):
                 edges.append({"source": memory_node, "target": link["scope_id"], "kind": "SCOPED_TO", "primary": bool(link["primary_scope"])})
 
-        for event in self.conn.execute("SELECT event_id, event_type, memory_id, seq FROM memory_events WHERE project_id = ? ORDER BY seq", (project_id,)):
-            event_node = f"event:{event['event_id']}"
-            nodes[event_node] = {"id": event_node, "kind": "event", "title": event["event_type"], "seq": event["seq"]}
-            if event["memory_id"]:
-                edges.append({"source": event_node, "target": f"memory:{event['memory_id']}", "kind": "AFFECTS"})
+        if include_events:
+            for event in self.conn.execute("SELECT event_id, event_type, memory_id, seq FROM memory_events WHERE project_id = ? ORDER BY seq", (project_id,)):
+                event_node = f"event:{event['event_id']}"
+                nodes[event_node] = {"id": event_node, "kind": "event", "title": event["event_type"], "seq": event["seq"]}
+                if event["memory_id"]:
+                    edges.append({"source": event_node, "target": f"memory:{event['memory_id']}", "kind": "AFFECTS"})
 
-        for source in self.conn.execute("SELECT * FROM sources WHERE project_id = ?", (project_id,)):
-            source_node = f"source:{source['id']}"
-            nodes[source_node] = {
-                "id": source_node,
-                "kind": "source",
-                "title": source["title"],
-                "body": source["excerpt"],
-                "metadata": string_map(json.loads(source["metadata_json"] or "{}")),
-            }
+        if include_sources:
+            for source in self.conn.execute("SELECT * FROM sources WHERE project_id = ?", (project_id,)):
+                source_node = f"source:{source['id']}"
+                nodes[source_node] = {
+                    "id": source_node,
+                    "kind": "source",
+                    "title": source["title"],
+                    "body": source["excerpt"],
+                    "metadata": string_map(json.loads(source["metadata_json"] or "{}")),
+                }
 
-        for episode in self.conn.execute("SELECT * FROM episodes WHERE project_id = ?", (project_id,)):
-            episode_node = episode["id"] if str(episode["id"]).startswith("episode:") else f"episode:{episode['id']}"
-            source_node = f"source:{episode['source_id']}"
-            nodes[episode_node] = {
-                "id": episode_node,
-                "kind": "episode",
-                "title": episode["title"],
-                "body": episode["body_excerpt"],
-                "metadata": string_map(json.loads(episode["metadata_json"] or "{}")),
-            }
-            edges.append({"source": source_node, "target": episode_node, "kind": "HAS_EPISODE"})
+            for episode in self.conn.execute("SELECT * FROM episodes WHERE project_id = ?", (project_id,)):
+                episode_node = episode["id"] if str(episode["id"]).startswith("episode:") else f"episode:{episode['id']}"
+                source_node = f"source:{episode['source_id']}"
+                nodes[episode_node] = {
+                    "id": episode_node,
+                    "kind": "episode",
+                    "title": episode["title"],
+                    "body": episode["body_excerpt"],
+                    "metadata": string_map(json.loads(episode["metadata_json"] or "{}")),
+                }
+                edges.append({"source": source_node, "target": episode_node, "kind": "HAS_EPISODE"})
 
-        for link in self.conn.execute("SELECT memory_id, episode_id, relation FROM memory_episode_links"):
-            memory_node = f"memory:{link['memory_id']}"
-            episode_node = link["episode_id"] if str(link["episode_id"]).startswith("episode:") else f"episode:{link['episode_id']}"
-            if memory_node in nodes and episode_node in nodes:
-                edges.append({"source": memory_node, "target": episode_node, "kind": "HAS_PROVENANCE", "metadata": {"relation": link["relation"]}})
+            for link in self.conn.execute("SELECT memory_id, episode_id, relation FROM memory_episode_links"):
+                memory_node = f"memory:{link['memory_id']}"
+                episode_node = link["episode_id"] if str(link["episode_id"]).startswith("episode:") else f"episode:{link['episode_id']}"
+                if memory_node in nodes and episode_node in nodes:
+                    edges.append({"source": memory_node, "target": episode_node, "kind": "HAS_PROVENANCE", "metadata": {"relation": link["relation"]}})
 
-        adapter_graph = self.adapters.graph(project_id)
-        for node in adapter_graph.get("nodes", []):
-            if isinstance(node, dict) and node.get("id"):
-                nodes[str(node["id"])] = node
-        for edge in adapter_graph.get("edges", []):
-            if isinstance(edge, dict) and edge.get("source") and edge.get("target"):
-                edges.append(edge)
+        if include_adapter:
+            adapter_graph = self.adapters.graph(project_id, limit=min(max(node_limit or 80, 1), 80))
+            for node in adapter_graph.get("nodes", []):
+                if isinstance(node, dict) and node.get("id"):
+                    nodes[str(node["id"])] = node
+            for edge in adapter_graph.get("edges", []):
+                if isinstance(edge, dict) and edge.get("source") and edge.get("target"):
+                    edges.append(edge)
 
-        return {"project_id": project_id, "nodes": list(nodes.values()), "edges": edges}
+        return self._bounded_graph_response(
+            project_id,
+            nodes,
+            edges,
+            node_limit=node_limit,
+            edge_limit=edge_limit,
+        )
+
+    def _bounded_graph_response(
+        self,
+        project_id: str,
+        nodes: dict[str, dict[str, Any]],
+        edges: list[dict[str, Any]],
+        *,
+        node_limit: int | None,
+        edge_limit: int | None,
+    ) -> dict[str, Any]:
+        total_nodes = len(nodes)
+        total_edges = len(edges)
+        visible_nodes = list(nodes.values())
+        if node_limit is not None and total_nodes > node_limit:
+            visible_nodes = sorted(visible_nodes, key=self._graph_node_sort_key)[:node_limit]
+            visible_node_ids = {str(node["id"]) for node in visible_nodes if node.get("id")}
+        else:
+            visible_node_ids = set(nodes.keys())
+
+        visible_edges = [
+            edge
+            for edge in edges
+            if str(edge.get("source") or "") in visible_node_ids and str(edge.get("target") or "") in visible_node_ids
+        ]
+        if edge_limit is not None and len(visible_edges) > edge_limit:
+            visible_edges = sorted(visible_edges, key=self._graph_edge_sort_key)[:edge_limit]
+
+        truncated = len(visible_nodes) < total_nodes or len(visible_edges) < total_edges
+        return {
+            "project_id": project_id,
+            "nodes": visible_nodes,
+            "edges": visible_edges,
+            "truncated": truncated,
+            "total_nodes": total_nodes,
+            "total_edges": total_edges,
+            "visible_nodes": len(visible_nodes),
+            "visible_edges": len(visible_edges),
+            "node_limit": node_limit,
+            "edge_limit": edge_limit,
+        }
+
+    @staticmethod
+    def _graph_node_sort_key(node: dict[str, Any]) -> tuple[int, int, str]:
+        kind = str(node.get("kind") or "")
+        status = str(node.get("status") or "")
+        priority = {
+            "project": 0,
+            "module": 1,
+            "scope": 1,
+            "memory": 2,
+            "source": 3,
+            "episode": 4,
+            "event": 5,
+            "graphiti_entity": 6,
+        }.get(kind, 7)
+        inactive_penalty = 1 if kind == "memory" and status not in {"", "active", "accepted"} else 0
+        seq = node.get("seq")
+        seq_sort = -int(seq) if isinstance(seq, int) else 0
+        return (priority + inactive_penalty, seq_sort, str(node.get("id") or ""))
+
+    @staticmethod
+    def _graph_edge_sort_key(edge: dict[str, Any]) -> tuple[int, str, str, str]:
+        kind = str(edge.get("kind") or "")
+        priority = {
+            "HAS_SCOPE": 0,
+            "SCOPED_TO": 1,
+            "HAS_PROVENANCE": 2,
+            "HAS_EPISODE": 3,
+            "AFFECTS": 4,
+        }.get(kind, 5)
+        return (priority, kind, str(edge.get("source") or ""), str(edge.get("target") or ""))
 
     def trace(self, run_id: str) -> dict[str, Any]:
         row = self.conn.execute("SELECT * FROM run_traces WHERE run_id = ?", (run_id,)).fetchone()

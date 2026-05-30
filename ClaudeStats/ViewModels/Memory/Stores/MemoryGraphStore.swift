@@ -29,7 +29,7 @@ final class MemoryGraphStore {
     var selectedKinds: Set<String> = []
     var showCanonical = true
     var showEpisodes = true
-    var showEvents = true
+    var showEvents = false
     var showGraphiti = true
     var asOf: Double?
     var zoom: Double = 1

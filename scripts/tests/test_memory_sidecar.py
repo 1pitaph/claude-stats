@@ -312,6 +312,38 @@ class MemorySidecarTests(unittest.TestCase):
             edge_kinds = {edge["kind"] for edge in graph["edges"]}
             self.assertIn("event", node_kinds)
 
+    def test_graph_can_omit_events_and_cap_large_responses(self):
+        from memoryd.store import MemoryStore
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = MemoryStore(Path(tmp), adapters=FakeGraphitiAdapters())
+            for index in range(30):
+                store.append_event(
+                    {
+                        "project_id": "p",
+                        "event_type": "memory.observed",
+                        "after": {
+                            "title": f"Fact {index}",
+                            "body": f"Durable project fact {index}.",
+                            "type": "fact",
+                            "status": "active",
+                            "extracted_by": "mem0",
+                        },
+                    }
+                )
+
+            graph = store.graph("p", node_limit=12, edge_limit=16, include_events=False, include_adapter=False)
+
+            self.assertTrue(graph["truncated"])
+            self.assertGreater(graph["total_nodes"], len(graph["nodes"]))
+            self.assertLessEqual(len(graph["nodes"]), 12)
+            self.assertLessEqual(len(graph["edges"]), 16)
+            self.assertNotIn("event", {node["kind"] for node in graph["nodes"]})
+            visible_node_ids = {node["id"] for node in graph["nodes"]}
+            for edge in graph["edges"]:
+                self.assertIn(edge["source"], visible_node_ids)
+                self.assertIn(edge["target"], visible_node_ids)
+
     def test_memory_versions_history_and_graphiti_projection_backfill(self):
         from memoryd.store import MemoryStore
 

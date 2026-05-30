@@ -387,7 +387,24 @@ struct CodeMemoryGraphEdge: Codable, Identifiable, Sendable, Hashable {
     var invalidAt: String? = nil
     var metadata: [String: String]?
 
-    var id: String { "\(source)-\(kind)-\(target)" }
+    var id: String {
+        let base = "\(source)-\(kind)-\(target)"
+        var details: [String] = []
+        if let fact, !fact.isEmpty {
+            details.append("fact=\(fact)")
+        }
+        if let validAt, !validAt.isEmpty {
+            details.append("valid=\(validAt)")
+        }
+        if let invalidAt, !invalidAt.isEmpty {
+            details.append("invalid=\(invalidAt)")
+        }
+        if let metadata, !metadata.isEmpty {
+            details.append(contentsOf: metadata.sorted(by: { $0.key < $1.key }).map { "\($0.key)=\($0.value)" })
+        }
+        guard !details.isEmpty else { return base }
+        return "\(base)-\(Self.stableSuffix(for: details.joined(separator: "|")))"
+    }
 
     var factText: String? { fact ?? metadata?["fact"] }
     var validAtLabel: String? { validAt ?? metadata?["valid_at"] }
@@ -403,17 +420,40 @@ struct CodeMemoryGraphEdge: Codable, Identifiable, Sendable, Hashable {
         case invalidAt = "invalid_at"
         case metadata
     }
+
+    private static func stableSuffix(for text: String) -> String {
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in text.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 1_099_511_628_211
+        }
+        return String(hash, radix: 16)
+    }
 }
 
 struct CodeMemoryGraph: Codable, Sendable, Hashable {
     var projectID: String
     var nodes: [CodeMemoryGraphNode]
     var edges: [CodeMemoryGraphEdge]
+    var truncated: Bool? = nil
+    var totalNodes: Int? = nil
+    var totalEdges: Int? = nil
+    var visibleNodes: Int? = nil
+    var visibleEdges: Int? = nil
+    var nodeLimit: Int? = nil
+    var edgeLimit: Int? = nil
 
     enum CodingKeys: String, CodingKey {
         case projectID = "project_id"
         case nodes
         case edges
+        case truncated
+        case totalNodes = "total_nodes"
+        case totalEdges = "total_edges"
+        case visibleNodes = "visible_nodes"
+        case visibleEdges = "visible_edges"
+        case nodeLimit = "node_limit"
+        case edgeLimit = "edge_limit"
     }
 }
 

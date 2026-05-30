@@ -34,8 +34,16 @@ struct MemoryGraphCanvasView: View {
             let nodes = filteredNodes(graph.nodes)
             let nodeIDs = Set(nodes.map(\.id))
             let edges = filteredEdges(graph.edges, nodeIDs: nodeIDs)
+            let render = MemoryGraphRenderLimiter.limit(
+                nodes: nodes,
+                edges: edges,
+                maxNodes: MemoryGraphRenderLimiter.knowledgeNodeLimit,
+                maxEdges: MemoryGraphRenderLimiter.knowledgeEdgeLimit,
+                selectedNodeID: graphStore.selectedNodeID,
+                selectedEdgeID: graphStore.selectedEdgeID
+            )
             let positions = MemoryGraphLayout.positions(
-                for: nodes,
+                for: render.nodes,
                 in: size,
                 pan: graphStore.pan,
                 zoom: CGFloat(graphStore.zoom)
@@ -43,30 +51,37 @@ struct MemoryGraphCanvasView: View {
 
             ZStack {
                 Canvas { context, _ in
-                    drawEdges(edges, positions: positions, in: &context)
+                    drawEdges(render.edges, positions: positions, in: &context)
                 }
 
-                ForEach(edges) { edge in
-                    if let midpoint = MemoryGraphLayout.midpoint(for: edge, positions: positions) {
-                        Button {
-                            graphStore.selectEdge(edge.id)
-                        } label: {
-                            Circle()
-                                .fill(graphStore.selectedEdgeID == edge.id ? Color.stxAccent : Color.primary.opacity(0.18))
-                                .frame(width: graphStore.selectedEdgeID == edge.id ? 10 : 7, height: graphStore.selectedEdgeID == edge.id ? 10 : 7)
+                if render.showsEdgeHitTargets {
+                    ForEach(render.edges) { edge in
+                        if let midpoint = MemoryGraphLayout.midpoint(for: edge, positions: positions) {
+                            Button {
+                                graphStore.selectEdge(edge.id)
+                            } label: {
+                                Circle()
+                                    .fill(graphStore.selectedEdgeID == edge.id ? Color.stxAccent : Color.primary.opacity(0.18))
+                                    .frame(width: graphStore.selectedEdgeID == edge.id ? 10 : 7, height: graphStore.selectedEdgeID == edge.id ? 10 : 7)
+                            }
+                            .buttonStyle(.plain)
+                            .position(midpoint)
+                            .help(edge.kind)
                         }
-                        .buttonStyle(.plain)
-                        .position(midpoint)
-                        .help(edge.kind)
                     }
                 }
 
-                ForEach(nodes) { node in
+                ForEach(render.nodes) { node in
                     if let position = positions[node.id] {
+                        let highlighted = isHighlighted(node)
                         MemoryGraphNodeView(
                             node: node,
                             isSelected: graphStore.selectedNodeID == node.id,
-                            isHighlighted: isHighlighted(node)
+                            isHighlighted: highlighted,
+                            isCompact: render.usesCompactNodes
+                                && graphStore.selectedNodeID != node.id
+                                && !highlighted
+                                && node.kind != "project"
                         ) {
                             graphStore.selectNode(node.id)
                         }
@@ -75,6 +90,18 @@ struct MemoryGraphCanvasView: View {
                 }
             }
             .frame(width: size.width, height: size.height)
+            .clipped()
+            .overlay(alignment: .topLeading) {
+                if render.usesCompactNodes || graph.truncated == true {
+                    MemoryGraphRenderLimitBadge(
+                        render: render,
+                        backendTotalNodes: graph.totalNodes,
+                        backendTotalEdges: graph.totalEdges,
+                        backendTruncated: graph.truncated == true
+                    )
+                    .padding(12)
+                }
+            }
         } else {
             MemoryEmptyState(
                 title: graphStore.isLoading ? "Loading graph" : "No graph loaded",
@@ -128,28 +155,39 @@ struct MemoryGraphNodeView: View {
     let node: CodeMemoryGraphNode
     let isSelected: Bool
     let isHighlighted: Bool
+    var isCompact = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 6) {
+            if isCompact {
                 Image(systemName: MemoryGraphStyle.symbol(for: node.kind))
-                    .font(.system(size: 11, weight: .semibold))
-                    .frame(width: 14)
-                Text(node.title)
-                    .font(.sora(10, weight: .semibold))
-                    .lineLimit(1)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(MemoryGraphStyle.color(for: node.kind))
+                    .frame(width: 24, height: 24)
+                    .background(fill, in: Circle())
+                    .overlay(Circle().strokeBorder(stroke, lineWidth: isSelected ? 2 : 1))
+                    .shadow(color: Color.black.opacity(isSelected ? 0.12 : 0.04), radius: isSelected ? 8 : 3, y: 2)
+            } else {
+                HStack(spacing: 6) {
+                    Image(systemName: MemoryGraphStyle.symbol(for: node.kind))
+                        .font(.system(size: 11, weight: .semibold))
+                        .frame(width: 14)
+                    Text(node.title)
+                        .font(.sora(10, weight: .semibold))
+                        .lineLimit(1)
+                }
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .frame(width: width, alignment: .leading)
+                .background(fill, in: RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(stroke, lineWidth: isSelected ? 2 : 1))
+                .shadow(color: Color.black.opacity(isSelected ? 0.12 : 0.04), radius: isSelected ? 8 : 3, y: 2)
             }
-            .foregroundStyle(.primary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .frame(width: width, alignment: .leading)
-            .background(fill, in: RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(stroke, lineWidth: isSelected ? 2 : 1))
-            .shadow(color: Color.black.opacity(isSelected ? 0.12 : 0.04), radius: isSelected ? 8 : 3, y: 2)
         }
         .buttonStyle(.plain)
-        .help(node.id)
+        .help("\(node.title)\n\(node.id)")
     }
 
     private var width: CGFloat {
@@ -183,6 +221,186 @@ struct MemoryGraphNodeView: View {
             return Color.stxAccent.opacity(0.85)
         }
         return MemoryGraphStyle.color(for: node.kind).opacity(0.42)
+    }
+}
+
+struct MemoryGraphRenderModel: Sendable, Hashable {
+    var nodes: [CodeMemoryGraphNode]
+    var edges: [CodeMemoryGraphEdge]
+    var totalNodes: Int
+    var totalEdges: Int
+    var maxNodes: Int
+    var maxEdges: Int
+
+    var hiddenNodes: Int { max(0, totalNodes - nodes.count) }
+    var hiddenEdges: Int { max(0, totalEdges - edges.count) }
+    var isLimited: Bool { hiddenNodes > 0 || hiddenEdges > 0 }
+    var usesCompactNodes: Bool { isLimited || nodes.count > 90 }
+    var showsEdgeHitTargets: Bool { !isLimited && edges.count <= 180 }
+}
+
+enum MemoryGraphRenderLimiter {
+    static let knowledgeNodeLimit = 180
+    static let knowledgeEdgeLimit = 360
+    static let changeNodeLimit = 220
+    static let changeEdgeLimit = 420
+
+    static func limit(
+        nodes: [CodeMemoryGraphNode],
+        edges: [CodeMemoryGraphEdge],
+        maxNodes: Int,
+        maxEdges: Int,
+        selectedNodeID: String?,
+        selectedEdgeID: String?
+    ) -> MemoryGraphRenderModel {
+        guard nodes.count > maxNodes || edges.count > maxEdges else {
+            return MemoryGraphRenderModel(
+                nodes: nodes,
+                edges: edges,
+                totalNodes: nodes.count,
+                totalEdges: edges.count,
+                maxNodes: maxNodes,
+                maxEdges: maxEdges
+            )
+        }
+
+        var requiredNodeIDs = Set<String>()
+        if let selectedNodeID {
+            requiredNodeIDs.insert(selectedNodeID)
+        }
+        if let selectedEdgeID,
+           let edge = edges.first(where: { $0.id == selectedEdgeID }) {
+            requiredNodeIDs.insert(edge.source)
+            requiredNodeIDs.insert(edge.target)
+        }
+
+        var selectedNodes: [CodeMemoryGraphNode] = []
+        var selectedNodeIDs = Set<String>()
+
+        func include(_ node: CodeMemoryGraphNode) {
+            guard selectedNodes.count < maxNodes else { return }
+            guard selectedNodeIDs.insert(node.id).inserted else { return }
+            selectedNodes.append(node)
+        }
+
+        for node in nodes where requiredNodeIDs.contains(node.id) {
+            include(node)
+        }
+
+        let remaining = nodes
+            .filter { !selectedNodeIDs.contains($0.id) }
+            .sorted(by: nodePrecedes)
+        for node in remaining {
+            include(node)
+        }
+
+        let visibleNodeIDs = Set(selectedNodes.map(\.id))
+        let visibleEdges = edges
+            .filter { visibleNodeIDs.contains($0.source) && visibleNodeIDs.contains($0.target) }
+            .sorted { lhs, rhs in
+                edgePriority(lhs, selectedEdgeID: selectedEdgeID) < edgePriority(rhs, selectedEdgeID: selectedEdgeID)
+            }
+        return MemoryGraphRenderModel(
+            nodes: selectedNodes,
+            edges: Array(visibleEdges.prefix(maxEdges)),
+            totalNodes: nodes.count,
+            totalEdges: edges.count,
+            maxNodes: maxNodes,
+            maxEdges: maxEdges
+        )
+    }
+
+    private static func nodePrecedes(_ lhs: CodeMemoryGraphNode, _ rhs: CodeMemoryGraphNode) -> Bool {
+        let leftPriority = nodePriority(lhs)
+        let rightPriority = nodePriority(rhs)
+        if leftPriority != rightPriority {
+            return leftPriority < rightPriority
+        }
+        let leftSeq = lhs.seq ?? Int.min
+        let rightSeq = rhs.seq ?? Int.min
+        if leftSeq != rightSeq {
+            return leftSeq > rightSeq
+        }
+        return lhs.id < rhs.id
+    }
+
+    private static func nodePriority(_ node: CodeMemoryGraphNode) -> Int {
+        switch node.kind {
+        case "project":
+            return 0
+        case "module", "scope":
+            return 1
+        case "memory":
+            return node.status == "active" || node.status == nil ? 2 : 4
+        case "change_event":
+            return 3
+        case "source", "episode":
+            return 5
+        case "event":
+            return 6
+        default:
+            return MemoryGraphStyle.isGraphitiKind(node.kind) ? 7 : 8
+        }
+    }
+
+    private static func edgePriority(_ edge: CodeMemoryGraphEdge, selectedEdgeID: String?) -> (Int, String) {
+        if edge.id == selectedEdgeID {
+            return (-1, edge.id)
+        }
+        let priority: Int
+        switch edge.kind {
+        case "HAS_SCOPE":
+            priority = 0
+        case "SCOPED_TO":
+            priority = 1
+        case "AFFECTS":
+            priority = 2
+        case "NEXT_EVENT":
+            priority = 3
+        case "FROM_SOURCE", "HAS_PROVENANCE", "HAS_EPISODE":
+            priority = 4
+        default:
+            priority = 5
+        }
+        return (priority, edge.id)
+    }
+}
+
+struct MemoryGraphRenderLimitBadge: View {
+    let render: MemoryGraphRenderModel
+    let backendTotalNodes: Int?
+    let backendTotalEdges: Int?
+    let backendTruncated: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "rectangle.compress.vertical")
+                    .font(.system(size: 11, weight: .semibold))
+                Text("Large graph")
+                    .font(.sora(11, weight: .semibold))
+                Spacer(minLength: 0)
+            }
+            Text(summary)
+                .font(.sora(10))
+                .foregroundStyle(Color.stxMuted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(10)
+        .frame(width: 250, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.stxStroke.opacity(0.72), lineWidth: 1))
+    }
+
+    private var summary: String {
+        var parts = [
+            "Rendering \(render.nodes.count)/\(render.totalNodes) nodes and \(render.edges.count)/\(render.totalEdges) edges."
+        ]
+        if backendTruncated, let backendTotalNodes, let backendTotalEdges {
+            parts.append("Backend capped source graph from \(backendTotalNodes) nodes and \(backendTotalEdges) edges.")
+        }
+        parts.append("Use search or kind filters to expand a focused area.")
+        return parts.joined(separator: " ")
     }
 }
 

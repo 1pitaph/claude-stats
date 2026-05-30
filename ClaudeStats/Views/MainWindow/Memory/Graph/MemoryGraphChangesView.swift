@@ -153,8 +153,16 @@ private struct MemoryChangeGraphCanvasView: View {
     @ViewBuilder
     private func graphContent(size: CGSize) -> some View {
         if let graph = visibleGraph, !graph.nodes.isEmpty {
+            let render = MemoryGraphRenderLimiter.limit(
+                nodes: graph.nodes,
+                edges: graph.edges,
+                maxNodes: MemoryGraphRenderLimiter.changeNodeLimit,
+                maxEdges: MemoryGraphRenderLimiter.changeEdgeLimit,
+                selectedNodeID: graphStore.selectedChangeNodeID,
+                selectedEdgeID: graphStore.selectedChangeEdgeID
+            )
             let positions = MemoryGraphLayout.positions(
-                for: graph.nodes,
+                for: render.nodes,
                 in: size,
                 pan: graphStore.pan,
                 zoom: CGFloat(graphStore.zoom)
@@ -162,33 +170,40 @@ private struct MemoryChangeGraphCanvasView: View {
 
             ZStack {
                 Canvas { context, _ in
-                    drawEdges(graph.edges, positions: positions, in: &context)
+                    drawEdges(render.edges, positions: positions, in: &context)
                 }
 
-                ForEach(graph.edges) { edge in
-                    if let midpoint = MemoryGraphLayout.midpoint(for: edge, positions: positions) {
-                        Button {
-                            graphStore.selectChangeEdge(edge.id)
-                            if let memoryID = edge.metadata?["memory_id"] {
-                                Task { await graphStore.loadHistory(memoryID: memoryID) }
+                if render.showsEdgeHitTargets {
+                    ForEach(render.edges) { edge in
+                        if let midpoint = MemoryGraphLayout.midpoint(for: edge, positions: positions) {
+                            Button {
+                                graphStore.selectChangeEdge(edge.id)
+                                if let memoryID = edge.metadata?["memory_id"] {
+                                    Task { await graphStore.loadHistory(memoryID: memoryID) }
+                                }
+                            } label: {
+                                Circle()
+                                    .fill(graphStore.selectedChangeEdgeID == edge.id ? Color.stxAccent : edgeColor(edge).opacity(0.42))
+                                    .frame(width: graphStore.selectedChangeEdgeID == edge.id ? 10 : 7, height: graphStore.selectedChangeEdgeID == edge.id ? 10 : 7)
                             }
-                        } label: {
-                            Circle()
-                                .fill(graphStore.selectedChangeEdgeID == edge.id ? Color.stxAccent : edgeColor(edge).opacity(0.42))
-                                .frame(width: graphStore.selectedChangeEdgeID == edge.id ? 10 : 7, height: graphStore.selectedChangeEdgeID == edge.id ? 10 : 7)
+                            .buttonStyle(.plain)
+                            .position(midpoint)
+                            .help(edge.kind)
                         }
-                        .buttonStyle(.plain)
-                        .position(midpoint)
-                        .help(edge.kind)
                     }
                 }
 
-                ForEach(graph.nodes) { node in
+                ForEach(render.nodes) { node in
                     if let position = positions[node.id] {
+                        let highlighted = isHighlighted(node)
                         MemoryGraphNodeView(
                             node: node,
                             isSelected: graphStore.selectedChangeNodeID == node.id,
-                            isHighlighted: isHighlighted(node)
+                            isHighlighted: highlighted,
+                            isCompact: render.usesCompactNodes
+                                && graphStore.selectedChangeNodeID != node.id
+                                && !highlighted
+                                && node.kind != "project"
                         ) {
                             graphStore.selectChangeNode(node.id)
                             if let memoryID = node.metadata?["memory_id"] {
@@ -200,6 +215,18 @@ private struct MemoryChangeGraphCanvasView: View {
                 }
             }
             .frame(width: size.width, height: size.height)
+            .clipped()
+            .overlay(alignment: .topLeading) {
+                if render.usesCompactNodes {
+                    MemoryGraphRenderLimitBadge(
+                        render: render,
+                        backendTotalNodes: nil,
+                        backendTotalEdges: nil,
+                        backendTruncated: false
+                    )
+                    .padding(12)
+                }
+            }
         } else {
             MemoryEmptyState(
                 title: graphStore.isLoadingChanges ? "Loading changes" : "No changes loaded",
