@@ -68,6 +68,7 @@ struct MainWindowView: View {
     @SceneStorage("mainWindow.sessionsDestination") private var sessionsDestinationRaw: String = SessionsDestination.overviewRawValue
     @SceneStorage("mainWindow.memorySection") private var memorySectionRaw: String = MemoryWorkspaceSection.search.rawValue
     @SceneStorage("mainWindow.networkSection") private var networkSectionRaw: String = NetworkSection.traffic.rawValue
+    @SceneStorage("mainWindow.warpSection") private var warpSectionRaw: String = WarpWorkspaceSection.sessions.rawValue
     @SceneStorage("mainWindow.opsSection") private var opsSectionRaw: String = OpsSection.ports.rawValue
     @State private var page: MainPage = .dashboard
     @State private var toggleHovering = false
@@ -80,7 +81,6 @@ struct MainWindowView: View {
         if env.preferences.aiActivityAnalysisEnabled { pages.append(.activity) }
         if env.preferences.gitTrackingEnabled { pages.append(.git) }
         if env.preferences.systemMonitorEnabled { pages.append(.system) }
-        pages.append(.terminal)
         return pages
     }
 
@@ -103,6 +103,10 @@ struct MainWindowView: View {
 
     private var networkSection: NetworkSection {
         NetworkSection(storedRawValue: networkSectionRaw)
+    }
+
+    private var warpSection: WarpWorkspaceSection {
+        WarpWorkspaceSection(storedRawValue: warpSectionRaw)
     }
 
     private var opsSection: OpsSection {
@@ -144,6 +148,13 @@ struct MainWindowView: View {
         )
     }
 
+    private var warpSectionBinding: Binding<WarpWorkspaceSection> {
+        Binding(
+            get: { warpSection },
+            set: { warpSectionRaw = $0.rawValue }
+        )
+    }
+
     private var opsSectionBinding: Binding<OpsSection> {
         Binding(
             get: { opsSection },
@@ -168,6 +179,7 @@ struct MainWindowView: View {
                     isConfigsActive: mode == .configs,
                     isMemoryActive: mode == .memory,
                     isChatActive: mode == .chat,
+                    isWarpActive: mode == .warp,
                     onOpenSettings: openSettings,
                     onOpenLinuxDo: openLinuxDo,
                     onOpenSessions: openSessions,
@@ -175,6 +187,7 @@ struct MainWindowView: View {
                     onOpenMemory: openMemory,
                     onOpenChat: openChat,
                     onOpenNetwork: openNetwork,
+                    onOpenWarp: { openWarp() },
                     onOpenOps: openOps
                 )
             } linuxDoSidebar: {
@@ -199,6 +212,8 @@ struct MainWindowView: View {
                 SettingsSidebarColumn(section: settingsSectionBinding, onExit: closeSettings)
             } networkSidebar: {
                 NetworkSidebarColumn(store: env.networkDebugger, section: networkSectionBinding, onExit: closeNetwork)
+            } warpSidebar: {
+                WarpSidebarColumn(store: env.warpSessionStore, section: warpSectionBinding, onExit: closeWarp)
             } opsSidebar: {
                 OpsSidebarColumn(section: opsSectionBinding, onExit: closeOps)
             } appDetail: {
@@ -221,6 +236,13 @@ struct MainWindowView: View {
                 SettingsDetailView(section: settingsSection, onSelectSection: selectSettingsSection)
             } networkDetail: {
                 NetworkDetailView(section: networkSection)
+            } warpDetail: {
+                WarpWorkspaceView(
+                    section: warpSection,
+                    store: env.warpSessionStore,
+                    chromeMode: env.preferences.terminalChromeMode,
+                    backgroundStyle: env.preferences.terminalBackgroundStyle
+                )
             } opsDetail: {
                 OpsDetailView(store: env.ops, section: opsSection)
             }
@@ -230,7 +252,7 @@ struct MainWindowView: View {
                     .onTapGesture { clearTextFocus() }
             }
 
-            if mode == .app || mode == .linuxDo || mode == .sessions || mode == .configs || mode == .memory || mode == .chat || mode == .network || mode == .ops {
+            if mode == .app || mode == .linuxDo || mode == .sessions || mode == .configs || mode == .memory || mode == .chat || mode == .network || mode == .warp || mode == .ops {
                 sidebarToggle
                     .padding(.leading, 81)
                     .padding(.top, 11)
@@ -345,7 +367,7 @@ struct MainWindowView: View {
         case .system:
             MainSystemMonitorView()
         case .terminal:
-            TerminalWorkspaceView(store: env.terminalStore)
+            TerminalWorkspaceView(store: env.terminalStore, warpStore: env.warpSessionStore)
         }
     }
 
@@ -432,6 +454,13 @@ struct MainWindowView: View {
         transition(to: .network)
     }
 
+    private func openWarp(resetToSessions: Bool = false) {
+        if resetToSessions {
+            warpSectionRaw = WarpWorkspaceSection.sessions.rawValue
+        }
+        transition(to: .warp)
+    }
+
     private func openOps() {
         transition(to: .ops)
     }
@@ -465,6 +494,10 @@ struct MainWindowView: View {
         transition(to: .app)
     }
 
+    private func closeWarp() {
+        transition(to: .app)
+    }
+
     private func closeOps() {
         transition(to: .app)
     }
@@ -472,10 +505,16 @@ struct MainWindowView: View {
     private func openFloatingStatsDestination(_ destination: FloatingStatsMainWindowDestination) {
         switch destination {
         case .page(let nextPage):
+            if nextPage == .terminal {
+                openWarp(resetToSessions: true)
+                return
+            }
             page = availablePages.contains(nextPage) ? nextPage : .dashboard
             transition(to: .app)
         case .network:
             transition(to: .network)
+        case .warp:
+            openWarp(resetToSessions: true)
         case .linuxDoTopic(let route):
             env.linuxDo.openTopic(route)
             openLinuxDo()
@@ -524,6 +563,15 @@ struct MainWindowView: View {
         }
 
         let storedPage = MainPage(rawValue: pageRaw) ?? .dashboard
+        if storedPage == .terminal {
+            page = .dashboard
+            pageRaw = MainPage.dashboard.rawValue
+            warpSectionRaw = WarpWorkspaceSection.sessions.rawValue
+            modeRaw = MainWindowMode.warp.rawValue
+            sidebarVisible = true
+            return
+        }
+
         if availablePages.contains(storedPage) {
             page = storedPage
             pageRaw = storedPage.rawValue

@@ -345,6 +345,27 @@ targets:
           ENABLE_HARDENED_RUNTIME: YES
           OTHER_CODE_SIGN_FLAGS: "--timestamp"
 
+  WarpEmbed:
+    type: framework
+    platform: macOS
+    sources:
+      - path: WarpEmbed
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.claudestats.WarpEmbed
+        PRODUCT_NAME: WarpEmbed
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks"
+      configs:
+        ReleaseSigned:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: "$(SIGN_IDENTITY)"
+          DEVELOPMENT_TEAM: "$(APPLE_TEAM_ID)"
+          ENABLE_HARDENED_RUNTIME: YES
+          OTHER_CODE_SIGN_FLAGS: "--timestamp"
+
   AtollEmbed:
     type: framework
     platform: macOS
@@ -462,6 +483,7 @@ targets:
           destination: wrapper
           subpath: Contents/Helpers
       - target: GhosttyEmbed
+      - target: WarpEmbed
       - target: AtollEmbed
       - package: Lottie
       - package: SwiftCollections
@@ -683,6 +705,7 @@ targets:
       - target: ClaudeStats
       - target: RockxyBackendEmbed
       - target: AtollEmbed
+      - target: WarpEmbed
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.claudestats.ClaudeStatsTests

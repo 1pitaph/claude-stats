@@ -16,6 +16,7 @@ struct SidebarColumn: View {
     var isConfigsActive = false
     var isMemoryActive = false
     var isChatActive = false
+    var isWarpActive = false
     var onOpenSettings: () -> Void
     var onOpenLinuxDo: () -> Void
     var onOpenSessions: () -> Void
@@ -23,6 +24,7 @@ struct SidebarColumn: View {
     var onOpenMemory: () -> Void
     var onOpenChat: () -> Void
     var onOpenNetwork: () -> Void
+    var onOpenWarp: () -> Void
     var onOpenOps: () -> Void
 
     @Environment(AppEnvironment.self) private var env
@@ -113,7 +115,16 @@ struct SidebarColumn: View {
                 clearTextFocus()
                 onOpenNetwork()
             }
-            navRow(.terminal)
+            SidebarRow(
+                title: "Warp",
+                symbol: "sparkles",
+                isSelected: isWarpActive,
+                trailingSymbol: "chevron.right",
+                showsTrailingOnHover: true
+            ) {
+                clearTextFocus()
+                onOpenWarp()
+            }
 
             Spacer(minLength: 0)
 
@@ -245,6 +256,7 @@ struct SidebarRow: View {
         isConfigsActive: false,
         isMemoryActive: false,
         isChatActive: false,
+        isWarpActive: false,
         onOpenSettings: {},
         onOpenLinuxDo: {},
         onOpenSessions: {},
@@ -252,6 +264,7 @@ struct SidebarRow: View {
         onOpenMemory: {},
         onOpenChat: {},
         onOpenNetwork: {},
+        onOpenWarp: {},
         onOpenOps: {}
     )
     .environment(AppEnvironment.preview())

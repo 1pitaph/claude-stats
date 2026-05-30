@@ -50,6 +50,7 @@ enum ActivitySurfaceCatalog {
     static let cliHostDefaults: [App] = [
         App(bundleID: "com.apple.Terminal", name: "Terminal"),
         App(bundleID: "com.mitchellh.ghostty", name: "Ghostty"),
+        App(bundleID: "dev.warp.Warp-Stable", name: "Warp"),
     ]
 
     private static let codingSurfaceDefaultIDs = Set(codingSurfaceDefaults.map(\.bundleID))

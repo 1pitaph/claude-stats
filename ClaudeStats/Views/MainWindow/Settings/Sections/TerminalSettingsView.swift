@@ -7,6 +7,20 @@ struct TerminalSettingsView: View {
         @Bindable var prefs = env.preferences
 
         VStack(alignment: .leading, spacing: 28) {
+            SettingGroup(title: "Runtime") {
+                SettingSegmentCard(
+                    selection: $prefs.terminalRuntimeKind,
+                    options: TerminalRuntimeKind.allCases.map {
+                        SettingSegmentCard<TerminalRuntimeKind>.Option(
+                            value: $0,
+                            title: $0.displayName,
+                            subtitle: $0.description,
+                            symbol: $0.symbol
+                        )
+                    }
+                )
+            }
+
             SettingGroup(title: "Appearance") {
                 TerminalAppearancePreview(
                     chromeMode: prefs.terminalChromeMode,

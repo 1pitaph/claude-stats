@@ -1,6 +1,7 @@
 import Foundation
 import GhosttyEmbed
 import Observation
+import WarpEmbed
 
 /// Composition root. Constructs the pricing table, preferences, provider
 /// registry, and the shared ``SessionStore``, then hands itself to the view
@@ -20,6 +21,7 @@ final class AppEnvironment {
     let floatingStatsPanel = FloatingStatsPanelController()
     let notchIsland = NotchIslandController()
     let terminalStore: EmbeddedTerminalStore
+    let warpSessionStore: WarpSessionStore
     /// View models live in the environment so the Settings window and the
     /// individual pages can share state — and so the VMs persist across
     /// main-window open/close cycles (reopening doesn't refire a fetch).
@@ -50,6 +52,7 @@ final class AppEnvironment {
         providerRegistry: ProviderRegistry,
         store: SessionStore,
         terminalStore: EmbeddedTerminalStore = EmbeddedTerminalStore(),
+        warpSessionStore: WarpSessionStore = WarpSessionStore(),
         usageLimits: UsageLimitStore? = nil,
         cliEnvironment: CLIEnvironmentViewModel = CLIEnvironmentViewModel(),
         systemMonitor: SystemMonitorViewModel = SystemMonitorViewModel(),
@@ -78,6 +81,7 @@ final class AppEnvironment {
             )
         )
         self.terminalStore = terminalStore
+        self.warpSessionStore = warpSessionStore
         self.cliEnvironment = cliEnvironment
         self.systemMonitor = systemMonitor
         self.networkDebugger = networkDebugger ?? NetworkDebuggerStore(preferences: preferences)

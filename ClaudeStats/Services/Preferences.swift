@@ -195,6 +195,9 @@ final class Preferences {
     var terminalBackgroundStyle: TerminalBackgroundStyle {
         didSet { defaults.set(terminalBackgroundStyle.rawValue, forKey: Keys.terminalBackgroundStyle) }
     }
+    var terminalRuntimeKind: TerminalRuntimeKind {
+        didSet { defaults.set(terminalRuntimeKind.rawValue, forKey: Keys.terminalRuntimeKind) }
+    }
     var apiProviderKeyStorageMode: APIProviderKeyStorageMode {
         didSet { defaults.set(apiProviderKeyStorageMode.rawValue, forKey: Keys.apiProviderKeyStorageMode) }
     }
@@ -526,6 +529,7 @@ final class Preferences {
         sessionsExpandedOnAppOpen = (defaults.object(forKey: Keys.sessionsExpandedOnAppOpen) as? Bool) ?? false
         terminalChromeMode = TerminalChromeMode(rawValue: defaults.string(forKey: Keys.terminalChromeMode) ?? "") ?? .tabsAndStatus
         terminalBackgroundStyle = TerminalBackgroundStyle(rawValue: defaults.string(forKey: Keys.terminalBackgroundStyle) ?? "") ?? .fluidGradient
+        terminalRuntimeKind = TerminalRuntimeKind(rawValue: defaults.string(forKey: Keys.terminalRuntimeKind) ?? "") ?? .ghostty
         apiProviderKeyStorageMode = APIProviderKeyStorageMode(rawValue: defaults.string(forKey: Keys.apiProviderKeyStorageMode) ?? "") ?? .json
         systemMonitorEnabled = defaults.bool(forKey: Keys.systemMonitorEnabled)
         systemMonitorRefreshRate = SystemMonitorRefreshRate(rawValue: defaults.string(forKey: Keys.systemMonitorRefreshRate) ?? "") ?? .threeSeconds
@@ -718,6 +722,7 @@ final class Preferences {
         static let sessionsExpandedOnAppOpen = "sessionsExpandedOnAppOpen"
         static let terminalChromeMode = "terminalChromeMode"
         static let terminalBackgroundStyle = "terminalBackgroundStyle"
+        static let terminalRuntimeKind = "terminalRuntimeKind"
         static let apiProviderKeyStorageMode = "apiProviderKeyStorageMode"
         static let systemMonitorEnabled = "systemMonitorEnabled"
         static let systemMonitorRefreshRate = "systemMonitorRefreshRate"

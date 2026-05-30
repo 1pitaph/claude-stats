@@ -24,3 +24,7 @@
 	path = ThirdParty/graphiti
 	url = https://github.com/1pitaph/graphiti.git
 	branch = integration/claude-stats
+[submodule "ThirdParty/Warp"]
+	path = ThirdParty/Warp
+	url = https://github.com/1pitaph/Warp.git
+	branch = integration/claude-stats

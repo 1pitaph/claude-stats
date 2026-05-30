@@ -21,6 +21,7 @@ struct ActivitySurfaceCatalogTests {
 
         #expect(ids.contains("com.example.Terminal"))
         #expect(ids.contains("com.mitchellh.ghostty"))
+        #expect(ids.contains("dev.warp.Warp-Stable"))
         #expect(!ids.contains("com.apple.Terminal"))
     }
 }

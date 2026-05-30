@@ -4,6 +4,7 @@ import SwiftUI
 enum FloatingStatsMainWindowDestination: Sendable {
     case page(MainPage)
     case network
+    case warp
     case linuxDoTopic(LinuxDoTopicRoute)
 }
 

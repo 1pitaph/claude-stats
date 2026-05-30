@@ -256,6 +256,7 @@ struct PreferencesTests {
 
         #expect(prefs.terminalChromeMode == .tabsAndStatus)
         #expect(prefs.terminalBackgroundStyle == .fluidGradient)
+        #expect(prefs.terminalRuntimeKind == .ghostty)
     }
 
     @Test("Terminal appearance preferences persist")
@@ -264,10 +265,12 @@ struct PreferencesTests {
         let prefs = Preferences(defaults: defaults)
         prefs.terminalChromeMode = .statusOnly
         prefs.terminalBackgroundStyle = .solid
+        prefs.terminalRuntimeKind = .warp
 
         let reloaded = Preferences(defaults: defaults)
         #expect(reloaded.terminalChromeMode == .statusOnly)
         #expect(reloaded.terminalBackgroundStyle == .solid)
+        #expect(reloaded.terminalRuntimeKind == .warp)
     }
 
     @Test("Invalid terminal appearance values fall back safely")
@@ -275,10 +278,12 @@ struct PreferencesTests {
         let defaults = makeDefaults()
         defaults.set("floating", forKey: "terminalChromeMode")
         defaults.set("wallpaper", forKey: "terminalBackgroundStyle")
+        defaults.set("external", forKey: "terminalRuntimeKind")
 
         let prefs = Preferences(defaults: defaults)
         #expect(prefs.terminalChromeMode == .tabsAndStatus)
         #expect(prefs.terminalBackgroundStyle == .fluidGradient)
+        #expect(prefs.terminalRuntimeKind == .ghostty)
     }
 
     @Test("System Monitor defaults are off with balanced refresh and all modules")

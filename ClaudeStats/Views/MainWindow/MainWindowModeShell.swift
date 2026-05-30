@@ -9,6 +9,7 @@ enum MainWindowMode: String, Sendable {
     case chat
     case settings
     case network
+    case warp
     case ops
 }
 
@@ -21,6 +22,7 @@ enum MainWindowMotion {
     static let chatSidebarWidth: CGFloat = 240
     static let settingsSidebarWidth: CGFloat = 220
     static let networkSidebarWidth: CGFloat = 240
+    static let warpSidebarWidth: CGFloat = 240
     static let opsSidebarWidth: CGFloat = 240
 
     private static let detailOffset: CGFloat = 10
@@ -99,6 +101,13 @@ enum MainWindowMotion {
         )
     }
 
+    static var warpDetailTransition: AnyTransition {
+        .asymmetric(
+            insertion: .offset(x: detailOffset).combined(with: .opacity),
+            removal: .offset(x: detailOffset).combined(with: .opacity)
+        )
+    }
+
     static var opsDetailTransition: AnyTransition {
         .asymmetric(
             insertion: .offset(x: detailOffset).combined(with: .opacity),
@@ -108,10 +117,10 @@ enum MainWindowMotion {
 }
 
 /// Stable two-column shell for the main window. The sidebar column transitions
-/// directly between app, LinuxDo, sessions, configs, memory, settings, network, and ops
+/// directly between app, LinuxDo, sessions, configs, memory, settings, network, Warp, and ops
 /// navigation while the detail panel stays mounted so its leading boundary can
 /// move with the sidebar width.
-struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSidebar: View, ConfigsSidebar: View, MemorySidebar: View, ChatSidebar: View, SettingsSidebar: View, NetworkSidebar: View, OpsSidebar: View, AppDetail: View, LinuxDoDetail: View, SessionsDetail: View, ConfigsDetail: View, MemoryDetail: View, ChatDetail: View, SettingsDetail: View, NetworkDetail: View, OpsDetail: View>: View {
+struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSidebar: View, ConfigsSidebar: View, MemorySidebar: View, ChatSidebar: View, SettingsSidebar: View, NetworkSidebar: View, WarpSidebar: View, OpsSidebar: View, AppDetail: View, LinuxDoDetail: View, SessionsDetail: View, ConfigsDetail: View, MemoryDetail: View, ChatDetail: View, SettingsDetail: View, NetworkDetail: View, WarpDetail: View, OpsDetail: View>: View {
     let mode: MainWindowMode
     let sidebarVisible: Bool
     let boundaryFalloffEnabled: Bool
@@ -124,6 +133,7 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
     private let chatSidebar: ChatSidebar
     private let settingsSidebar: SettingsSidebar
     private let networkSidebar: NetworkSidebar
+    private let warpSidebar: WarpSidebar
     private let opsSidebar: OpsSidebar
     private let appDetail: AppDetail
     private let linuxDoDetail: LinuxDoDetail
@@ -133,6 +143,7 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
     private let chatDetail: ChatDetail
     private let settingsDetail: SettingsDetail
     private let networkDetail: NetworkDetail
+    private let warpDetail: WarpDetail
     private let opsDetail: OpsDetail
 
     init(
@@ -147,6 +158,7 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
         @ViewBuilder chatSidebar: () -> ChatSidebar,
         @ViewBuilder settingsSidebar: () -> SettingsSidebar,
         @ViewBuilder networkSidebar: () -> NetworkSidebar,
+        @ViewBuilder warpSidebar: () -> WarpSidebar,
         @ViewBuilder opsSidebar: () -> OpsSidebar,
         @ViewBuilder appDetail: () -> AppDetail,
         @ViewBuilder linuxDoDetail: () -> LinuxDoDetail,
@@ -156,6 +168,7 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
         @ViewBuilder chatDetail: () -> ChatDetail,
         @ViewBuilder settingsDetail: () -> SettingsDetail,
         @ViewBuilder networkDetail: () -> NetworkDetail,
+        @ViewBuilder warpDetail: () -> WarpDetail,
         @ViewBuilder opsDetail: () -> OpsDetail
     ) {
         self.mode = mode
@@ -169,6 +182,7 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
         self.chatSidebar = chatSidebar()
         self.settingsSidebar = settingsSidebar()
         self.networkSidebar = networkSidebar()
+        self.warpSidebar = warpSidebar()
         self.opsSidebar = opsSidebar()
         self.appDetail = appDetail()
         self.linuxDoDetail = linuxDoDetail()
@@ -178,6 +192,7 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
         self.chatDetail = chatDetail()
         self.settingsDetail = settingsDetail()
         self.networkDetail = networkDetail()
+        self.warpDetail = warpDetail()
         self.opsDetail = opsDetail()
     }
 
@@ -214,6 +229,8 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
             MainWindowMotion.settingsSidebarWidth
         case .network:
             sidebarVisible ? MainWindowMotion.networkSidebarWidth : 0
+        case .warp:
+            sidebarVisible ? MainWindowMotion.warpSidebarWidth : 0
         case .ops:
             sidebarVisible ? MainWindowMotion.opsSidebarWidth : 0
         }
@@ -236,6 +253,8 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
         case .settings:
             return true
         case .network:
+            return sidebarVisible
+        case .warp:
             return sidebarVisible
         case .ops:
             return sidebarVisible
@@ -272,6 +291,10 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
 
     private var networkSidebarIsActive: Bool {
         mode == .network && sidebarVisible
+    }
+
+    private var warpSidebarIsActive: Bool {
+        mode == .warp && sidebarVisible
     }
 
     private var opsSidebarIsActive: Bool {
@@ -336,6 +359,13 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
                     .allowsHitTesting(networkSidebarIsActive)
                     .accessibilityHidden(!networkSidebarIsActive)
                     .transition(MainWindowMotion.secondarySidebarTransition)
+            case .warp:
+                warpSidebar
+                    .frame(width: MainWindowMotion.warpSidebarWidth)
+                    .opacity(sidebarVisible ? 1 : 0)
+                    .allowsHitTesting(warpSidebarIsActive)
+                    .accessibilityHidden(!warpSidebarIsActive)
+                    .transition(MainWindowMotion.secondarySidebarTransition)
             case .ops:
                 opsSidebar
                     .frame(width: MainWindowMotion.opsSidebarWidth)
@@ -382,6 +412,10 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
             case .network:
                 networkDetail
                     .transition(MainWindowMotion.networkDetailTransition)
+                    .zIndex(1)
+            case .warp:
+                warpDetail
+                    .transition(MainWindowMotion.warpDetailTransition)
                     .zIndex(1)
             case .ops:
                 opsDetail
@@ -451,6 +485,13 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
             Spacer()
         }
         .padding()
+    } warpSidebar: {
+        VStack(alignment: .leading) {
+            Text("Back")
+            Text("Sessions")
+            Spacer()
+        }
+        .padding()
     } opsSidebar: {
         VStack(alignment: .leading) {
             Text("Back")
@@ -474,6 +515,8 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
         Color.stxBackground.overlay(Text("Settings Detail"))
     } networkDetail: {
         Color.stxBackground.overlay(Text("Network Detail"))
+    } warpDetail: {
+        Color.stxBackground.overlay(Text("Warp Detail"))
     } opsDetail: {
         Color.stxBackground.overlay(Text("Ops Detail"))
     }
