@@ -20,6 +20,7 @@ protocol CodeMemoryBackend: Sendable {
     func promoteGraphFact(_ fact: CodeMemoryGraphFact) async throws -> CodeMemoryMemory
     func drainProjections() async throws -> CodeMemoryProjectionDrainResponse
     func drainProjections(includeFailed: Bool) async throws -> CodeMemoryProjectionDrainResponse
+    func drainCaptures(limit: Int, includeFailed: Bool) async throws -> CodeMemoryProjectionDrainResponse
     func reindex(projectID: String?) async throws -> CodeMemoryProjectionDrainResponse
     func reinferSources(projectID: String?) async throws -> CodeMemoryReinferSourcesResponse
     func ingestSource(_ source: CodeMemorySourceInput) async throws -> CodeMemorySyncSourceResponse
@@ -80,6 +81,9 @@ extension CodeMemoryBackend {
     }
     func drainProjections() async throws -> CodeMemoryProjectionDrainResponse { CodeMemoryProjectionDrainResponse() }
     func drainProjections(includeFailed: Bool) async throws -> CodeMemoryProjectionDrainResponse { try await drainProjections() }
+    func drainCaptures(limit: Int, includeFailed: Bool) async throws -> CodeMemoryProjectionDrainResponse {
+        try await drainProjections(includeFailed: includeFailed)
+    }
     func reindex(projectID: String?) async throws -> CodeMemoryProjectionDrainResponse { CodeMemoryProjectionDrainResponse() }
     func reinferSources(projectID: String?) async throws -> CodeMemoryReinferSourcesResponse { CodeMemoryReinferSourcesResponse() }
     func ingestSource(_ source: CodeMemorySourceInput) async throws -> CodeMemorySyncSourceResponse {
@@ -219,7 +223,15 @@ struct CodeMemoryHTTPClient: CodeMemoryBackend {
     }
 
     func drainProjections(includeFailed: Bool) async throws -> CodeMemoryProjectionDrainResponse {
-        try await post("/v1/projections/drain", body: CodeMemoryProjectionDrainRequest(limit: 10, includeFailed: includeFailed))
+        try await drainCaptures(limit: 10, includeFailed: includeFailed)
+    }
+
+    func drainCaptures(limit: Int, includeFailed: Bool) async throws -> CodeMemoryProjectionDrainResponse {
+        try await post(
+            "/v1/projections/drain",
+            body: CodeMemoryProjectionDrainRequest(limit: limit, includeFailed: includeFailed),
+            timeout: 60
+        )
     }
 
     func reindex(projectID: String?) async throws -> CodeMemoryProjectionDrainResponse {
@@ -244,16 +256,18 @@ struct CodeMemoryHTTPClient: CodeMemoryBackend {
             components?.queryItems = queryItems
         }
         guard let url = components?.url else { throw URLError(.badURL) }
-        let (data, response) = try await session.data(from: url)
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 8
+        let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
         return try JSONDecoder.codeMemoryDecoder.decode(T.self, from: data)
     }
 
-    private func post<T: Decodable, Body: Encodable>(_ path: String, body: Body) async throws -> T {
+    private func post<T: Decodable, Body: Encodable>(_ path: String, body: Body, timeout: TimeInterval = 20) async throws -> T {
         let url = baseURL.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = 20
+        request.timeoutInterval = timeout
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder.codeMemoryEncoder.encode(body)
         let (data, response) = try await session.data(for: request)

@@ -38,6 +38,7 @@ final class AppEnvironment {
     let skills: SkillsStore
     let configWorkspace: ConfigWorkspaceStore
     let memory: MemoryStore
+    let memoryModelSettings: MemoryModelSettingsStore
     let chat: ChatStore
     let systemMonitor: SystemMonitorViewModel
     let networkDebugger: NetworkDebuggerStore
@@ -110,6 +111,7 @@ final class AppEnvironment {
             configurationProfiles: self.configurationProfiles
         )
         self.memory = MemoryStore()
+        self.memoryModelSettings = MemoryModelSettingsStore()
         self.chat = ChatStore()
     }
 
@@ -146,6 +148,10 @@ final class AppEnvironment {
             await configurationProfiles.loadIfNeeded()
             await store.refresh()
             await aiConfigs.reload(sessions: store.sessions)
+            await memoryModelSettings.loadIfNeeded()
+            await startCodeMemorySidecarFromCurrentModelSettings()
+            await memory.syncAvailableSources(sessions: store.sessions, configProjects: aiConfigs.snapshot.projects)
+            await drainMemoryCaptureQueueIfAllowed()
         }
         claudeStatus.start()
         openAIStatus.start()
@@ -156,14 +162,6 @@ final class AppEnvironment {
         if !Self.isRunningUnitTests {
             notchIsland.start(environment: self)
         }
-        if localAI.completeLocalModeEnabled {
-            Task { [weak self, localAI, memory] in
-                localAI.restartOpenAICompatibleServerIfNeeded()
-                await memory.startCodeMemorySidecar(localAIEnvironment: localAI.localAIEnvironment())
-                guard let self else { return }
-                await memory.syncAvailableSources(sessions: self.store.sessions, configProjects: self.aiConfigs.snapshot.projects)
-            }
-        }
     }
 
     func applyAutoRefreshSetting() {
@@ -173,6 +171,23 @@ final class AppEnvironment {
     private func syncMemorySourcesFromCurrentState() async {
         await aiConfigs.reload(sessions: store.sessions)
         await memory.syncAvailableSources(sessions: store.sessions, configProjects: aiConfigs.snapshot.projects)
+        await drainMemoryCaptureQueueIfAllowed()
+    }
+
+    func startCodeMemorySidecarFromCurrentModelSettings() async {
+        await memoryModelSettings.loadIfNeeded()
+        let launch = memoryModelSettings.sidecarLaunchConfiguration(localAI: localAI)
+        await memory.startCodeMemorySidecar(
+            localAIEnvironment: launch.legacyLocalAIEnvironment,
+            modelRuntimeConfig: launch.runtimeConfig
+        )
+    }
+
+    private func drainMemoryCaptureQueueIfAllowed() async {
+        let mode = memory.captureMode
+        guard mode.allowsAutomaticDrain else { return }
+        guard memoryModelSettings.hasRunnableAdapters(localAI: localAI) else { return }
+        await memory.drainQueuedMemoryCaptures(limit: mode.backgroundDrainLimit)
     }
 
     private static var isRunningUnitTests: Bool {

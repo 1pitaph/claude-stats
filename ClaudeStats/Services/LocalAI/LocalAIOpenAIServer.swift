@@ -29,13 +29,26 @@ final class LocalAIOpenAIServer {
     private let service: LocalAIOpenAIService
     private let token: String
     private let port: UInt16
+    private let idleTimeout: TimeInterval?
+    private let onIdleTimeout: (@MainActor @Sendable () -> Void)?
     private let queue = DispatchQueue(label: "com.claudestats.local-ai-openai-server")
     private var listener: NWListener?
+    private var activeRequestCount = 0
+    private var lastActivityDate = Date()
+    private var idleCheckGeneration = 0
 
-    init(service: LocalAIOpenAIService, token: String, port: UInt16 = 18_765) {
+    init(
+        service: LocalAIOpenAIService,
+        token: String,
+        port: UInt16 = 18_765,
+        idleTimeout: TimeInterval? = nil,
+        onIdleTimeout: (@MainActor @Sendable () -> Void)? = nil
+    ) {
         self.service = service
         self.token = token
         self.port = port
+        self.idleTimeout = idleTimeout
+        self.onIdleTimeout = onIdleTimeout
     }
 
     var endpoint: LocalAIOpenAIEndpoint {
@@ -61,10 +74,12 @@ final class LocalAIOpenAIServer {
         }
         listener.start(queue: queue)
         self.listener = listener
+        scheduleIdleCheckIfNeeded()
         return endpoint
     }
 
     func stop() {
+        idleCheckGeneration += 1
         listener?.cancel()
         listener = nil
     }
@@ -105,6 +120,9 @@ final class LocalAIOpenAIServer {
     }
 
     private func handle(_ request: LocalAIHTTPRequest, connection: NWConnection) async {
+        beginRequest()
+        defer { endRequest() }
+
         guard request.path == "/health" || authorized(request) else {
             send(Self.errorResponse("Missing or invalid local API token.", status: 401, code: "unauthorized"), to: connection)
             return
@@ -125,6 +143,34 @@ final class LocalAIOpenAIServer {
 
         let response = await route(authorizedRequest: request)
         send(response, to: connection)
+    }
+
+    private func beginRequest() {
+        activeRequestCount += 1
+        lastActivityDate = Date()
+        idleCheckGeneration += 1
+    }
+
+    private func endRequest() {
+        activeRequestCount = max(0, activeRequestCount - 1)
+        lastActivityDate = Date()
+        scheduleIdleCheckIfNeeded()
+    }
+
+    private func scheduleIdleCheckIfNeeded() {
+        guard activeRequestCount == 0, listener != nil, let idleTimeout else { return }
+        idleCheckGeneration += 1
+        let generation = idleCheckGeneration
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(idleTimeout * 1_000_000_000))
+            guard let self else { return }
+            guard self.listener != nil, self.activeRequestCount == 0, self.idleCheckGeneration == generation else { return }
+            guard Date().timeIntervalSince(self.lastActivityDate) >= idleTimeout else {
+                self.scheduleIdleCheckIfNeeded()
+                return
+            }
+            self.onIdleTimeout?()
+        }
     }
 
     private func route(_ request: LocalAIHTTPRequest) async -> LocalAIHTTPResponse {

@@ -208,9 +208,9 @@ final class LocalAIStore {
         _ = reconcileOpenAICompatibleServer(config: config, allowRestart: true)
     }
 
-    func localAIEnvironment() -> CodeMemoryLocalAIEnvironment? {
+    func localAIEnvironment(adaptersEnabled: Bool? = nil, allowRestart: Bool? = nil) -> CodeMemoryLocalAIEnvironment? {
         let config = currentRuntimeConfig()
-        guard let localAPIEndpoint = reconcileOpenAICompatibleServer(config: config, allowRestart: completeLocalModeEnabled)
+        guard let localAPIEndpoint = reconcileOpenAICompatibleServer(config: config, allowRestart: allowRestart ?? completeLocalModeEnabled)
         else { return nil }
         return CodeMemoryLocalAIEnvironment(
             baseURL: localAPIEndpoint.baseURL,
@@ -219,7 +219,7 @@ final class LocalAIStore {
             embeddingModelID: modelStore.selectedEmbeddingModel.id,
             embeddingDimensions: modelStore.selectedEmbeddingModel.dimensions,
             configurationHash: config.configHash,
-            adaptersEnabled: completeLocalModeEnabled
+            adaptersEnabled: adaptersEnabled ?? completeLocalModeEnabled
         )
     }
 

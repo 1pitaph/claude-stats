@@ -65,7 +65,7 @@ class MemoryStore:
         self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.execute("PRAGMA busy_timeout=2500")
         self._migrate()
-        self._migrate_legacy_memories_to_mem0()
+        self._enqueue_legacy_memories_for_mem0()
 
     def close(self) -> None:
         self.conn.close()
@@ -467,40 +467,21 @@ class MemoryStore:
         created: list[dict[str, Any]] = []
         proposed: list[dict[str, Any]] = []
         inference_errors: list[dict[str, str]] = []
+        queued = 0
         if self._should_capture_source(kind, raw_body, title=title, path=path, uri=uri):
             if self._source_capture_succeeded(source_id, content_hash):
                 return {"status": "skipped", "source": source, "created": [], "proposed": [], "inference_errors": []}
             self._mark_source_capture(source_id, project_id, kind, content_hash, "pending")
-            try:
-                chunks = self._capture_chunks_for_source(
-                    source | {"scope": self._source_scope(project_id, path=path, uri=uri).to_json()}
-                )
-                created = self.adapters.capture_source(source, chunks)
-                for memory in created:
-                    self._cache_mem0_memory(memory)
-                    self.append_event(
-                        {
-                            "project_id": memory.get("project_id") or project_id,
-                            "event_type": "memory.observed",
-                            "actor": {"kind": "sync", "id": "mem0"},
-                            "memory_id": memory.get("id"),
-                            "after": memory,
-                            "source_refs": memory.get("source_refs", []),
-                        }
-                    )
-                inference_errors = self._adapter_inference_errors()
-                if not created and chunks:
-                    mem0_health = str(self.adapters.health().get("mem0", "")).lower()
-                    if "enabled" not in mem0_health:
-                        inference_errors = [{"adapter": "mem0", "error": self.adapters.health().get("mem0", "mem0 unavailable")}]
-                if inference_errors:
-                    self._mark_source_capture(source_id, project_id, kind, content_hash, "failed", error=inference_errors[0].get("error", ""), created_count=len(created))
-                else:
-                    self._mark_source_capture(source_id, project_id, kind, content_hash, "succeeded", created_count=len(created))
-            except Exception as error:  # noqa: BLE001
-                inference_errors = [{"adapter": "mem0", "error": _compact_exception(error)}]
-                self._mark_source_capture(source_id, project_id, kind, content_hash, "failed", error=inference_errors[0]["error"], created_count=len(created))
-        return {"status": "ok", "event": observed, "source": source, "created": created, "proposed": proposed, "inference_errors": inference_errors}
+            queued = 1
+        return {
+            "status": "queued" if queued else "ok",
+            "event": observed,
+            "source": source,
+            "created": created,
+            "proposed": proposed,
+            "queued": queued,
+            "inference_errors": inference_errors,
+        }
 
     def reinfer_sources(self, payload: dict[str, Any]) -> dict[str, Any]:
         project_id = payload.get("project_id") if isinstance(payload.get("project_id"), str) else None
@@ -538,40 +519,21 @@ class MemoryStore:
             if not body:
                 skipped += 1
                 continue
-            inference_source = source | {
-                "body": body,
-                "scope": self._source_scope(
-                    str(source["project_id"]),
-                    path=str(source.get("path") or ""),
-                    uri=str(source.get("uri") or ""),
-                ).to_json(),
-            }
+            title = str(source.get("title") or "")
+            path = str(source.get("path") or "")
+            uri = str(source.get("uri") or "")
+            kind = str(source.get("kind") or "")
+            if not self._should_capture_source(kind, body, title=title, path=path, uri=uri):
+                skipped += 1
+                continue
             attempted += 1
-            try:
-                chunks = self._capture_chunks_for_source(inference_source)
-                memories = self.adapters.capture_source(inference_source, chunks)
-                for memory in memories:
-                    self._cache_mem0_memory(memory)
-                    created += 1
-                inference_errors = self._adapter_inference_errors()
-                if not memories and chunks:
-                    mem0_health = str(self.adapters.health().get("mem0", "")).lower()
-                    if "enabled" not in mem0_health:
-                        inference_errors = [{"adapter": "mem0", "error": self.adapters.health().get("mem0", "mem0 unavailable")}]
-                for error in inference_errors:
-                    errors.append(error | {"source_id": str(source["id"])})
-                self._mark_source_capture(
-                    str(source["id"]),
-                    str(source["project_id"]),
-                    str(source["kind"]),
-                    str(source.get("content_hash") or ""),
-                    "failed" if inference_errors else "succeeded",
-                    error=inference_errors[0].get("error", "") if inference_errors else "",
-                    created_count=len(memories),
-                )
-            except Exception as error:  # noqa: BLE001
-                errors.append({"adapter": "mem0", "source_id": str(source["id"]), "error": _compact_exception(error)})
-                self._mark_source_capture(str(source["id"]), str(source["project_id"]), str(source["kind"]), str(source.get("content_hash") or ""), "failed", error=_compact_exception(error))
+            self._mark_source_capture(
+                str(source["id"]),
+                str(source["project_id"]),
+                kind,
+                str(source.get("content_hash") or ""),
+                "pending",
+            )
 
         return {
             "status": "ok",
@@ -594,88 +556,49 @@ class MemoryStore:
         }
 
     def drain_projection_jobs(self, *, limit: int = 10, include_failed: bool = False) -> dict[str, Any]:
-        return {
-            "delivered": 0,
-            "failed": 0,
-            "remaining": 0,
-            "pending": 0,
-            "failed_total": 0,
-            "skipped": False,
-            "message": "mem0 is the canonical memory store; projection jobs are disabled.",
-        }
-        blockers = self._projection_adapter_blockers()
-        if blockers:
-            pending_remaining = self._projection_count("pending")
-            failed_total = self._projection_count("failed")
+        return self._drain_capture_jobs(limit=limit, include_failed=include_failed)
+
+    def _drain_capture_jobs(self, *, limit: int = 10, include_failed: bool = False) -> dict[str, Any]:
+        bounded_limit = max(1, min(limit, 25))
+        pending_before = self._source_capture_count("pending") + self._legacy_migration_count("pending")
+        failed_before = self._source_capture_count("failed") + self._legacy_migration_count("failed")
+        if pending_before == 0 and (not include_failed or failed_before == 0):
             return {
                 "delivered": 0,
                 "failed": 0,
-                "remaining": pending_remaining + failed_total,
-                "pending": pending_remaining,
-                "failed_total": failed_total,
+                "remaining": pending_before + failed_before,
+                "pending": pending_before,
+                "failed_total": failed_before,
+                "skipped": False,
+                "message": "Mem0 capture queue is empty.",
+            }
+
+        blockers = self._capture_adapter_blockers()
+        if blockers:
+            return {
+                "delivered": 0,
+                "failed": 0,
+                "remaining": pending_before + failed_before,
+                "pending": pending_before,
+                "failed_total": failed_before,
                 "skipped": True,
-                "message": "Projection drain skipped because adapters are unavailable.",
+                "message": "Mem0 capture drain skipped because mem0 is unavailable.",
                 "blockers": blockers,
             }
 
-        statuses = ["pending"]
-        if include_failed:
-            statuses.append("failed")
-        placeholders = ",".join("?" for _ in statuses)
-        rows = self.conn.execute(
-            f"""
-            SELECT * FROM projection_jobs
-            WHERE status IN ({placeholders})
-            ORDER BY updated_at ASC
-            LIMIT ?
-            """,
-            (*statuses, max(1, min(limit, 25))),
-        ).fetchall()
         delivered = 0
         failed = 0
-        for job in rows:
-            memory_row = self.conn.execute("SELECT * FROM memories WHERE id = ?", (job["memory_id"],)).fetchone()
-            event_row = self.conn.execute("SELECT * FROM memory_events WHERE event_id = ?", (job["event_id"],)).fetchone()
-            if memory_row is None:
-                continue
-            memory = self._memory_row(memory_row)
-            if memory.get("status") != "active":
-                self.conn.execute(
-                    "UPDATE projection_jobs SET status = 'done', last_error = NULL, updated_at = ?, attempt_count = attempt_count + 1 WHERE id = ?",
-                    (time.time(), job["id"]),
-                )
-                continue
-            event = self._event_row(event_row) if event_row is not None else {"event_id": job["event_id"], "timestamp": time.time()}
-            status = self.adapters.index_memory(memory, event, adapter_name=job["adapter"])
-            detail = status.get(job["adapter"], "")
-            now = time.time()
-            if detail.startswith("ok"):
-                adapter_id = detail.split(":", 1)[1] if ":" in detail else ""
-                self.conn.execute(
-                    "UPDATE projection_jobs SET status = 'done', last_error = NULL, updated_at = ?, attempt_count = attempt_count + 1 WHERE id = ?",
-                    (now, job["id"]),
-                )
-                self.conn.execute(
-                    """
-                    INSERT INTO adapter_mappings (memory_id, adapter, adapter_id, metadata_json, updated_at)
-                    VALUES (?, ?, ?, ?, ?)
-                    ON CONFLICT(memory_id, adapter) DO UPDATE SET
-                        adapter_id = excluded.adapter_id,
-                        metadata_json = excluded.metadata_json,
-                        updated_at = excluded.updated_at
-                    """,
-                    (memory["id"], job["adapter"], adapter_id, canonical_json({"event_id": event.get("event_id")}), now),
-                )
-                delivered += 1
-            else:
-                self.conn.execute(
-                    "UPDATE projection_jobs SET status = 'failed', last_error = ?, updated_at = ?, attempt_count = attempt_count + 1 WHERE id = ?",
-                    (detail or "adapter unavailable", now, job["id"]),
-                )
-                failed += 1
-        self.conn.commit()
-        pending_remaining = self._projection_count("pending")
-        failed_total = self._projection_count("failed")
+        source_stats = self._drain_source_captures(limit=bounded_limit, include_failed=include_failed)
+        delivered += source_stats["delivered"]
+        failed += source_stats["failed"]
+        remaining_limit = bounded_limit - source_stats["attempted"]
+        if remaining_limit > 0:
+            migration_stats = self._drain_legacy_migrations(limit=remaining_limit, include_failed=include_failed)
+            delivered += migration_stats["delivered"]
+            failed += migration_stats["failed"]
+
+        pending_remaining = self._source_capture_count("pending") + self._legacy_migration_count("pending")
+        failed_total = self._source_capture_count("failed") + self._legacy_migration_count("failed")
         return {
             "delivered": delivered,
             "failed": failed,
@@ -683,6 +606,11 @@ class MemoryStore:
             "pending": pending_remaining,
             "failed_total": failed_total,
             "skipped": False,
+            "message": (
+                f"Mem0 capture: {delivered} memories captured, "
+                f"{failed} source/migration job(s) failed, "
+                f"{pending_remaining + failed_total} remaining."
+            ),
         }
 
     def search(self, query: str, *, project_id: str | None = None, limit: int = 20, status: str | None = "active") -> dict[str, Any]:
@@ -1119,6 +1047,180 @@ class MemoryStore:
         ).fetchone()
         return row is not None and row["status"] == "succeeded"
 
+    def _source_capture_count(self, status: str) -> int:
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS count FROM source_captures WHERE status = ? AND capture_version = ?",
+            (status, MEM0_CAPTURE_VERSION),
+        ).fetchone()
+        return int(row["count"])
+
+    def _legacy_migration_count(self, status: str) -> int:
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS count FROM legacy_memory_migrations WHERE status = ?",
+            (status,),
+        ).fetchone()
+        return int(row["count"])
+
+    def _capture_adapter_blockers(self) -> dict[str, str]:
+        health = self.adapters.health()
+        mem0 = str(health.get("mem0") or "").strip()
+        if "enabled" in mem0.lower():
+            return {}
+        return {"mem0": mem0 or "mem0 unavailable"}
+
+    def _drain_source_captures(self, *, limit: int, include_failed: bool) -> dict[str, int]:
+        statuses = ["pending"]
+        if include_failed:
+            statuses.append("failed")
+        placeholders = ",".join("?" for _ in statuses)
+        rows = self.conn.execute(
+            f"""
+            SELECT
+                cap.source_id,
+                cap.project_id,
+                cap.kind,
+                cap.content_hash,
+                src.title,
+                src.uri,
+                src.path,
+                src.excerpt,
+                src.metadata_json
+            FROM source_captures cap
+            LEFT JOIN sources src ON src.id = cap.source_id
+            WHERE cap.capture_version = ?
+              AND cap.status IN ({placeholders})
+            ORDER BY cap.updated_at ASC
+            LIMIT ?
+            """,
+            (MEM0_CAPTURE_VERSION, *statuses, max(1, min(limit, 25))),
+        ).fetchall()
+        delivered = 0
+        failed = 0
+        attempted = 0
+        for row in rows:
+            attempted += 1
+            source_id = str(row["source_id"])
+            project_id = str(row["project_id"])
+            kind = str(row["kind"])
+            content_hash = str(row["content_hash"] or "")
+            if row["title"] is None:
+                self._mark_source_capture(source_id, project_id, kind, content_hash, "failed", error="source row missing")
+                failed += 1
+                continue
+            source = {
+                "id": source_id,
+                "project_id": project_id,
+                "kind": kind,
+                "title": str(row["title"] or ""),
+                "uri": str(row["uri"] or ""),
+                "path": str(row["path"] or ""),
+                "content_hash": content_hash,
+                "excerpt": row["excerpt"],
+                "metadata": string_map(json.loads(row["metadata_json"] or "{}")),
+            }
+            body = self._reinfer_source_body(source)
+            if not body:
+                self._mark_source_capture(source_id, project_id, kind, content_hash, "succeeded", created_count=0)
+                continue
+            if not self._should_capture_source(
+                kind,
+                body,
+                title=str(source.get("title") or ""),
+                path=str(source.get("path") or ""),
+                uri=str(source.get("uri") or ""),
+            ):
+                self._mark_source_capture(source_id, project_id, kind, content_hash, "succeeded", created_count=0)
+                continue
+            inference_source = source | {
+                "body": body,
+                "scope": self._source_scope(
+                    project_id,
+                    path=str(source.get("path") or ""),
+                    uri=str(source.get("uri") or ""),
+                ).to_json(),
+            }
+            try:
+                chunks = self._capture_chunks_for_source(inference_source)
+                memories = self.adapters.capture_source(inference_source, chunks)
+                for memory in memories:
+                    self._cache_mem0_memory(memory)
+                    self.append_event(
+                        {
+                            "project_id": memory.get("project_id") or project_id,
+                            "event_type": "memory.observed",
+                            "actor": {"kind": "background", "id": "mem0"},
+                            "memory_id": memory.get("id"),
+                            "after": memory,
+                            "source_refs": memory.get("source_refs", []),
+                        }
+                    )
+                inference_errors = self._adapter_inference_errors()
+                if not memories and chunks:
+                    mem0_health = self.adapters.health().get("mem0", "mem0 unavailable")
+                    if "enabled" not in str(mem0_health).lower():
+                        inference_errors = [{"adapter": "mem0", "error": str(mem0_health)}]
+                if inference_errors:
+                    self._mark_source_capture(
+                        source_id,
+                        project_id,
+                        kind,
+                        content_hash,
+                        "failed",
+                        error=inference_errors[0].get("error", ""),
+                        created_count=len(memories),
+                    )
+                    failed += 1
+                else:
+                    self._mark_source_capture(source_id, project_id, kind, content_hash, "succeeded", created_count=len(memories))
+                    delivered += len(memories)
+            except Exception as error:  # noqa: BLE001
+                self._mark_source_capture(source_id, project_id, kind, content_hash, "failed", error=_compact_exception(error))
+                failed += 1
+        return {"attempted": attempted, "delivered": delivered, "failed": failed}
+
+    def _drain_legacy_migrations(self, *, limit: int, include_failed: bool) -> dict[str, int]:
+        statuses = ["pending"]
+        if include_failed:
+            statuses.append("failed")
+        placeholders = ",".join("?" for _ in statuses)
+        rows = self.conn.execute(
+            f"""
+            SELECT mem.*
+            FROM legacy_memory_migrations mig
+            JOIN memories mem ON mem.id = mig.legacy_memory_id
+            WHERE mig.status IN ({placeholders})
+            ORDER BY mig.updated_at ASC
+            LIMIT ?
+            """,
+            (*statuses, max(1, min(limit, 25))),
+        ).fetchall()
+        delivered = 0
+        failed = 0
+        for row in rows:
+            legacy = self._memory_row(row)
+            legacy_id = str(legacy["id"])
+            source_kinds = {str(ref.get("kind") or "") for ref in legacy.get("source_refs", []) if isinstance(ref, dict)}
+            if source_kinds & INSTRUCTION_SOURCE_KINDS:
+                self._mark_legacy_migration(legacy_id, "skipped_instruction_source", None, "")
+                continue
+            try:
+                migrated = self.adapters.capture_memory(
+                    legacy | {"metadata": (legacy.get("metadata") or {}) | {"legacy_memory_id": legacy_id}}
+                )
+                inference_errors = self._adapter_inference_errors()
+                if migrated is None:
+                    message = inference_errors[0].get("error", "") if inference_errors else "mem0 returned no migrated memory"
+                    self._mark_legacy_migration(legacy_id, "failed", None, message)
+                    failed += 1
+                    continue
+                self._cache_mem0_memory(migrated)
+                self._mark_legacy_migration(legacy_id, "succeeded", str(migrated.get("id") or ""), "")
+                delivered += 1
+            except Exception as error:  # noqa: BLE001
+                self._mark_legacy_migration(legacy_id, "failed", None, _compact_exception(error))
+                failed += 1
+        return {"delivered": delivered, "failed": failed}
+
     def _mark_source_capture(
         self,
         source_id: str,
@@ -1203,10 +1305,7 @@ class MemoryStore:
             )
         return results
 
-    def _migrate_legacy_memories_to_mem0(self, *, limit: int = 200) -> None:
-        mem0_health = str(self.adapters.health().get("mem0", "")).lower()
-        if "enabled" not in mem0_health:
-            return
+    def _enqueue_legacy_memories_for_mem0(self, *, limit: int = 200) -> None:
         rows = self.conn.execute(
             """
             SELECT mem.*
@@ -1227,12 +1326,9 @@ class MemoryStore:
                 self._mark_legacy_migration(str(legacy["id"]), "skipped_instruction_source", None, "")
                 continue
             self._mark_legacy_migration(str(legacy["id"]), "pending", None, "")
-            migrated = self.adapters.capture_memory(legacy | {"metadata": (legacy.get("metadata") or {}) | {"legacy_memory_id": legacy["id"]}})
-            if migrated is None:
-                self._mark_legacy_migration(str(legacy["id"]), "pending", None, "mem0 unavailable")
-                continue
-            self._cache_mem0_memory(migrated)
-            self._mark_legacy_migration(str(legacy["id"]), "succeeded", str(migrated.get("id") or ""), "")
+
+    def _migrate_legacy_memories_to_mem0(self, *, limit: int = 200) -> None:
+        self._enqueue_legacy_memories_for_mem0(limit=limit)
 
     def _mark_legacy_migration(self, legacy_memory_id: str, status: str, mem0_id: str | None, error: str) -> None:
         now = time.time()

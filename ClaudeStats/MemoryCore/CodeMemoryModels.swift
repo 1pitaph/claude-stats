@@ -633,11 +633,26 @@ struct CodeMemoryProjectionDrainResponse: Codable, Sendable, Hashable {
     var delivered: Int? = nil
     var failed: Int? = nil
     var remaining: Int? = nil
+    var pending: Int? = nil
+    var failedTotal: Int? = nil
     var enqueued: Int? = nil
     var drained: CodeMemoryProjectionDrainStats? = nil
     var skipped: Bool? = nil
     var message: String? = nil
     var blockers: [String: String]? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case delivered
+        case failed
+        case remaining
+        case pending
+        case failedTotal = "failed_total"
+        case enqueued
+        case drained
+        case skipped
+        case message
+        case blockers
+    }
 }
 
 struct CodeMemoryProjectionDrainStats: Codable, Sendable, Hashable {
@@ -694,12 +709,14 @@ struct CodeMemorySyncSourceResponse: Codable, Sendable, Hashable {
     var status: String
     var created: [CodeMemoryMemory]?
     var proposed: [CodeMemoryMemory]?
+    var queued: Int? = nil
     var inferenceErrors: [CodeMemoryInferenceError]? = nil
 
     enum CodingKeys: String, CodingKey {
         case status
         case created
         case proposed
+        case queued
         case inferenceErrors = "inference_errors"
     }
 }

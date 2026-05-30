@@ -49,15 +49,22 @@ actor LlamaChatEngine {
         let payload = messages.map { message in
             ["role": message.role, "content": message.content]
         }
-        let text: String
+        var text = ""
         do {
-            text = try runtime.completeMessages(
+            try runtime.streamMessages(
                 payload,
                 maxNewTokens: maxNewTokens,
                 temperature: temperature
-            )
+            ) { token in
+                guard !Task.isCancelled else { return false }
+                text += token
+                return true
+            }
         } catch {
             throw LlamaChatEngineError.bridgeFailed(error.localizedDescription)
+        }
+        guard !Task.isCancelled else {
+            throw CancellationError()
         }
         return LocalLLMGeneration(
             text: text,
@@ -95,7 +102,7 @@ actor LlamaChatEngine {
         maxNewTokens: Int,
         temperature: Double,
         continuation: AsyncThrowingStream<LocalLLMStreamEvent, Error>.Continuation
-    ) throws {
+    ) async throws {
         let runtime = try bridgeInstance()
         let payload = messages.map { message in
             ["role": message.role, "content": message.content]

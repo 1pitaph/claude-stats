@@ -109,8 +109,14 @@ class Mem0FirstStoreTests(unittest.TestCase):
                     }
                 )
 
-                self.assertEqual(response["status"], "ok")
-                self.assertEqual(len(response["created"]), 2)
+                self.assertEqual(response["status"], "queued")
+                self.assertEqual(response["queued"], 1)
+                self.assertEqual(len(response["created"]), 0)
+                self.assertEqual(store.health()["capture_pending"], 1)
+
+                drained = store.drain_projection_jobs(limit=5)
+
+                self.assertEqual(drained["delivered"], 2)
                 self.assertEqual([chunk["section"] for chunk in adapters.captured_chunks], ["Build", "Release"])
                 self.assertTrue(all(chunk["infer"] for chunk in adapters.captured_chunks))
                 self.assertTrue(all("reusable repository rules" in chunk["prompt"] for chunk in adapters.captured_chunks))
@@ -135,9 +141,10 @@ class Mem0FirstStoreTests(unittest.TestCase):
             }
             try:
                 first = store.ingest_source(payload)
+                store.drain_projection_jobs(limit=5)
                 second = store.ingest_source(payload)
 
-                self.assertEqual(first["status"], "ok")
+                self.assertEqual(first["status"], "queued")
                 self.assertEqual(second["status"], "skipped")
                 self.assertEqual(len(adapters.captured_chunks), 1)
             finally:
@@ -148,7 +155,7 @@ class Mem0FirstStoreTests(unittest.TestCase):
             adapters = FakeMem0Adapters()
             store = MemoryStore(Path(directory), adapters=adapters)
             try:
-                store.ingest_source(
+                response = store.ingest_source(
                     {
                         "id": "src:terminal",
                         "project_id": "/repo",
@@ -162,6 +169,8 @@ class Mem0FirstStoreTests(unittest.TestCase):
                     }
                 )
 
+                self.assertEqual(response["status"], "queued")
+                store.drain_projection_jobs(limit=5)
                 self.assertEqual(len(adapters.captured_chunks), 1)
                 self.assertFalse(adapters.captured_chunks[0]["infer"])
                 self.assertEqual(adapters.captured_chunks[0]["type"], "workflow")

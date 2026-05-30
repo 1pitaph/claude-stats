@@ -1,8 +1,10 @@
 import importlib.util
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -104,6 +106,104 @@ class MemorySidecarTests(unittest.TestCase):
 
         sys.path.insert(0, str(SIDECAR))
         self.addCleanup(lambda: sys.path.remove(str(SIDECAR)) if str(SIDECAR) in sys.path else None)
+
+    def test_runtime_config_file_splits_llm_and_embedding_endpoints(self):
+        from memoryd.config import load_local_ai_config
+
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp) / "runtime.json"
+            runtime.write_text(
+                json.dumps(
+                    {
+                        "llm": {
+                            "protocol": "openai_responses",
+                            "base_url": "https://api.openai.com/v1",
+                            "api_key": "online-key",
+                            "model": "gpt-5-mini",
+                        },
+                        "embedding": {
+                            "base_url": "http://127.0.0.1:18765/v1",
+                            "api_key": "local-key",
+                            "model": "embedding-model",
+                            "dimensions": 384,
+                        },
+                        "mem0_enabled": True,
+                        "graphiti_enabled": True,
+                        "configuration_hash": "hash",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with patch.dict(os.environ, {"CLAUDE_STATS_MEMORY_RUNTIME_CONFIG": str(runtime)}, clear=True):
+                config = load_local_ai_config(Path(tmp))
+
+            self.assertTrue(config.enabled)
+            self.assertEqual(config.llm.protocol, "openai_responses")
+            self.assertEqual(config.llm.token, "online-key")
+            self.assertEqual(config.embedding.token, "local-key")
+            self.assertEqual(config.embedding_dims, 384)
+
+    def test_legacy_local_ai_env_still_parses_as_openai_chat(self):
+        from memoryd.config import load_local_ai_config
+
+        env = {
+            "CLAUDE_STATS_LOCAL_AI_BASE_URL": "http://127.0.0.1:18765/v1",
+            "CLAUDE_STATS_LOCAL_AI_TOKEN": "local-token",
+            "CLAUDE_STATS_LOCAL_LLM_MODEL": "local-llm",
+            "CLAUDE_STATS_LOCAL_EMBEDDING_MODEL": "local-embedding",
+            "CLAUDE_STATS_LOCAL_EMBEDDING_DIMS": "384",
+            "CLAUDE_STATS_MEM0_ENABLED": "1",
+            "CLAUDE_STATS_GRAPHITI_ENABLED": "1",
+        }
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, env, clear=True):
+            config = load_local_ai_config(Path(tmp))
+
+        self.assertTrue(config.enabled)
+        self.assertEqual(config.source, "legacy_env")
+        self.assertEqual(config.llm.protocol, "openai_chat_completions")
+        self.assertEqual(config.llm.token, config.embedding.token)
+
+    def test_adapter_config_builders_select_requested_llm_protocol(self):
+        from memoryd.adapters import _mem0_embedder_config, _mem0_llm_config
+        from memoryd.config import EmbeddingEndpointConfig, LLMEndpointConfig, MemoryModelConfig
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = MemoryModelConfig(
+                llm=LLMEndpointConfig("anthropic_messages", "https://api.anthropic.com", "anthropic-key", "claude-haiku-4-5-latest"),
+                embedding=EmbeddingEndpointConfig("http://127.0.0.1:18765/v1", "local-key", "embedding-model", 384),
+                mem0_enabled=True,
+                graphiti_enabled=True,
+                qdrant_path=root / "qdrant",
+                kuzu_path=root / "graphiti.kuzu",
+                adapter_timeout_seconds=20,
+            )
+
+            llm_provider, llm_config = _mem0_llm_config(config)
+            embedder_config = _mem0_embedder_config(config)
+
+        self.assertEqual(llm_provider, "claude_stats_anthropic_messages")
+        self.assertEqual(llm_config["anthropic_base_url"], "https://api.anthropic.com")
+        self.assertEqual(embedder_config["api_key"], "local-key")
+        self.assertEqual(embedder_config["openai_base_url"], "http://127.0.0.1:18765/v1")
+
+    def test_openai_responses_parser_extracts_text_and_function_calls(self):
+        from memoryd.llm_providers import _parse_responses_output
+
+        response = {
+            "output_text": "summary",
+            "output": [
+                {"type": "message", "content": [{"type": "output_text", "text": " body"}]},
+                {"type": "function_call", "name": "save_memory", "arguments": '{"title":"Run tests"}'},
+            ],
+        }
+
+        parsed = _parse_responses_output(response, tools=[{"type": "function"}])
+
+        self.assertEqual(parsed["content"], "summary body")
+        self.assertEqual(parsed["tool_calls"][0]["name"], "save_memory")
+        self.assertEqual(parsed["tool_calls"][0]["arguments"], {"title": "Run tests"})
 
     def test_event_hash_chain_search_and_graph(self):
         from memoryd.store import MemoryStore
@@ -219,9 +319,11 @@ class MemorySidecarTests(unittest.TestCase):
                 }
             )
 
-            self.assertEqual(result["status"], "ok")
-            self.assertEqual(len(result["created"]), 1)
+            self.assertEqual(result["status"], "queued")
+            self.assertEqual(len(result["created"]), 0)
             self.assertEqual(result["proposed"], [])
+            drained = store.drain_projection_jobs(limit=5)
+            self.assertEqual(drained["delivered"], 1)
             self.assertEqual(adapters.captured_sources[0][1][0]["infer"], True)
 
             modules = store.modules(project_id="claude-stats")["modules"]
@@ -309,13 +411,16 @@ class MemorySidecarTests(unittest.TestCase):
                 }
             )
 
-            self.assertEqual(len(result["created"]), 1)
+            self.assertEqual(result["status"], "queued")
+            self.assertEqual(len(result["created"]), 0)
             self.assertEqual(result["proposed"], [])
             self.assertIn("Session: Codex session", result["source"]["body"])
             self.assertIn("User: run tests", result["source"]["body"])
             self.assertNotIn("session_meta", result["source"]["body"])
             self.assertNotIn("base_instructions", result["source"]["body"])
             self.assertNotIn("raw", result["source"]["body"])
+            drained = store.drain_projection_jobs(limit=5)
+            self.assertEqual(drained["delivered"], 1)
             self.assertEqual(len(adapters.captured_sources), 1)
             self.assertNotIn("session_meta", adapters.captured_sources[0][0]["body"])
             source_row = store.conn.execute("SELECT excerpt FROM sources WHERE kind = 'codex_transcript'").fetchone()
@@ -343,7 +448,9 @@ class MemorySidecarTests(unittest.TestCase):
                 }
             )
 
-            self.assertEqual(result["created"][0]["status"], "active")
+            drained = store.drain_projection_jobs(limit=5)
+            self.assertEqual(drained["delivered"], 1)
+            self.assertEqual(store.memories(project_id="p")["memories"][0]["status"], "active")
             self.assertEqual(result["proposed"], [])
 
     def test_reinfer_sources_bypasses_content_hash_skip_and_excludes_configs(self):
@@ -363,6 +470,7 @@ class MemorySidecarTests(unittest.TestCase):
                 "infer": False,
             }
             store.ingest_source(payload)
+            store.drain_projection_jobs(limit=5)
             skipped = store.ingest_source(payload | {"infer": True})
             self.assertEqual(skipped["status"], "skipped")
             self.assertEqual(len(adapters.captured_sources), 1)
@@ -370,7 +478,9 @@ class MemorySidecarTests(unittest.TestCase):
             reinferred = store.reinfer_sources({"source_id": "src:transcript"})
             self.assertEqual(reinferred["scanned"], 1)
             self.assertEqual(reinferred["attempted"], 1)
-            self.assertEqual(reinferred["created"], 1)
+            self.assertEqual(reinferred["created"], 0)
+            drained = store.drain_projection_jobs(limit=5)
+            self.assertEqual(drained["delivered"], 1)
             self.assertEqual(len(adapters.captured_sources), 2)
             self.assertEqual(store.proposals(project_id="p")["memories"], [])
 
@@ -435,15 +545,17 @@ class MemorySidecarTests(unittest.TestCase):
             )
 
             self.assertEqual(result["proposed"], [])
-            self.assertEqual({error["adapter"] for error in result["inference_errors"]}, {"mem0"})
-            self.assertIn("llm inference failed", result["inference_errors"][0]["error"])
+            self.assertEqual(result["inference_errors"], [])
+            drained = store.drain_projection_jobs(limit=5)
+            self.assertEqual(drained["failed"], 1)
             health_errors = json.loads(store.health()["adapters"]["last_inference_errors"])
             self.assertEqual({error["adapter"] for error in health_errors}, {"mem0"})
 
             reinferred = store.reinfer_sources({"source_id": "src:error"})
             self.assertEqual(reinferred["attempted"], 1)
-            self.assertEqual({error["adapter"] for error in reinferred["errors"]}, {"mem0"})
-            self.assertTrue(all(error["source_id"] == "src:error" for error in reinferred["errors"]))
+            self.assertEqual(reinferred["errors"], [])
+            retried = store.drain_projection_jobs(limit=5)
+            self.assertEqual(retried["failed"], 1)
 
     def test_legacy_raw_transcript_source_excerpts_are_redacted(self):
         from memoryd.store import MemoryStore, RAW_TRANSCRIPT_REDACTION
@@ -956,7 +1068,7 @@ class MemorySidecarTests(unittest.TestCase):
 
             retried = store.drain_projection_jobs(limit=10, include_failed=True)
             self.assertEqual(retried["delivered"], 0)
-            self.assertIn("projection jobs are disabled", retried["message"])
+            self.assertIn("capture queue is empty", retried["message"])
 
     def test_projection_drain_skips_when_adapter_endpoint_is_unavailable(self):
         from memoryd.store import MemoryStore
@@ -999,7 +1111,7 @@ class MemorySidecarTests(unittest.TestCase):
             self.assertEqual(skipped["delivered"], 0)
             self.assertEqual(skipped["failed"], 0)
             self.assertEqual(skipped["pending"], 0)
-            self.assertIn("projection jobs are disabled", skipped["message"])
+            self.assertIn("capture queue is empty", skipped["message"])
 
     def test_adapter_search_must_resolve_to_canonical_memory(self):
         from memoryd.store import MemoryStore
@@ -1130,7 +1242,9 @@ class MemorySidecarTests(unittest.TestCase):
                     "infer": False,
                 }
             )
-            memory = result["created"][0]
+            self.assertEqual(result["status"], "queued")
+            store.drain_projection_jobs(limit=5)
+            memory = store.memories(project_id="p")["memories"][0]
             pack = store.context_pack("run-debug", project_id="p")
             graph = store.graph("p")
 

@@ -40,11 +40,17 @@ final class MemorySettingsStore {
         }
     }
 
-    func startSidecar(localAIEnvironment: CodeMemoryLocalAIEnvironment? = nil) async {
+    func startSidecar(
+        localAIEnvironment: CodeMemoryLocalAIEnvironment? = nil,
+        modelRuntimeConfig: CodeMemoryModelRuntimeConfig? = nil
+    ) async {
         guard !isLoading else { return }
         isLoading = true
         do {
-            let configuration = CodeMemorySidecarConfiguration(localAI: localAIEnvironment)
+            let configuration = CodeMemorySidecarConfiguration(
+                localAI: localAIEnvironment,
+                modelRuntimeConfig: modelRuntimeConfig
+            )
             let pid = try CodeMemorySidecarManager(configuration: configuration).start(helperPath: CodeMemorySidecarManager.defaultHelperPath())
             setupMessage = "Started memoryd pid=\(pid)."
             lastError = nil
@@ -112,13 +118,13 @@ final class MemorySettingsStore {
     func drainProjections(includeFailed: Bool = false) async {
         guard !isLoading else { return }
         isLoading = true
-        AppLivenessRescue.arm(reason: includeFailed ? "code memory failed projection retry" : "code memory projection drain")
+        AppLivenessRescue.arm(reason: includeFailed ? "code memory failed capture retry" : "code memory capture drain")
         defer { isLoading = false }
 
         do {
             lastProjectionDrainResult = try await backend.drainProjections(includeFailed: includeFailed)
             if lastProjectionDrainResult?.skipped == true {
-                lastError = lastProjectionDrainResult?.message ?? "Projection drain skipped."
+                lastError = lastProjectionDrainResult?.message ?? "Mem0 capture drain skipped."
             } else {
                 lastError = nil
             }

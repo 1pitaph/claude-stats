@@ -135,7 +135,8 @@ struct LocalAIModelsSettingsView: View {
                     } else {
                         localAI.stopOpenAICompatibleServer()
                         Task {
-                            await env.memory.startCodeMemorySidecar(localAIEnvironment: nil)
+                            await env.memoryModelSettings.useOnlineSourceOnlyAndSave()
+                            await env.startCodeMemorySidecarFromCurrentModelSettings()
                         }
                     }
                 }
@@ -178,7 +179,7 @@ struct LocalAIModelsSettingsView: View {
                     }
                 }
                 SettingRowDivider()
-                SettingRow(title: "Readiness", description: "Both selected models must be installed before mem0 and Graphiti can use full local extraction.") {
+                SettingRow(title: "Readiness", description: "Both selected models must be installed before mem0 can drain queued local memory captures.") {
                     HStack(spacing: 6) {
                         LocalAIStatusPill(text: localAI.semanticSearchAvailable ? "Embedding ready" : "Embedding missing", tone: localAI.semanticSearchAvailable ? .accent : .warning)
                         LocalAIStatusPill(text: localAI.localLLMAvailable ? "LLM ready" : "LLM missing", tone: localAI.localLLMAvailable ? .accent : .warning)
@@ -193,7 +194,8 @@ struct LocalAIModelsSettingsView: View {
         localAI.completeLocalModeEnabled = true
         localAI.restartOpenAICompatibleServerIfNeeded()
         Task {
-            await env.memory.startCodeMemorySidecar(localAIEnvironment: localAI.localAIEnvironment())
+            await env.memoryModelSettings.useLocalModeAndSave()
+            await env.startCodeMemorySidecarFromCurrentModelSettings()
         }
     }
 

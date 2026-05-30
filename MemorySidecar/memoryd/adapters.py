@@ -137,6 +137,7 @@ class CompositeAdapters:
         return memories
 
     def capture_memory(self, memory: dict[str, Any]) -> dict[str, Any] | None:
+        self.last_inference_errors = []
         for adapter in self.adapters:
             if getattr(adapter, "name", "") != "mem0":
                 continue
@@ -238,6 +239,7 @@ class Mem0Adapter:
         try:
             from mem0 import Memory  # type: ignore
 
+            llm_provider, llm_config = _mem0_llm_config(config)
             self.client = Memory.from_config(
                 {
                     "vector_store": {
@@ -250,21 +252,12 @@ class Mem0Adapter:
                         },
                     },
                     "llm": {
-                        "provider": "openai",
-                        "config": {
-                            "model": config.llm_model,
-                            "api_key": config.token,
-                            "openai_base_url": config.base_url,
-                        },
+                        "provider": llm_provider,
+                        "config": llm_config,
                     },
                     "embedder": {
                         "provider": "openai",
-                        "config": {
-                            "model": config.embedding_model,
-                            "api_key": config.token,
-                            "openai_base_url": config.base_url,
-                            "embedding_dims": config.embedding_dims,
-                        },
+                        "config": _mem0_embedder_config(config),
                     },
                     "history_db_path": str(config.qdrant_path.parent / "mem0-history.sqlite3"),
                 }
@@ -280,7 +273,7 @@ class Mem0Adapter:
         if self.available:
             if endpoint_error := _endpoint_error(self.config):
                 return {"mem0": f"configured but endpoint unavailable: {endpoint_error}"}
-            return {"mem0": "enabled: local qdrant + local OpenAI-compatible endpoint"}
+            return {"mem0": f"enabled: local qdrant + {_protocol_label(self.config.llm.protocol)} LLM + local embedding"}
         return {"mem0": f"unavailable: {self.last_error}"}
 
     def capture_source(self, source: dict[str, Any], chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -612,21 +605,17 @@ class GraphitiAdapter:
             from graphiti_core import Graphiti  # type: ignore
             from graphiti_core.driver.kuzu_driver import KuzuDriver  # type: ignore
             from graphiti_core.embedder.openai import OpenAIEmbedder, OpenAIEmbedderConfig  # type: ignore
-            from graphiti_core.llm_client.config import LLMConfig  # type: ignore
-            from graphiti_core.llm_client.openai_generic_client import OpenAIGenericClient  # type: ignore
 
             driver = KuzuDriver(db=str(config.kuzu_path))
             if not hasattr(driver, "_database"):
                 setattr(driver, "_database", "")
             self.graphiti = Graphiti(
                 graph_driver=driver,
-                llm_client=OpenAIGenericClient(
-                    LLMConfig(api_key=config.token, base_url=config.base_url, model=config.llm_model)
-                ),
+                llm_client=_graphiti_llm_client(config),
                 embedder=OpenAIEmbedder(
                     OpenAIEmbedderConfig(
-                        api_key=config.token,
-                        base_url=config.base_url,
+                        api_key=config.embedding_token,
+                        base_url=config.embedding_base_url,
                         embedding_model=config.embedding_model,
                         embedding_dim=config.embedding_dims,
                     )
@@ -643,7 +632,7 @@ class GraphitiAdapter:
         if self.available:
             if endpoint_error := _endpoint_error(self.config):
                 return {"graphiti": f"configured but endpoint unavailable: {endpoint_error}"}
-            return {"graphiti": "enabled: local kuzu + local OpenAI-compatible endpoint"}
+            return {"graphiti": f"enabled: local kuzu + {_protocol_label(self.config.llm.protocol)} LLM + local embedding"}
         return {"graphiti": f"unavailable: {self.last_error}"}
 
     def index_memory(self, memory: dict[str, Any], event: dict[str, Any], *, adapter_name: str | None = None) -> dict[str, str]:
@@ -926,11 +915,100 @@ def _safe_group_id(value: str | None) -> str:
     return f"p_{safe[:48]}_{digest}"
 
 
+def _mem0_llm_config(config: LocalAIConfig) -> tuple[str, dict[str, Any]]:
+    protocol = config.llm.protocol
+    if protocol == "openai_responses":
+        _register_mem0_custom_providers_if_available()
+        return (
+            "claude_stats_openai_responses",
+            {
+                "model": config.llm.model,
+                "api_key": config.llm.token,
+                "openai_base_url": config.llm.base_url,
+            },
+        )
+    if protocol == "anthropic_messages":
+        _register_mem0_custom_providers_if_available()
+        return (
+            "claude_stats_anthropic_messages",
+            {
+                "model": config.llm.model,
+                "api_key": config.llm.token,
+                "anthropic_base_url": config.llm.base_url,
+            },
+        )
+    return (
+        "openai",
+        {
+            "model": config.llm.model,
+            "api_key": config.llm.token,
+            "openai_base_url": config.llm.base_url,
+        },
+    )
+
+
+def _register_mem0_custom_providers_if_available() -> None:
+    try:
+        from .llm_providers import register_mem0_llm_providers
+
+        register_mem0_llm_providers()
+    except ImportError:
+        return
+
+
+def _mem0_embedder_config(config: LocalAIConfig) -> dict[str, Any]:
+    return {
+        "model": config.embedding_model,
+        "api_key": config.embedding_token,
+        "openai_base_url": config.embedding_base_url,
+        "embedding_dims": config.embedding_dims,
+    }
+
+
+def _graphiti_llm_client(config: LocalAIConfig):
+    from graphiti_core.llm_client.config import LLMConfig  # type: ignore
+
+    llm_config = LLMConfig(
+        api_key=config.llm.token,
+        base_url=config.llm.base_url,
+        model=config.llm.model,
+    )
+    if config.llm.protocol == "openai_responses":
+        from graphiti_core.llm_client.openai_client import OpenAIClient  # type: ignore
+
+        return OpenAIClient(llm_config)
+    if config.llm.protocol == "anthropic_messages":
+        from graphiti_core.llm_client.anthropic_client import AnthropicClient  # type: ignore
+
+        return AnthropicClient(llm_config)
+    from graphiti_core.llm_client.openai_generic_client import OpenAIGenericClient  # type: ignore
+
+    return OpenAIGenericClient(llm_config)
+
+
+def _protocol_label(protocol: str) -> str:
+    return {
+        "openai_chat_completions": "OpenAI Chat",
+        "openai_responses": "OpenAI Responses",
+        "anthropic_messages": "Anthropic Messages",
+    }.get(protocol, protocol or "unknown")
+
+
 def _endpoint_error(config: LocalAIConfig) -> str:
-    parsed = urlparse(config.base_url)
+    llm_error = _endpoint_url_error(config.llm.base_url, label="LLM")
+    if llm_error:
+        return llm_error
+    embedding_error = _endpoint_url_error(config.embedding.base_url, label="embedding")
+    if embedding_error:
+        return embedding_error
+    return ""
+
+
+def _endpoint_url_error(base_url: str, *, label: str) -> str:
+    parsed = urlparse(base_url)
     host = parsed.hostname
     if not host:
-        return "local AI base URL is not configured"
+        return f"{label} base URL is not configured"
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
     try:
         with socket.create_connection((host, port), timeout=0.25):
@@ -938,8 +1016,8 @@ def _endpoint_error(config: LocalAIConfig) -> str:
     except OSError as error:
         detail = error.strerror or str(error)
         if host in {"127.0.0.1", "localhost", "::1"} and port == 18765:
-            return f"local AI helper stopped or unreachable at {host}:{port} ({detail})"
-        return f"{host}:{port} is unreachable ({detail})"
+            return f"{label} local AI helper stopped or unreachable at {host}:{port} ({detail})"
+        return f"{label} endpoint {host}:{port} is unreachable ({detail})"
 
 
 def _compact_error(error: Exception) -> str:
@@ -955,7 +1033,7 @@ def _compact_error(error: Exception) -> str:
 def build_adapters(root) -> MemoryAdapters:
     config = load_local_ai_config(root)
     if not config.enabled:
-        return NullAdapters()
+        return NullAdapters(_disabled_detail(config))
     adapters: list[MemoryAdapters] = []
     if config.mem0_enabled:
         adapters.append(Mem0Adapter(config))
@@ -964,3 +1042,15 @@ def build_adapters(root) -> MemoryAdapters:
     if not adapters:
         return NullAdapters("mem0 and Graphiti are disabled")
     return CompositeAdapters(adapters)
+
+
+def _disabled_detail(config: LocalAIConfig) -> str:
+    if config.source == "disabled" and config.llm.model:
+        return config.llm.model
+    if not config.mem0_enabled and not config.graphiti_enabled:
+        return "memory model adapters are disabled"
+    if not config.llm.enabled:
+        return "LLM endpoint is not configured"
+    if not config.embedding.enabled:
+        return "local embedding endpoint is not configured"
+    return "memory model runtime is not configured"

@@ -2,11 +2,46 @@ import AppKit
 import Foundation
 import Observation
 
+enum MemoryCaptureMode: String, CaseIterable, Identifiable, Sendable {
+    case balanced
+    case idleOnly
+    case eager
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .balanced: "Balanced"
+        case .idleOnly: "Idle Only"
+        case .eager: "Eager"
+        }
+    }
+
+    var backgroundDrainLimit: Int {
+        switch self {
+        case .balanced: 2
+        case .idleOnly: 0
+        case .eager: 8
+        }
+    }
+
+    var allowsAutomaticDrain: Bool {
+        backgroundDrainLimit > 0
+    }
+}
+
 @MainActor
 @Observable
 final class MemoryWorkspaceStore {
+    private static let captureModeDefaultsKey = "memory.captureMode"
+
     var section: MemoryWorkspaceSection = .search
     var selectedProjectID: String?
+    var captureMode: MemoryCaptureMode {
+        didSet {
+            defaults.set(captureMode.rawValue, forKey: Self.captureModeDefaultsKey)
+        }
+    }
 
     let search: MemorySearchStore
     let library: MemoryLibraryStore
@@ -15,17 +50,23 @@ final class MemoryWorkspaceStore {
     let settings: MemorySettingsStore
 
     private(set) var isLoading = false
+    private(set) var isBackgroundCapturing = false
     private(set) var codeLastSyncSummary: String?
+    private(set) var codeLastBackgroundCaptureResult: CodeMemoryProjectionDrainResponse?
     private(set) var syncError: String?
 
     @ObservationIgnored private let codeBackend: any CodeMemoryBackend
+    @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var hasLoaded = false
 
     init(
         codeBackend: any CodeMemoryBackend = CodeMemoryHTTPClient(),
-        codeOutbox: CodeMemoryEventOutbox = CodeMemoryEventOutbox()
+        codeOutbox: CodeMemoryEventOutbox = CodeMemoryEventOutbox(),
+        defaults: UserDefaults = .standard
     ) {
         self.codeBackend = codeBackend
+        self.defaults = defaults
+        self.captureMode = MemoryCaptureMode(rawValue: defaults.string(forKey: Self.captureModeDefaultsKey) ?? "") ?? .balanced
         self.search = MemorySearchStore(backend: codeBackend)
         self.library = MemoryLibraryStore(backend: codeBackend)
         self.graph = MemoryGraphStore(backend: codeBackend)
@@ -47,7 +88,9 @@ final class MemoryWorkspaceStore {
     var codeGraph: CodeMemoryGraph? { graph.graph }
     var codeTrace: CodeMemoryRunTrace? { search.trace }
     var codeOutboxLastDrainResult: CodeMemoryOutboxDrainResult? { settings.outboxLastDrainResult }
-    var codeLastProjectionDrainResult: CodeMemoryProjectionDrainResponse? { settings.lastProjectionDrainResult ?? review.lastProjectionDrainResult }
+    var codeLastProjectionDrainResult: CodeMemoryProjectionDrainResponse? {
+        settings.lastProjectionDrainResult ?? review.lastProjectionDrainResult ?? codeLastBackgroundCaptureResult
+    }
     var codeLastReindexResult: CodeMemoryProjectionDrainResponse? { settings.lastReindexResult }
     var codeLastReinferResult: CodeMemoryReinferSourcesResponse? { settings.lastReinferResult }
     var isCodeMemoryLoading: Bool {
@@ -182,6 +225,25 @@ final class MemoryWorkspaceStore {
         await refreshCodeMemoryStatus()
     }
 
+    func drainQueuedMemoryCaptures(limit: Int, includeFailed: Bool = false) async {
+        guard !isBackgroundCapturing else { return }
+        isBackgroundCapturing = true
+        defer { isBackgroundCapturing = false }
+
+        do {
+            let response = try await codeBackend.drainCaptures(limit: limit, includeFailed: includeFailed)
+            codeLastBackgroundCaptureResult = response
+            if response.skipped == true {
+                syncError = response.message
+            } else {
+                syncError = nil
+            }
+        } catch {
+            syncError = "Mem0 capture failed: \(error.localizedDescription)"
+        }
+        await settings.refresh()
+    }
+
     func loadCodeGraph(projectID: String? = nil) async {
         let projectID = projectID ?? selectedProjectID ?? library.projects.first?.projectID
         await graph.load(projectID: projectID)
@@ -205,8 +267,14 @@ final class MemoryWorkspaceStore {
         await search.loadTrace(runID: traceID)
     }
 
-    func startCodeMemorySidecar(localAIEnvironment: CodeMemoryLocalAIEnvironment? = nil) async {
-        await settings.startSidecar(localAIEnvironment: localAIEnvironment)
+    func startCodeMemorySidecar(
+        localAIEnvironment: CodeMemoryLocalAIEnvironment? = nil,
+        modelRuntimeConfig: CodeMemoryModelRuntimeConfig? = nil
+    ) async {
+        await settings.startSidecar(
+            localAIEnvironment: localAIEnvironment,
+            modelRuntimeConfig: modelRuntimeConfig
+        )
         await refreshCodeMemoryStatus()
     }
 
@@ -225,16 +293,17 @@ final class MemoryWorkspaceStore {
     func syncAvailableSources(sessions: [Session], configProjects: [AIConfigProject]) async {
         guard !isLoading else { return }
         isLoading = true
+        defer { isLoading = false }
         syncError = nil
         let sources = await Self.makeSyncSources(sessions: sessions, configProjects: configProjects)
         guard !sources.isEmpty else {
             codeLastSyncSummary = "No local sources found."
-            isLoading = false
             return
         }
 
         var created = 0
         var proposed = 0
+        var queued = 0
         var skipped = 0
         var failed = 0
         for source in sources {
@@ -245,12 +314,12 @@ final class MemoryWorkspaceStore {
                 }
                 created += response.created?.count ?? 0
                 proposed += response.proposed?.count ?? 0
+                queued += response.queued ?? (response.status == "queued" ? 1 : 0)
             } catch {
                 failed += 1
             }
         }
-        codeLastSyncSummary = "Synced \(sources.count) sources · \(created) active · \(proposed) proposed · \(skipped) skipped · \(failed) failed"
-        isLoading = false
+        codeLastSyncSummary = "Synced \(sources.count) sources · \(queued) queued · \(created) active · \(proposed) proposed · \(skipped) skipped · \(failed) failed"
         await refreshCodeMemoryStatus()
     }
 }

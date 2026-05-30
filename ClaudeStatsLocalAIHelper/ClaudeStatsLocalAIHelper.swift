@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 @main
 enum ClaudeStatsLocalAIHelper {
@@ -67,7 +68,9 @@ private final class LocalAIHelperProcess {
             port: config.port
         )
         let service = LocalAIOpenAIService(modelStore: modelStore, runtimeMetadata: metadata)
-        let server = LocalAIOpenAIServer(service: service, token: config.token, port: config.port)
+        let server = LocalAIOpenAIServer(service: service, token: config.token, port: config.port, idleTimeout: 120) {
+            Darwin.exit(0)
+        }
         _ = try server.start()
         self.server = server
     }

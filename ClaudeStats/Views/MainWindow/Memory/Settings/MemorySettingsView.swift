@@ -17,6 +17,7 @@ struct MemorySettingsView: View {
             AppScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     sidecarCard
+                    memoryLLMCard
                     projectionCard
                     adaptersCard
                     shellCard
@@ -24,6 +25,9 @@ struct MemorySettingsView: View {
                 }
                 .padding(.bottom, 24)
             }
+        }
+        .task {
+            await env.memoryModelSettings.loadIfNeeded()
         }
     }
 
@@ -43,8 +47,8 @@ struct MemorySettingsView: View {
             HStack(spacing: 8) {
                 Button {
                     Task {
-                        env.localAI.restartOpenAICompatibleServerIfNeeded()
-                        await store.startCodeMemorySidecar(localAIEnvironment: env.localAI.localAIEnvironment())
+                        await env.memoryModelSettings.saveDraft()
+                        await env.startCodeMemorySidecarFromCurrentModelSettings()
                     }
                 } label: {
                     Label("Start", systemImage: "play.fill")
@@ -82,6 +86,115 @@ struct MemorySettingsView: View {
         .appSurface(.compactCard(radius: 8, fillOpacity: 0.55, cornerStyle: .circular, maxWidth: nil), padding: nil)
     }
 
+    private var memoryLLMCard: some View {
+        @Bindable var modelSettings = env.memoryModelSettings
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text("Memory LLM")
+                    .font(.sora(15, weight: .semibold))
+                AIConfigsBadge(text: modelSettings.readinessSummary(localAI: env.localAI), color: modelSettings.hasRunnableAdapters(localAI: env.localAI) ? Color.stxAccent : Color.stxMuted)
+                Spacer(minLength: 0)
+            }
+
+            HStack(spacing: 10) {
+                AppSelect(
+                    .localized("Mode"),
+                    selection: $modelSettings.mode,
+                    options: MemoryLLMMode.allCases.map {
+                        AppSelectOption(value: $0, title: .localized($0.title))
+                    },
+                    width: 180,
+                    size: .small
+                )
+
+                if modelSettings.mode == .online {
+                    AppSelect(
+                        .localized("Protocol"),
+                        selection: $modelSettings.selectedProtocol,
+                        options: MemoryOnlineLLMProtocol.allCases.map {
+                            AppSelectOption(value: $0, title: .localized($0.title), subtitle: .verbatim($0.subtitle))
+                        },
+                        width: 230,
+                        size: .small,
+                        onSelectionChange: { modelSettings.selectProtocol($0) }
+                    )
+                }
+            }
+
+            if modelSettings.mode == .online {
+                Toggle(isOn: $modelSettings.onlineExtractionEnabled) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Online memory extraction")
+                            .font(.sora(12, weight: .semibold))
+                        Text("When off, transcripts and repo instructions stay source-only and are not sent to an online model.")
+                            .font(.sora(10))
+                            .foregroundStyle(Color.stxMuted)
+                    }
+                }
+                .toggleStyle(.appSwitch)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    memoryTextField("Name", text: $modelSettings.providerName)
+                    memoryTextField("Base URL", text: $modelSettings.providerBaseURL)
+                    memoryTextField("Model", text: $modelSettings.providerModel)
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Text("API Key")
+                            .font(.sora(11, weight: .medium))
+                            .foregroundStyle(Color.stxMuted)
+                            .frame(width: 90, alignment: .leading)
+                        SecureField("sk-...", text: $modelSettings.apiKey)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                }
+            } else {
+                HStack(spacing: 8) {
+                    AIConfigsBadge(text: env.localAI.semanticSearchAvailable ? "Embedding ready" : "Embedding missing", color: env.localAI.semanticSearchAvailable ? Color.stxAccent : Color.orange)
+                    AIConfigsBadge(text: env.localAI.localLLMAvailable ? "LLM ready" : "LLM missing", color: env.localAI.localLLMAvailable ? Color.stxAccent : Color.orange)
+                    Text(env.localAI.localAPIStatusText)
+                        .font(.sora(10).monospaced())
+                        .foregroundStyle(Color.stxMuted)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    Task { await modelSettings.saveDraft() }
+                } label: {
+                    Label("Save", systemImage: "checkmark")
+                }
+                .controlSize(.small)
+                .disabled(modelSettings.isLoading)
+
+                Button {
+                    Task {
+                        await modelSettings.saveDraft()
+                        await env.startCodeMemorySidecarFromCurrentModelSettings()
+                    }
+                } label: {
+                    Label("Apply & Restart", systemImage: "arrow.clockwise")
+                }
+                .controlSize(.small)
+                .disabled(modelSettings.isLoading || store.isCodeMemoryLoading)
+
+                if let message = modelSettings.setupMessage {
+                    Text(message)
+                        .font(.sora(11))
+                        .foregroundStyle(Color.stxMuted)
+                }
+            }
+
+            if let error = modelSettings.lastError {
+                Text(error)
+                    .font(.sora(11))
+                    .foregroundStyle(Color.red)
+            }
+        }
+        .padding(16)
+        .appSurface(.compactCard(radius: 8, fillOpacity: 0.55, cornerStyle: .circular, maxWidth: nil), padding: nil)
+    }
+
     private var projectionCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Mem0 Capture")
@@ -96,9 +209,19 @@ struct MemorySettingsView: View {
                 }
             }
 
+            Picker("Mode", selection: $store.captureMode) {
+                ForEach(MemoryCaptureMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .controlSize(.small)
+
             HStack(spacing: 8) {
                 Button {
-                    Task { await store.drainCodeMemoryProjections() }
+                    Task {
+                        await store.drainCodeMemoryProjections()
+                    }
                 } label: {
                     Label("Drain Pending", systemImage: "tray.and.arrow.up")
                 }
@@ -106,7 +229,9 @@ struct MemorySettingsView: View {
                 .disabled(store.isCodeMemoryLoading || store.codeHealth == nil)
 
                 Button {
-                    Task { await store.drainCodeMemoryProjections(includeFailed: true) }
+                    Task {
+                        await store.drainCodeMemoryProjections(includeFailed: true)
+                    }
                 } label: {
                     Label("Retry Failed", systemImage: "arrow.counterclockwise")
                 }
@@ -246,7 +371,21 @@ struct MemorySettingsView: View {
         }
     }
 
+    private func memoryTextField(_ label: String, text: Binding<String>) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(label)
+                .font(.sora(11, weight: .medium))
+                .foregroundStyle(Color.stxMuted)
+                .frame(width: 90, alignment: .leading)
+            TextField(label, text: text)
+                .textFieldStyle(.roundedBorder)
+        }
+    }
+
     private func reindexSummary(_ result: CodeMemoryProjectionDrainResponse) -> String {
+        if let message = result.message {
+            return message
+        }
         if let drained = result.drained {
             return "Reindex: \(result.enqueued ?? 0) enqueued, \(drained.delivered ?? 0) delivered, \(drained.failed ?? 0) failed"
         }
@@ -255,7 +394,7 @@ struct MemorySettingsView: View {
 
     private func reinferSummary(_ result: CodeMemoryReinferSourcesResponse) -> String {
         let errorSuffix = result.errors.isEmpty ? "" : ", \(result.errors.count) adapter errors"
-        return "Recapture: \(result.scanned) scanned, \(result.attempted) attempted, \(result.created) created, \(result.skipped) skipped\(errorSuffix)"
+        return "Recapture queued: \(result.scanned) scanned, \(result.attempted) queued, \(result.skipped) skipped\(errorSuffix)"
     }
 
     private func projectionDrainSummary(_ result: CodeMemoryProjectionDrainResponse) -> String {
