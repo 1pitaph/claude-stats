@@ -84,11 +84,12 @@ struct MemorySettingsView: View {
 
     private var projectionCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Projection Jobs")
+            Text("Mem0 Capture")
                 .font(.sora(15, weight: .semibold))
             HStack(spacing: 10) {
-                AIConfigsMiniStat(value: "\(store.codeHealth?.projectionPending ?? 0)", label: "pending")
-                AIConfigsMiniStat(value: "\(store.codeHealth?.projectionFailed ?? 0)", label: "failed")
+                AIConfigsMiniStat(value: "\(store.codeHealth?.capturePending ?? store.codeHealth?.projectionPending ?? 0)", label: "pending")
+                AIConfigsMiniStat(value: "\(store.codeHealth?.captureFailed ?? store.codeHealth?.projectionFailed ?? 0)", label: "failed")
+                AIConfigsMiniStat(value: "\(store.codeHealth?.migrationPending ?? 0)", label: "migration")
                 if let result = store.codeLastProjectionDrainResult {
                     AIConfigsMiniStat(value: "\(result.delivered ?? 0)", label: "delivered")
                     AIConfigsMiniStat(value: "\(result.remaining ?? 0)", label: "remaining")
@@ -115,7 +116,7 @@ struct MemorySettingsView: View {
                 Button {
                     Task { await store.reindexCodeMemory() }
                 } label: {
-                    Label("Reindex", systemImage: "arrow.triangle.2.circlepath")
+                    Label("Refresh Cache", systemImage: "arrow.triangle.2.circlepath")
                 }
                 .controlSize(.small)
                 .disabled(store.isCodeMemoryLoading || store.codeHealth == nil)
@@ -123,7 +124,7 @@ struct MemorySettingsView: View {
                 Button {
                     Task { await store.reinferCodeMemorySources() }
                 } label: {
-                    Label("Reinfer Sources", systemImage: "sparkles")
+                    Label("Recapture Sources", systemImage: "sparkles")
                 }
                 .controlSize(.small)
                 .disabled(store.isCodeMemoryLoading || store.codeHealth == nil)
@@ -254,14 +255,14 @@ struct MemorySettingsView: View {
 
     private func reinferSummary(_ result: CodeMemoryReinferSourcesResponse) -> String {
         let errorSuffix = result.errors.isEmpty ? "" : ", \(result.errors.count) adapter errors"
-        return "Reinfer: \(result.scanned) scanned, \(result.attempted) attempted, \(result.proposed) proposed, \(result.skipped) skipped\(errorSuffix)"
+        return "Recapture: \(result.scanned) scanned, \(result.attempted) attempted, \(result.created) created, \(result.skipped) skipped\(errorSuffix)"
     }
 
     private func projectionDrainSummary(_ result: CodeMemoryProjectionDrainResponse) -> String {
         if result.skipped == true {
             let blockers = result.blockers?.keys.sorted().joined(separator: ", ") ?? "adapters"
-            return "Projection drain skipped: \(blockers) unavailable, \(result.remaining ?? 0) remaining"
+            return "Capture drain skipped: \(blockers) unavailable, \(result.remaining ?? 0) remaining"
         }
-        return "Projection drain: \(result.delivered ?? 0) delivered, \(result.failed ?? 0) failed, \(result.remaining ?? 0) remaining"
+        return result.message ?? "Capture: \(result.delivered ?? 0) delivered, \(result.failed ?? 0) failed, \(result.remaining ?? 0) remaining"
     }
 }

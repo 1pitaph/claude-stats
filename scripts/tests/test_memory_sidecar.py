@@ -9,6 +9,95 @@ ROOT = Path(__file__).resolve().parents[2]
 SIDECAR = ROOT / "MemorySidecar"
 
 
+class FakeMem0Adapters:
+    def __init__(self):
+        self.captured_sources = []
+        self.memories = {}
+        self.last_inference_errors = []
+
+    def names(self):
+        return ["mem0"]
+
+    def health(self):
+        result = {"mem0": "enabled: fake"}
+        if self.last_inference_errors:
+            result["last_inference_errors"] = json.dumps(self.last_inference_errors)
+        return result
+
+    def index_memory(self, memory, event, *, adapter_name=None):
+        return {}
+
+    def capture_source(self, source, chunks):
+        self.captured_sources.append((source, chunks))
+        captured = []
+        for chunk in chunks:
+            memory_id = f"mem0:{len(self.memories) + 1}"
+            memory = {
+                "id": memory_id,
+                "project_id": chunk["project_id"],
+                "type": chunk["type"],
+                "status": chunk.get("status", "active"),
+                "title": chunk["title"],
+                "body": f"{chunk['title']} {chunk['body']}",
+                "normalized_claim": memory_id,
+                "confidence": 0.82,
+                "importance": 0.6,
+                "scopes": chunk.get("scopes", []),
+                "source_refs": chunk.get("source_refs", []),
+                "metadata": {"adapter": "mem0"},
+                "created_at": 1,
+                "updated_at": 1,
+                "extracted_by": "mem0",
+            }
+            self.memories[memory_id] = memory
+            captured.append(memory)
+        return captured
+
+    def capture_memory(self, memory):
+        memory_id = f"mem0:{len(self.memories) + 1}"
+        captured = dict(memory)
+        captured["id"] = memory_id
+        captured["metadata"] = (captured.get("metadata") or {}) | {"adapter": "mem0", "legacy_memory_id": memory.get("id", "")}
+        captured["extracted_by"] = "mem0"
+        self.memories[memory_id] = captured
+        return captured
+
+    def list_memories(self, *, project_id, status, memory_type, limit):
+        return [
+            memory
+            for memory in self.memories.values()
+            if (not project_id or memory["project_id"] == project_id)
+            and (not status or memory["status"] == status)
+            and (not memory_type or memory["type"] == memory_type)
+        ][:limit]
+
+    def get_memory(self, memory_id):
+        return self.memories.get(memory_id)
+
+    def update_memory(self, memory_id, updates):
+        memory = self.memories.get(memory_id)
+        if memory is None:
+            return None
+        memory.update({key: value for key, value in updates.items() if value is not None})
+        return memory
+
+    def infer_memories(self, source):
+        return []
+
+    def inference_errors(self):
+        return self.last_inference_errors
+
+    def search(self, query, *, project_id, limit):
+        results = []
+        for memory in self.list_memories(project_id=project_id, status="active", memory_type=None, limit=limit):
+            if query.lower() in f"{memory['title']} {memory['body']}".lower():
+                results.append({"rank": len(results) + 1, "score": 0.9, "memory": memory, "match_kind": "mem0"})
+        return results
+
+    def graph(self, project_id, *, limit=80):
+        return {"nodes": [], "edges": []}
+
+
 class MemorySidecarTests(unittest.TestCase):
     def setUp(self):
         import sys
@@ -46,18 +135,15 @@ class MemorySidecarTests(unittest.TestCase):
 
             self.assertIsNone(first["prev_hash"])
             self.assertEqual(second["prev_hash"], first["hash"])
-            self.assertEqual(store.health()["api_version"], 11)
+            self.assertEqual(store.health()["api_version"], 12)
 
             hits = store.search("run-debug", project_id="claude-stats")
-            self.assertEqual(len(hits["results"]), 1)
-            self.assertEqual(hits["results"][0]["memory"]["type"], "command")
+            self.assertEqual(hits["results"], [])
 
             graph = store.graph("claude-stats")
             node_kinds = {node["kind"] for node in graph["nodes"]}
             edge_kinds = {edge["kind"] for edge in graph["edges"]}
-            self.assertIn("memory", node_kinds)
             self.assertIn("event", node_kinds)
-            self.assertIn("SCOPED_TO", edge_kinds)
 
     def test_projects_modules_and_health_count_active_only(self):
         from memoryd.store import MemoryStore
@@ -72,6 +158,7 @@ class MemorySidecarTests(unittest.TestCase):
                         "title": "Active",
                         "body": "Active memory.",
                         "type": "fact",
+                        "extracted_by": "mem0",
                         "scope": {"kind": "module", "key": "p:Core", "title": "Core"},
                     },
                     "source_refs": [{"kind": "manual", "uri": "active"}],
@@ -82,6 +169,7 @@ class MemorySidecarTests(unittest.TestCase):
                     "project_id": "p",
                     "title": "Proposal",
                     "body": "Proposed memory.",
+                    "extracted_by": "mem0",
                     "scope": {"kind": "module", "key": "p:Core", "title": "Core"},
                 }
             )
@@ -106,6 +194,7 @@ class MemorySidecarTests(unittest.TestCase):
                     "project_id": "p",
                     "title": "Review me",
                     "body": "Agent inferred memory should be proposed.",
+                    "extracted_by": "mem0",
                 }
             )
             memory_id = proposed["memory"]["id"]
@@ -116,40 +205,8 @@ class MemorySidecarTests(unittest.TestCase):
     def test_source_ingest_modules_and_projection_jobs(self):
         from memoryd.store import MemoryStore
 
-        class FakeAdapters:
-            def __init__(self):
-                self.indexed = []
-
-            def names(self):
-                return ["fake"]
-
-            def health(self):
-                return {"fake": "enabled"}
-
-            def index_memory(self, memory, event, *, adapter_name=None):
-                self.indexed.append((memory["id"], event["event_id"], adapter_name))
-                return {"fake": "ok:fake-id"}
-
-            def infer_memories(self, source):
-                return [
-                    {
-                        "project_id": source["project_id"],
-                        "title": "Inferred fact",
-                        "body": "mem0-style inferred facts stay proposed.",
-                        "type": "fact",
-                        "status": "proposed",
-                        "source_refs": [{"kind": "fake", "uri": source["id"]}],
-                    }
-                ]
-
-            def search(self, query, *, project_id, limit):
-                return []
-
-            def graph(self, project_id, *, limit=80):
-                return {"nodes": [], "edges": []}
-
         with tempfile.TemporaryDirectory() as tmp:
-            adapters = FakeAdapters()
+            adapters = FakeMem0Adapters()
             store = MemoryStore(Path(tmp), adapters=adapters)
             result = store.ingest_source(
                 {
@@ -164,36 +221,21 @@ class MemorySidecarTests(unittest.TestCase):
 
             self.assertEqual(result["status"], "ok")
             self.assertEqual(len(result["created"]), 1)
-            self.assertEqual(len(result["proposed"]), 1)
-            self.assertFalse(adapters.indexed)
-
-            drained = store.drain_projection_jobs()
-            self.assertEqual(drained["delivered"], 1)
-            self.assertEqual(len(adapters.indexed), 1)
-            self.assertEqual(adapters.indexed[0][0], result["created"][0]["id"])
-            self.assertEqual(adapters.indexed[0][2], "fake")
+            self.assertEqual(result["proposed"], [])
+            self.assertEqual(adapters.captured_sources[0][1][0]["infer"], True)
 
             modules = store.modules(project_id="claude-stats")["modules"]
             self.assertEqual(modules[0]["title"], "ClaudeStats")
 
             proposals = store.proposals(project_id="claude-stats")["memories"]
-            self.assertEqual(proposals[0]["status"], "proposed")
-            proposed_id = proposals[0]["id"]
-            self.assertNotIn(proposed_id, [item[0] for item in adapters.indexed])
-
-            accepted = store.accept_memory(proposed_id)
-            self.assertEqual(accepted["drained"]["delivered"], 1)
-            self.assertIn(proposed_id, [item[0] for item in adapters.indexed])
+            self.assertEqual(proposals, [])
 
             reindex = store.reindex(project_id="claude-stats")
-            self.assertGreaterEqual(reindex["enqueued"], 1)
-            self.assertNotIn("drained", reindex)
-            self.assertGreaterEqual(reindex["remaining"], 1)
-            self.assertEqual(len(adapters.indexed), 2)
+            self.assertEqual(reindex["enqueued"], 0)
+            self.assertEqual(reindex["remaining"], 0)
 
             drained_after_reindex = store.drain_projection_jobs()
-            self.assertGreaterEqual(drained_after_reindex["delivered"], 1)
-            self.assertGreaterEqual(len(adapters.indexed), 3)
+            self.assertEqual(drained_after_reindex["delivered"], 0)
 
     def test_config_sources_are_source_only_even_when_infer_is_requested(self):
         from memoryd.store import MemoryStore
@@ -253,40 +295,8 @@ class MemorySidecarTests(unittest.TestCase):
     def test_transcript_ingest_is_source_only_and_inferred_memories_stay_proposed(self):
         from memoryd.store import MemoryStore
 
-        class FakeAdapters:
-            def __init__(self):
-                self.sources = []
-
-            def names(self):
-                return ["fake"]
-
-            def health(self):
-                return {"fake": "enabled"}
-
-            def index_memory(self, memory, event, *, adapter_name=None):
-                return {"fake": "ok:fake-id"}
-
-            def infer_memories(self, source):
-                self.sources.append(source)
-                return [
-                    {
-                        "project_id": source["project_id"],
-                        "title": "Run debug after code changes",
-                        "body": "After code changes, run bash scripts/run-debug.sh.",
-                        "type": "workflow",
-                        "status": "proposed",
-                        "source_refs": [{"kind": source["kind"], "uri": source["id"]}],
-                    }
-                ]
-
-            def search(self, query, *, project_id, limit):
-                return []
-
-            def graph(self, project_id, *, limit=80):
-                return {"nodes": [], "edges": []}
-
         with tempfile.TemporaryDirectory() as tmp:
-            adapters = FakeAdapters()
+            adapters = FakeMem0Adapters()
             store = MemoryStore(Path(tmp), adapters=adapters)
             result = store.ingest_source(
                 {
@@ -299,58 +309,30 @@ class MemorySidecarTests(unittest.TestCase):
                 }
             )
 
-            self.assertEqual(result["created"], [])
-            self.assertEqual(len(result["proposed"]), 1)
+            self.assertEqual(len(result["created"]), 1)
+            self.assertEqual(result["proposed"], [])
             self.assertIn("Session: Codex session", result["source"]["body"])
             self.assertIn("User: run tests", result["source"]["body"])
             self.assertNotIn("session_meta", result["source"]["body"])
             self.assertNotIn("base_instructions", result["source"]["body"])
             self.assertNotIn("raw", result["source"]["body"])
-            self.assertEqual(len(adapters.sources), 1)
-            self.assertNotIn("session_meta", adapters.sources[0]["body"])
+            self.assertEqual(len(adapters.captured_sources), 1)
+            self.assertNotIn("session_meta", adapters.captured_sources[0][0]["body"])
             source_row = store.conn.execute("SELECT excerpt FROM sources WHERE kind = 'codex_transcript'").fetchone()
             episode_row = store.conn.execute("SELECT body_excerpt FROM episodes WHERE kind = 'codex_transcript'").fetchone()
             self.assertIsNotNone(source_row)
             self.assertIsNotNone(episode_row)
             self.assertNotIn("session_meta", source_row["excerpt"])
             self.assertNotIn("session_meta", episode_row["body_excerpt"])
-            self.assertEqual(store.memories(project_id="claude-stats", status="active")["memories"], [])
+            self.assertEqual(len(store.memories(project_id="claude-stats", status="active")["memories"]), 1)
             proposals = store.proposals(project_id="claude-stats")["memories"]
-            self.assertEqual(len(proposals), 1)
-            self.assertEqual(proposals[0]["status"], "proposed")
+            self.assertEqual(proposals, [])
 
     def test_inferred_active_candidates_are_forced_to_proposed(self):
         from memoryd.store import MemoryStore
 
-        class ActiveCandidateAdapters:
-            def names(self):
-                return ["fake"]
-
-            def health(self):
-                return {"fake": "enabled"}
-
-            def index_memory(self, memory, event, *, adapter_name=None):
-                return {"fake": "ok:fake-id"}
-
-            def infer_memories(self, source):
-                return [
-                    {
-                        "project_id": source["project_id"],
-                        "title": "Do not auto-activate",
-                        "body": "Adapter candidates must go through review.",
-                        "type": "fact",
-                        "status": "active",
-                    }
-                ]
-
-            def search(self, query, *, project_id, limit):
-                return []
-
-            def graph(self, project_id, *, limit=80):
-                return {"nodes": [], "edges": []}
-
         with tempfile.TemporaryDirectory() as tmp:
-            store = MemoryStore(Path(tmp), adapters=ActiveCandidateAdapters())
+            store = MemoryStore(Path(tmp), adapters=FakeMem0Adapters())
             result = store.ingest_source(
                 {
                     "project_id": "p",
@@ -362,45 +344,13 @@ class MemorySidecarTests(unittest.TestCase):
             )
 
             self.assertEqual(result["created"][0]["status"], "active")
-            self.assertEqual(result["proposed"][0]["status"], "proposed")
+            self.assertEqual(result["proposed"], [])
 
     def test_reinfer_sources_bypasses_content_hash_skip_and_excludes_configs(self):
         from memoryd.store import MemoryStore
 
-        class FakeAdapters:
-            def __init__(self):
-                self.sources = []
-
-            def names(self):
-                return ["fake"]
-
-            def health(self):
-                return {"fake": "enabled"}
-
-            def index_memory(self, memory, event, *, adapter_name=None):
-                return {"fake": "ok:fake-id"}
-
-            def infer_memories(self, source):
-                self.sources.append(source)
-                return [
-                    {
-                        "project_id": source["project_id"],
-                        "title": "Reinferred",
-                        "body": "Force reinfer should propose this memory.",
-                        "type": "fact",
-                        "status": "active",
-                        "source_refs": [{"kind": source["kind"], "uri": source["id"]}],
-                    }
-                ]
-
-            def search(self, query, *, project_id, limit):
-                return []
-
-            def graph(self, project_id, *, limit=80):
-                return {"nodes": [], "edges": []}
-
         with tempfile.TemporaryDirectory() as tmp:
-            adapters = FakeAdapters()
+            adapters = FakeMem0Adapters()
             store = MemoryStore(Path(tmp), adapters=adapters)
             payload = {
                 "id": "src:transcript",
@@ -415,15 +365,14 @@ class MemorySidecarTests(unittest.TestCase):
             store.ingest_source(payload)
             skipped = store.ingest_source(payload | {"infer": True})
             self.assertEqual(skipped["status"], "skipped")
-            self.assertEqual(adapters.sources, [])
+            self.assertEqual(len(adapters.captured_sources), 1)
 
             reinferred = store.reinfer_sources({"source_id": "src:transcript"})
             self.assertEqual(reinferred["scanned"], 1)
             self.assertEqual(reinferred["attempted"], 1)
-            self.assertEqual(reinferred["proposed"], 1)
-            self.assertEqual(len(adapters.sources), 1)
-            proposal = store.proposals(project_id="p")["memories"][0]
-            self.assertEqual(proposal["status"], "proposed")
+            self.assertEqual(reinferred["created"], 1)
+            self.assertEqual(len(adapters.captured_sources), 2)
+            self.assertEqual(store.proposals(project_id="p")["memories"], [])
 
             store.ingest_source(
                 {
@@ -444,8 +393,8 @@ class MemorySidecarTests(unittest.TestCase):
         from memoryd.adapters import CompositeAdapters
         from memoryd.store import MemoryStore
 
-        class ExplodingAdapter:
-            name = "exploding"
+        class ExplodingMem0Adapter:
+            name = "mem0"
 
             def __init__(self):
                 self.last_error = ""
@@ -459,6 +408,9 @@ class MemorySidecarTests(unittest.TestCase):
             def index_memory(self, memory, event, *, adapter_name=None):
                 return {self.name: "ok:fake-id"}
 
+            def capture_source(self, source, chunks):
+                raise RuntimeError("llm inference failed with compact detail")
+
             def infer_memories(self, source):
                 raise RuntimeError("llm inference failed with compact detail")
 
@@ -468,17 +420,8 @@ class MemorySidecarTests(unittest.TestCase):
             def graph(self, project_id, *, limit=80):
                 return {"nodes": [], "edges": []}
 
-        class EndpointErrorAdapter(ExplodingAdapter):
-            name = "endpoint"
-
-            def __init__(self):
-                self.last_error = "local endpoint unavailable"
-
-            def infer_memories(self, source):
-                return []
-
         with tempfile.TemporaryDirectory() as tmp:
-            adapters = CompositeAdapters([ExplodingAdapter(), EndpointErrorAdapter()])
+            adapters = CompositeAdapters([ExplodingMem0Adapter()])
             store = MemoryStore(Path(tmp), adapters=adapters)
             result = store.ingest_source(
                 {
@@ -492,14 +435,14 @@ class MemorySidecarTests(unittest.TestCase):
             )
 
             self.assertEqual(result["proposed"], [])
-            self.assertEqual({error["adapter"] for error in result["inference_errors"]}, {"exploding", "endpoint"})
+            self.assertEqual({error["adapter"] for error in result["inference_errors"]}, {"mem0"})
             self.assertIn("llm inference failed", result["inference_errors"][0]["error"])
             health_errors = json.loads(store.health()["adapters"]["last_inference_errors"])
-            self.assertEqual({error["adapter"] for error in health_errors}, {"exploding", "endpoint"})
+            self.assertEqual({error["adapter"] for error in health_errors}, {"mem0"})
 
             reinferred = store.reinfer_sources({"source_id": "src:error"})
             self.assertEqual(reinferred["attempted"], 1)
-            self.assertEqual({error["adapter"] for error in reinferred["errors"]}, {"exploding", "endpoint"})
+            self.assertEqual({error["adapter"] for error in reinferred["errors"]}, {"mem0"})
             self.assertTrue(all(error["source_id"] == "src:error" for error in reinferred["errors"]))
 
     def test_legacy_raw_transcript_source_excerpts_are_redacted(self):
@@ -1002,17 +945,18 @@ class MemorySidecarTests(unittest.TestCase):
             )
 
             failed = store.drain_projection_jobs(limit=1)
-            self.assertEqual(failed["failed"], 1)
+            self.assertEqual(failed["failed"], 0)
+            self.assertEqual(failed["remaining"], 0)
             adapters.fail = False
 
             pending_only = store.drain_projection_jobs(limit=10)
-            self.assertEqual(pending_only["delivered"], 1)
-            self.assertEqual(adapters.indexed, [second["memory"]["id"]])
-            self.assertGreaterEqual(pending_only["failed_total"], 1)
+            self.assertEqual(pending_only["delivered"], 0)
+            self.assertEqual(adapters.indexed, [])
+            self.assertEqual(pending_only["failed_total"], 0)
 
             retried = store.drain_projection_jobs(limit=10, include_failed=True)
-            self.assertEqual(retried["delivered"], 1)
-            self.assertIn(first["memory"]["id"], adapters.indexed)
+            self.assertEqual(retried["delivered"], 0)
+            self.assertIn("projection jobs are disabled", retried["message"])
 
     def test_projection_drain_skips_when_adapter_endpoint_is_unavailable(self):
         from memoryd.store import MemoryStore
@@ -1051,11 +995,11 @@ class MemorySidecarTests(unittest.TestCase):
             )
 
             skipped = store.drain_projection_jobs(limit=10)
-            self.assertTrue(skipped["skipped"])
+            self.assertFalse(skipped["skipped"])
             self.assertEqual(skipped["delivered"], 0)
             self.assertEqual(skipped["failed"], 0)
-            self.assertEqual(skipped["pending"], 2)
-            self.assertEqual(set(skipped["blockers"]), {"mem0", "graphiti"})
+            self.assertEqual(skipped["pending"], 0)
+            self.assertIn("projection jobs are disabled", skipped["message"])
 
     def test_adapter_search_must_resolve_to_canonical_memory(self):
         from memoryd.store import MemoryStore
@@ -1175,7 +1119,7 @@ class MemorySidecarTests(unittest.TestCase):
         from memoryd.store import MemoryStore
 
         with tempfile.TemporaryDirectory() as tmp:
-            store = MemoryStore(Path(tmp))
+            store = MemoryStore(Path(tmp), adapters=FakeMem0Adapters())
             result = store.ingest_source(
                 {
                     "project_id": "p",

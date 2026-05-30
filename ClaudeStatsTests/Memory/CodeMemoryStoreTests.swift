@@ -164,7 +164,8 @@ struct CodeMemoryStoreTests {
         #expect(kindByTitle["repair-plan.md"] == "plan")
         #expect(kindByTitle["AGENTS.md"] == "AGENTS.md")
         #expect(kindByTitle["other.json"] == "ai_config")
-        #expect(backend.ingestedSources.allSatisfy { !$0.infer })
+        #expect(backend.ingestedSources.first { $0.title == "AGENTS.md" }?.infer == true)
+        #expect(backend.ingestedSources.filter { $0.title != "AGENTS.md" }.allSatisfy { !$0.infer })
     }
 
     @MainActor

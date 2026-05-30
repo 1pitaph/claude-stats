@@ -11,6 +11,9 @@ struct CodeMemoryHealth: Codable, Sendable, Hashable {
     var moduleCount: Int? = nil
     var projectionPending: Int? = nil
     var projectionFailed: Int? = nil
+    var capturePending: Int? = nil
+    var captureFailed: Int? = nil
+    var migrationPending: Int? = nil
     var adapters: [String: String]
 
     enum CodingKeys: String, CodingKey {
@@ -24,6 +27,9 @@ struct CodeMemoryHealth: Codable, Sendable, Hashable {
         case moduleCount = "module_count"
         case projectionPending = "projection_pending"
         case projectionFailed = "projection_failed"
+        case capturePending = "capture_pending"
+        case captureFailed = "capture_failed"
+        case migrationPending = "migration_pending"
         case adapters
     }
 }
@@ -702,6 +708,7 @@ struct CodeMemoryReinferSourcesResponse: Codable, Sendable, Hashable {
     var status: String = "ok"
     var scanned: Int = 0
     var attempted: Int = 0
+    var created: Int = 0
     var proposed: Int = 0
     var skipped: Int = 0
     var errors: [CodeMemoryInferenceError] = []

@@ -285,7 +285,16 @@ private extension MemoryWorkspaceStore {
 
         for project in configProjects {
             for document in project.documents {
-                guard document.exists, let body = document.contentPreview, !body.isEmpty else { continue }
+                guard document.exists else { continue }
+                let kind = configSourceKind(document)
+                var body = document.contentPreview ?? ""
+                if document.isPreviewTruncated || kind == "AGENTS.md" || kind == "CLAUDE.md" {
+                    let fullBody = await readPreview(path: document.path, limit: 512 * 1024)
+                    if !fullBody.isEmpty {
+                        body = fullBody
+                    }
+                }
+                guard !body.isEmpty else { continue }
                 let projectID = document.assignedProjectPath ?? project.path ?? project.name
                 sources.append(
                     CodeMemorySourceInput(
@@ -293,11 +302,11 @@ private extension MemoryWorkspaceStore {
                         projectID: projectID,
                         title: document.title,
                         body: body,
-                        kind: configSourceKind(document),
+                        kind: kind,
                         uri: document.path,
                         path: document.path,
                         contentHash: MemoryHash.textHash(body),
-                        infer: false,
+                        infer: shouldInferConfigSource(kind),
                         metadata: [
                             "provider": document.provider.rawValue,
                             "document_id": document.id,
@@ -309,6 +318,10 @@ private extension MemoryWorkspaceStore {
             }
         }
         return sources
+    }
+
+    static func shouldInferConfigSource(_ kind: String) -> Bool {
+        kind == "AGENTS.md" || kind == "CLAUDE.md"
     }
 
     static func transcriptMemoryBody(for session: Session, limit: Int) async -> String {

@@ -26,6 +26,11 @@ class MemoryAdapters(Protocol):
     def names(self) -> list[str]: ...
     def health(self) -> dict[str, str]: ...
     def index_memory(self, memory: dict[str, Any], event: dict[str, Any], *, adapter_name: str | None = None) -> dict[str, str]: ...
+    def capture_source(self, source: dict[str, Any], chunks: list[dict[str, Any]]) -> list[dict[str, Any]]: ...
+    def capture_memory(self, memory: dict[str, Any]) -> dict[str, Any] | None: ...
+    def list_memories(self, *, project_id: str | None, status: str | None, memory_type: str | None, limit: int) -> list[dict[str, Any]]: ...
+    def get_memory(self, memory_id: str) -> dict[str, Any] | None: ...
+    def update_memory(self, memory_id: str, updates: dict[str, Any]) -> dict[str, Any] | None: ...
     def infer_memories(self, source: dict[str, Any]) -> list[dict[str, Any]]: ...
     def inference_errors(self) -> list[dict[str, str]]: ...
     def search(self, query: str, *, project_id: str | None, limit: int) -> list[dict[str, Any]]: ...
@@ -49,6 +54,21 @@ class NullAdapters:
 
     def index_memory(self, memory: dict[str, Any], event: dict[str, Any], *, adapter_name: str | None = None) -> dict[str, str]:
         return {}
+
+    def capture_source(self, source: dict[str, Any], chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return []
+
+    def capture_memory(self, memory: dict[str, Any]) -> dict[str, Any] | None:
+        return None
+
+    def list_memories(self, *, project_id: str | None, status: str | None, memory_type: str | None, limit: int) -> list[dict[str, Any]]:
+        return []
+
+    def get_memory(self, memory_id: str) -> dict[str, Any] | None:
+        return None
+
+    def update_memory(self, memory_id: str, updates: dict[str, Any]) -> dict[str, Any] | None:
+        return None
 
     def infer_memories(self, source: dict[str, Any]) -> list[dict[str, Any]]:
         return []
@@ -99,6 +119,68 @@ class CompositeAdapters:
                     setattr(adapter, "last_error", message)
                 statuses[str(name or "adapter")] = f"error: {message}"
         return statuses
+
+    def capture_source(self, source: dict[str, Any], chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        memories: list[dict[str, Any]] = []
+        self.last_inference_errors = []
+        for adapter in self.adapters:
+            if getattr(adapter, "name", "") != "mem0":
+                continue
+            name = str(getattr(adapter, "name", "") or "adapter")
+            try:
+                memories.extend(adapter.capture_source(source, chunks))
+            except Exception as error:  # noqa: BLE001
+                message = _compact_error(error)
+                if hasattr(adapter, "last_error"):
+                    setattr(adapter, "last_error", message)
+                self.last_inference_errors.append({"adapter": name, "error": message})
+        return memories
+
+    def capture_memory(self, memory: dict[str, Any]) -> dict[str, Any] | None:
+        for adapter in self.adapters:
+            if getattr(adapter, "name", "") != "mem0":
+                continue
+            try:
+                return adapter.capture_memory(memory)
+            except Exception as error:  # noqa: BLE001
+                message = _compact_error(error)
+                if hasattr(adapter, "last_error"):
+                    setattr(adapter, "last_error", message)
+                self.last_inference_errors.append({"adapter": "mem0", "error": message})
+        return None
+
+    def list_memories(self, *, project_id: str | None, status: str | None, memory_type: str | None, limit: int) -> list[dict[str, Any]]:
+        for adapter in self.adapters:
+            if getattr(adapter, "name", "") != "mem0":
+                continue
+            try:
+                return adapter.list_memories(project_id=project_id, status=status, memory_type=memory_type, limit=limit)
+            except Exception as error:  # noqa: BLE001
+                if hasattr(adapter, "last_error"):
+                    setattr(adapter, "last_error", _compact_error(error))
+        return []
+
+    def get_memory(self, memory_id: str) -> dict[str, Any] | None:
+        for adapter in self.adapters:
+            if getattr(adapter, "name", "") != "mem0":
+                continue
+            try:
+                return adapter.get_memory(memory_id)
+            except Exception as error:  # noqa: BLE001
+                if hasattr(adapter, "last_error"):
+                    setattr(adapter, "last_error", _compact_error(error))
+        return None
+
+    def update_memory(self, memory_id: str, updates: dict[str, Any]) -> dict[str, Any] | None:
+        for adapter in self.adapters:
+            if getattr(adapter, "name", "") != "mem0":
+                continue
+            try:
+                return adapter.update_memory(memory_id, updates)
+            except Exception as error:  # noqa: BLE001
+                if hasattr(adapter, "last_error"):
+                    setattr(adapter, "last_error", _compact_error(error))
+        return None
 
     def infer_memories(self, source: dict[str, Any]) -> list[dict[str, Any]]:
         proposals: list[dict[str, Any]] = []
@@ -201,6 +283,134 @@ class Mem0Adapter:
             return {"mem0": "enabled: local qdrant + local OpenAI-compatible endpoint"}
         return {"mem0": f"unavailable: {self.last_error}"}
 
+    def capture_source(self, source: dict[str, Any], chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not self.available or self.client is None:
+            return []
+        if endpoint_error := _endpoint_error(self.config):
+            self.last_error = endpoint_error
+            return []
+        captured: list[dict[str, Any]] = []
+        for index, chunk in enumerate(chunks, start=1):
+            body = str(chunk.get("body") or "").strip()
+            if not body:
+                continue
+            project_id = str(chunk.get("project_id") or source.get("project_id") or "default")
+            source_refs = chunk.get("source_refs") if isinstance(chunk.get("source_refs"), list) else source.get("source_refs")
+            if not isinstance(source_refs, list):
+                source_refs = [
+                    {
+                        "kind": str(source.get("kind") or "source"),
+                        "uri": str(source.get("uri") or ""),
+                        "path": str(source.get("path") or ""),
+                        "content_hash": str(source.get("content_hash") or ""),
+                        "source_id": str(source.get("id") or ""),
+                        "episode_id": f"episode:{source.get('id')}",
+                    }
+                ]
+            scopes = chunk.get("scopes") if isinstance(chunk.get("scopes"), list) else []
+            metadata = {
+                "project_id": project_id,
+                "status": str(chunk.get("status") or "active"),
+                "type": str(chunk.get("type") or "fact"),
+                "title": str(chunk.get("title") or source.get("title") or body[:120])[:160],
+                "source_kind": str(source.get("kind") or ""),
+                "source_path": str(source.get("path") or ""),
+                "source_uri": str(source.get("uri") or ""),
+                "source_id": str(source.get("id") or ""),
+                "source_hash": str(source.get("content_hash") or ""),
+                "section": str(chunk.get("section") or ""),
+                "chunk_index": str(index),
+                "capture_version": str(chunk.get("capture_version") or ""),
+                "confidence": str(chunk.get("confidence") or "0.82"),
+                "importance": str(chunk.get("importance") or "0.6"),
+                "source": "claude-stats-memoryd",
+                "source_refs_json": json.dumps(source_refs, sort_keys=True, ensure_ascii=False),
+                "scopes_json": json.dumps(scopes, sort_keys=True, ensure_ascii=False),
+            }
+            extra = chunk.get("metadata")
+            if isinstance(extra, dict):
+                metadata.update({str(key): str(value) for key, value in extra.items() if value is not None})
+            raw = self.client.add(
+                body,
+                user_id=project_id,
+                metadata=metadata,
+                infer=bool(chunk.get("infer", True)),
+                prompt=chunk.get("prompt") if isinstance(chunk.get("prompt"), str) else None,
+            )
+            items = raw.get("results", raw) if isinstance(raw, dict) else raw
+            if not isinstance(items, list):
+                continue
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                memory = self._memory_from_mem0_item(item, fallback_metadata=metadata)
+                if memory is not None:
+                    captured.append(memory)
+        return captured
+
+    def capture_memory(self, memory: dict[str, Any]) -> dict[str, Any] | None:
+        if not self.available or self.client is None:
+            return None
+        if endpoint_error := _endpoint_error(self.config):
+            self.last_error = endpoint_error
+            return None
+        body = str(memory.get("body") or memory.get("title") or "").strip()
+        if not body:
+            return None
+        project_id = str(memory.get("project_id") or "default")
+        metadata = self._metadata_from_memory(memory)
+        raw = self.client.add(body, user_id=project_id, metadata=metadata, infer=False)
+        items = raw.get("results", raw) if isinstance(raw, dict) else raw
+        if isinstance(items, list):
+            for item in items:
+                if isinstance(item, dict):
+                    return self._memory_from_mem0_item(item, fallback_metadata=metadata)
+        if isinstance(raw, dict):
+            return self._memory_from_mem0_item(raw, fallback_metadata=metadata)
+        return None
+
+    def list_memories(self, *, project_id: str | None, status: str | None, memory_type: str | None, limit: int) -> list[dict[str, Any]]:
+        if not self.available or self.client is None or not project_id:
+            return []
+        if endpoint_error := _endpoint_error(self.config):
+            self.last_error = endpoint_error
+            return []
+        filters: dict[str, Any] = {"user_id": project_id}
+        if status:
+            filters["status"] = status
+        if memory_type:
+            filters["type"] = memory_type
+        raw = self.client.get_all(filters=filters, top_k=limit)
+        items = raw.get("results", raw) if isinstance(raw, dict) else raw
+        if not isinstance(items, list):
+            return []
+        memories = [self._memory_from_mem0_item(item) for item in items if isinstance(item, dict)]
+        return [memory for memory in memories if memory is not None]
+
+    def get_memory(self, memory_id: str) -> dict[str, Any] | None:
+        if not self.available or self.client is None:
+            return None
+        try:
+            raw = self.client.get(memory_id)
+        except Exception as error:  # noqa: BLE001
+            self.last_error = _compact_error(error)
+            return None
+        if isinstance(raw, dict):
+            return self._memory_from_mem0_item(raw)
+        return None
+
+    def update_memory(self, memory_id: str, updates: dict[str, Any]) -> dict[str, Any] | None:
+        if not self.available or self.client is None:
+            return None
+        existing = self.get_memory(memory_id)
+        if existing is None:
+            return None
+        merged = existing | {key: value for key, value in updates.items() if value is not None}
+        metadata = self._metadata_from_memory(merged)
+        body = str(merged.get("body") or merged.get("title") or "")
+        self.client.update(memory_id, body, metadata=metadata)
+        return self.get_memory(memory_id) or (merged | {"id": memory_id, "metadata": metadata})
+
     def index_memory(self, memory: dict[str, Any], event: dict[str, Any], *, adapter_name: str | None = None) -> dict[str, str]:
         if not self.available or self.client is None:
             return {"mem0": f"unavailable: {self.last_error}"}
@@ -301,7 +511,7 @@ class Mem0Adapter:
         if endpoint_error := _endpoint_error(self.config):
             self.last_error = endpoint_error
             return []
-        filters = {"user_id": project_id}
+        filters = {"user_id": project_id, "status": "active"}
         raw = self.client.search(query, filters=filters, top_k=limit)
         items = raw.get("results", raw) if isinstance(raw, dict) else raw
         if not isinstance(items, list):
@@ -310,36 +520,15 @@ class Mem0Adapter:
         for rank, item in enumerate(items, start=1):
             if not isinstance(item, dict):
                 continue
-            text = str(item.get("memory") or item.get("text") or item.get("body") or "")
-            metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
-            memory_id = str(metadata.get("memory_id") or "")
-            if not memory_id:
+            memory = self._memory_from_mem0_item(item)
+            if memory is None:
                 continue
-            if str(metadata.get("status") or "active") != "active":
-                continue
-            resolved_project = str(metadata.get("project_id") or project_id or "default")
             score = float(item.get("score") or item.get("distance") or 0.0)
-            source_refs = _json_list(metadata.get("source_refs_json"))
             results.append(
                 {
                     "rank": rank,
                     "score": score,
-                    "memory": {
-                        "id": memory_id,
-                        "project_id": resolved_project,
-                        "type": str(metadata.get("type") or "fact"),
-                        "status": str(metadata.get("status") or "active"),
-                        "title": str(metadata.get("title") or text[:120] or "mem0 memory"),
-                        "body": text,
-                        "normalized_claim": memory_id,
-                        "confidence": _float(metadata.get("confidence"), 0.7),
-                        "importance": _float(metadata.get("importance"), 0.5),
-                        "source_refs": source_refs + [{"kind": "mem0", "uri": str(item.get("id") or memory_id)}],
-                        "metadata": {"adapter": "mem0", "mem0_id": str(item.get("id") or "")},
-                        "scopes": _json_list(metadata.get("scopes_json")) or [{"id": f"project:{resolved_project}", "kind": "project", "key": resolved_project, "title": resolved_project, "metadata": {}, "primary": True}],
-                        "created_at": _timestamp(item.get("created_at")),
-                        "updated_at": _timestamp(item.get("updated_at")),
-                    },
+                    "memory": memory,
                     "match_kind": "mem0",
                     "evidence": [{"adapter": "mem0", "score": score, "detail": "semantic vector search"}],
                 }
@@ -358,6 +547,59 @@ class Mem0Adapter:
         if isinstance(raw, dict) and raw.get("id"):
             return str(raw["id"])
         return None
+
+    def _metadata_from_memory(self, memory: dict[str, Any]) -> dict[str, str]:
+        source_refs = memory.get("source_refs") if isinstance(memory.get("source_refs"), list) else []
+        scopes = memory.get("scopes") if isinstance(memory.get("scopes"), list) else []
+        metadata = memory.get("metadata") if isinstance(memory.get("metadata"), dict) else {}
+        project_id = str(memory.get("project_id") or metadata.get("project_id") or "default")
+        return {
+            **{str(key): str(value) for key, value in metadata.items() if value is not None},
+            "project_id": project_id,
+            "status": str(memory.get("status") or metadata.get("status") or "active"),
+            "type": str(memory.get("type") or metadata.get("type") or "fact"),
+            "title": str(memory.get("title") or metadata.get("title") or memory.get("body") or "Memory")[:160],
+            "confidence": str(memory.get("confidence") or metadata.get("confidence") or "0.8"),
+            "importance": str(memory.get("importance") or metadata.get("importance") or "0.5"),
+            "source": "claude-stats-memoryd",
+            "source_refs_json": json.dumps(source_refs, sort_keys=True, ensure_ascii=False),
+            "scopes_json": json.dumps(scopes, sort_keys=True, ensure_ascii=False),
+            "legacy_memory_id": str(memory.get("id") or metadata.get("legacy_memory_id") or ""),
+        }
+
+    def _memory_from_mem0_item(self, item: dict[str, Any], *, fallback_metadata: dict[str, Any] | None = None) -> dict[str, Any] | None:
+        text = str(item.get("memory") or item.get("text") or item.get("body") or "").strip()
+        if not text:
+            return None
+        metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+        merged_metadata = {str(key): str(value) for key, value in (fallback_metadata or {}).items() if value is not None}
+        merged_metadata.update({str(key): str(value) for key, value in metadata.items() if value is not None})
+        memory_id = str(item.get("id") or merged_metadata.get("legacy_memory_id") or hashlib.sha256(text.encode("utf-8")).hexdigest()[:24])
+        project_id = str(item.get("user_id") or merged_metadata.get("project_id") or merged_metadata.get("user_id") or "default")
+        source_refs = _json_list(merged_metadata.get("source_refs_json"))
+        scopes = _json_list(merged_metadata.get("scopes_json")) or [
+            {"id": f"project:{project_id}", "kind": "project", "key": project_id, "title": project_id, "metadata": {}, "primary": True}
+        ]
+        return {
+            "id": memory_id,
+            "project_id": project_id,
+            "type": str(merged_metadata.get("type") or "fact"),
+            "status": str(merged_metadata.get("status") or "active"),
+            "title": str(merged_metadata.get("title") or text[:120] or "mem0 memory")[:160],
+            "body": text,
+            "normalized_claim": str(item.get("hash") or merged_metadata.get("hash") or hashlib.sha256(text.lower().encode("utf-8")).hexdigest()),
+            "confidence": _float(merged_metadata.get("confidence"), 0.82),
+            "importance": _float(merged_metadata.get("importance"), 0.6),
+            "source_refs": source_refs + ([{"kind": "mem0", "uri": memory_id}] if not any(ref.get("kind") == "mem0" for ref in source_refs) else []),
+            "metadata": merged_metadata | {"adapter": "mem0", "mem0_id": memory_id},
+            "scopes": scopes,
+            "valid_at": _timestamp_or_none(merged_metadata.get("valid_at")),
+            "invalid_at": _timestamp_or_none(merged_metadata.get("invalid_at")),
+            "review_reason": merged_metadata.get("review_reason") or None,
+            "extracted_by": merged_metadata.get("extracted_by") or "mem0",
+            "created_at": _timestamp(item.get("created_at") or merged_metadata.get("created_at")),
+            "updated_at": _timestamp(item.get("updated_at") or merged_metadata.get("updated_at")),
+        }
 
 
 class GraphitiAdapter:
@@ -666,6 +908,15 @@ def _timestamp(value: Any) -> float:
         except ValueError:
             return time.time()
     return time.time()
+
+
+def _timestamp_or_none(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return _timestamp(value)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _safe_group_id(value: str | None) -> str:
