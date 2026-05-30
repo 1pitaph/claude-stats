@@ -360,6 +360,37 @@ class MemorySidecarTests(unittest.TestCase):
             drained_after_reindex = store.drain_projection_jobs()
             self.assertEqual(drained_after_reindex["delivered"], 0)
 
+    def test_capture_drain_is_single_flight(self):
+        from memoryd.store import MemoryStore
+
+        with tempfile.TemporaryDirectory() as tmp:
+            adapters = FakeMem0Adapters()
+            store = MemoryStore(Path(tmp), adapters=adapters)
+            store.ingest_source(
+                {
+                    "project_id": "claude-stats",
+                    "title": "AGENTS.md",
+                    "body": "After every code change, run bash scripts/run-debug.sh.",
+                    "kind": "AGENTS.md",
+                    "path": "/repo/AGENTS.md",
+                    "infer": True,
+                }
+            )
+
+            with store._capture_drain_gate.run() as lease:
+                self.assertIsNotNone(lease)
+                skipped = store.drain_projection_jobs(limit=5)
+
+            self.assertTrue(skipped["skipped"])
+            self.assertEqual(skipped["delivered"], 0)
+            self.assertEqual(skipped["blockers"]["capture"], "already_running")
+            self.assertIn("already running", skipped["message"])
+            self.assertEqual(adapters.captured_sources, [])
+
+            drained = store.drain_projection_jobs(limit=5)
+            self.assertEqual(drained["delivered"], 1)
+            self.assertEqual(len(adapters.captured_sources), 1)
+
     def test_adapter_source_only_config_memories_are_filtered(self):
         from memoryd.store import MemoryStore
 

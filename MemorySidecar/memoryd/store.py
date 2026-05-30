@@ -12,6 +12,7 @@ from typing import Any
 
 from .adapters import MemoryAdapters, build_adapters
 from .models import DETERMINISTIC_SOURCE_KINDS, MEMORY_STATUSES, MemoryInput, Scope, string_map
+from .singleflight import SingleFlightGate
 
 
 TRANSCRIPT_SOURCE_KINDS = {"codex_transcript", "claude_transcript"}
@@ -66,6 +67,7 @@ class MemoryStore:
         self.root.mkdir(parents=True, exist_ok=True)
         self.db_path = self.root / "code-memory.sqlite3"
         self.adapters = adapters if adapters is not None else build_adapters(root)
+        self._capture_drain_gate = SingleFlightGate("mem0_capture_drain")
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
@@ -81,6 +83,7 @@ class MemoryStore:
         counts = self._health_counts()
         pending = counts["capture_pending"]
         failed = counts["capture_failed"]
+        capture_gate = self._capture_drain_gate.snapshot()
         return {
             "status": "ok",
             "api_version": self.api_version,
@@ -94,6 +97,7 @@ class MemoryStore:
             "projection_failed": 0,
             "capture_pending": pending,
             "capture_failed": failed,
+            "capture_running": bool(capture_gate.get("running")),
             "migration_pending": counts["migration_pending"],
             "adapters": self.adapters.health()
             | {
@@ -101,6 +105,7 @@ class MemoryStore:
                 "projection_failed": "0",
                 "capture_pending": str(pending),
                 "capture_failed": str(failed),
+                "capture_running": "1" if capture_gate.get("running") else "0",
                 "migration_pending": str(counts["migration_pending"]),
             },
         }
@@ -117,6 +122,7 @@ class MemoryStore:
                 "capture_pending": ("SELECT COUNT(*) FROM source_captures WHERE status = 'pending' AND capture_version = ?", (MEM0_CAPTURE_VERSION,)),
                 "capture_failed": ("SELECT COUNT(*) FROM source_captures WHERE status = 'failed' AND capture_version = ?", (MEM0_CAPTURE_VERSION,)),
                 "migration_pending": ("SELECT COUNT(*) FROM legacy_memory_migrations WHERE status = 'pending'", ()),
+                "migration_failed": ("SELECT COUNT(*) FROM legacy_memory_migrations WHERE status = 'failed'", ()),
             }
             return {key: int(conn.execute(sql, params).fetchone()[0]) for key, (sql, params) in queries.items()}
         finally:
@@ -582,6 +588,30 @@ class MemoryStore:
         return self._drain_capture_jobs(limit=limit, include_failed=include_failed)
 
     def _drain_capture_jobs(self, *, limit: int = 10, include_failed: bool = False) -> dict[str, Any]:
+        with self._capture_drain_gate.run() as lease:
+            if lease is None:
+                return self._capture_drain_busy_response()
+            result = self._drain_capture_jobs_locked(limit=limit, include_failed=include_failed)
+            result["single_flight"] = lease.to_json()
+            return result
+
+    def _capture_drain_busy_response(self) -> dict[str, Any]:
+        counts = self._health_counts()
+        pending = counts["capture_pending"] + counts["migration_pending"]
+        failed_total = counts["capture_failed"] + counts.get("migration_failed", 0)
+        return {
+            "delivered": 0,
+            "failed": 0,
+            "remaining": pending + failed_total,
+            "pending": pending,
+            "failed_total": failed_total,
+            "skipped": True,
+            "message": "Mem0 capture drain skipped because another capture drain is already running.",
+            "blockers": {"capture": "already_running"},
+            "single_flight": self._capture_drain_gate.snapshot(),
+        }
+
+    def _drain_capture_jobs_locked(self, *, limit: int = 10, include_failed: bool = False) -> dict[str, Any]:
         bounded_limit = max(1, min(limit, 25))
         pending_before = self._source_capture_count("pending") + self._legacy_migration_count("pending")
         failed_before = self._source_capture_count("failed") + self._legacy_migration_count("failed")
