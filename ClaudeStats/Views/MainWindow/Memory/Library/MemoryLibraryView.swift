@@ -159,24 +159,124 @@ struct MemoryLibraryView: View {
             StxRule()
 
             AppScrollView {
-                LazyVStack(alignment: .leading, spacing: 10) {
-                    if store.codeMemories.isEmpty {
-                        MemoryEmptyState(
-                            title: store.codeHealth == nil ? "Sidecar offline" : "No memories",
-                            message: store.library.statusFilter,
-                            symbol: "text.badge.checkmark"
-                        )
-                        .frame(minHeight: 320)
-                    } else {
+                if store.codeMemories.isEmpty {
+                    MemoryEmptyState(
+                        title: store.codeHealth == nil ? "Sidecar offline" : "No memories",
+                        message: store.library.statusFilter,
+                        symbol: "text.badge.checkmark"
+                    )
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 320)
+                    .padding(18)
+                } else {
+                    MemoryMasonryLayout(minimumColumnWidth: 260, spacing: 12) {
                         ForEach(store.codeMemories) { memory in
-                            MemoryFactRow(memory: memory)
+                            MemoryFactCard(memory: memory)
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .padding(18)
                 }
-                .padding(18)
             }
         }
     }
+}
+
+private struct MemoryMasonryLayout: Layout {
+    var minimumColumnWidth: CGFloat
+    var spacing: CGFloat
+
+    private var resolvedMinimumColumnWidth: CGFloat {
+        guard minimumColumnWidth.isFinite, minimumColumnWidth > 0 else { return 260 }
+        return minimumColumnWidth
+    }
+
+    private var resolvedSpacing: CGFloat {
+        guard spacing.isFinite, spacing > 0 else { return 0 }
+        return spacing
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache _: inout ()) -> CGSize {
+        let width = resolvedWidth(proposal.width)
+        let layout = masonryLayout(width: width, subviews: subviews)
+        return CGSize(width: width, height: layout.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal _: ProposedViewSize, subviews: Subviews, cache _: inout ()) {
+        let layout = masonryLayout(width: resolvedWidth(bounds.width), subviews: subviews)
+        for index in subviews.indices {
+            guard index < layout.positions.count else { continue }
+            subviews[index].place(
+                at: CGPoint(
+                    x: bounds.minX + layout.positions[index].x,
+                    y: bounds.minY + layout.positions[index].y
+                ),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: layout.columnWidth, height: layout.sizes[index].height)
+            )
+        }
+    }
+
+    private func resolvedWidth(_ width: CGFloat?) -> CGFloat {
+        guard let width, width.isFinite, width > 0 else { return resolvedMinimumColumnWidth }
+        return width
+    }
+
+    private func masonryLayout(width: CGFloat, subviews: Subviews) -> MemoryMasonryLayoutResult {
+        let availableWidth = resolvedWidth(width)
+        let minimumColumnWidth = resolvedMinimumColumnWidth
+        let spacing = resolvedSpacing
+
+        guard !subviews.isEmpty else {
+            return MemoryMasonryLayoutResult(columnWidth: availableWidth, positions: [], sizes: [], height: 0)
+        }
+
+        let rawColumnCount = (availableWidth + spacing) / (minimumColumnWidth + spacing)
+        let columnCount = max(1, Int(rawColumnCount.rounded(.down)))
+        let columnWidth = max((availableWidth - CGFloat(columnCount - 1) * spacing) / CGFloat(columnCount), 1)
+        var columnHeights = Array(repeating: CGFloat.zero, count: columnCount)
+        var positions: [CGPoint] = []
+        var sizes: [CGSize] = []
+        positions.reserveCapacity(subviews.count)
+        sizes.reserveCapacity(subviews.count)
+
+        for subview in subviews {
+            let measuredSize = subview.sizeThatFits(ProposedViewSize(width: columnWidth, height: nil))
+            let height = measuredSize.height.isFinite ? max(measuredSize.height, 0) : 0
+            let size = CGSize(width: columnWidth, height: height)
+            let columnIndex = shortestColumnIndex(in: columnHeights)
+            let y = columnHeights[columnIndex] == 0 ? 0 : columnHeights[columnIndex] + spacing
+            let x = CGFloat(columnIndex) * (columnWidth + spacing)
+            positions.append(CGPoint(x: x, y: y))
+            sizes.append(size)
+            columnHeights[columnIndex] = y + size.height
+        }
+
+        let height = columnHeights.max() ?? 0
+        return MemoryMasonryLayoutResult(
+            columnWidth: columnWidth,
+            positions: positions,
+            sizes: sizes,
+            height: height.isFinite ? height : 0
+        )
+    }
+
+    private func shortestColumnIndex(in heights: [CGFloat]) -> Int {
+        var bestIndex = 0
+        var bestHeight = heights[0]
+        for index in heights.indices.dropFirst() where heights[index] < bestHeight {
+            bestIndex = index
+            bestHeight = heights[index]
+        }
+        return bestIndex
+    }
+}
+
+private struct MemoryMasonryLayoutResult {
+    let columnWidth: CGFloat
+    let positions: [CGPoint]
+    let sizes: [CGSize]
+    let height: CGFloat
 }
 
 private enum MemoryLibrarySidebarScope: String, CaseIterable, Identifiable {
