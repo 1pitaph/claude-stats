@@ -3,6 +3,18 @@
 extension ReleaseHistoryCatalog {
     static let generatedEntries: [ReleaseHistoryEntry] = [
         ReleaseHistoryEntry(
+            version: "1.7.9",
+            date: "May 31, 2026",
+            headline: "新增Cursor Command Overlay功能，支持在光标旁展示最近会话命令",
+            changes: [
+                "为Provider协议新增执行命令解析接口，适配Claude和Codex解析器",
+                "重构侧边栏导航，将Chat替换为Warp并更新图标",
+                "新增内存图谱的显示模式、密度选择与分组展开功能",
+                "替换Warp相关图标从sparkles为terminal",
+                "新增大量测试用例与工具类代码",
+            ]
+        ),
+        ReleaseHistoryEntry(
             version: "1.7.8",
             date: "May 27, 2026",
             headline: "提取GitGraphRowGeometry统一管理图形行布局计算，替换原有分散的railPad、laneSpacing计算",
