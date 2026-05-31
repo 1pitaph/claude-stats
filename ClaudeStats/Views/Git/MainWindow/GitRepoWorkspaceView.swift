@@ -313,6 +313,10 @@ private struct GitCommitInspector: View {
                         commitSummary(commit)
                         if let detail = vm.commitDetail {
                             commitMessage(detail)
+                            GitAISummaryCard(
+                                repo: repo,
+                                target: .commit(hash: detail.hash, subject: detail.subject)
+                            )
                             changedFiles(detail)
                         } else if vm.isDetailLoading {
                             GitWorkspaceInlineEmptyState("Loading commit detail.")
@@ -426,6 +430,7 @@ private struct GitCommitInspector: View {
                 AppScrollView {
                     VStack(alignment: .leading, spacing: 14) {
                         workingTreeSummary(summary)
+                        GitAISummaryCard(repo: repo, target: .workingTree)
                         workingTreeFiles(summary)
                     }
                     .padding(14)

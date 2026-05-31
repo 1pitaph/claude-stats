@@ -135,6 +135,7 @@ struct LocalAIModelsSettingsView: View {
                     } else {
                         localAI.stopOpenAICompatibleServer()
                         Task {
+                            await env.appLLMSettings.useOnlineModeAndSave()
                             await env.memoryModelSettings.useOnlineSourceOnlyAndSave()
                             await env.startCodeMemorySidecarFromCurrentModelSettings()
                         }
@@ -194,6 +195,7 @@ struct LocalAIModelsSettingsView: View {
         localAI.completeLocalModeEnabled = true
         localAI.restartOpenAICompatibleServerIfNeeded()
         Task {
+            await env.appLLMSettings.useLocalModeAndSave()
             await env.memoryModelSettings.useLocalModeAndSave()
             await env.startCodeMemorySidecarFromCurrentModelSettings()
         }

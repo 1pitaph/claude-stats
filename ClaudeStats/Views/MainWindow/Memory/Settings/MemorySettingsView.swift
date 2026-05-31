@@ -89,40 +89,36 @@ struct MemorySettingsView: View {
 
     private var memoryLLMCard: some View {
         @Bindable var modelSettings = env.memoryModelSettings
+        @Bindable var appLLM = env.appLLMSettings
         return VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text("Memory LLM")
                     .font(.sora(15, weight: .semibold))
-                AIConfigsBadge(text: modelSettings.readinessSummary(localAI: env.localAI), color: modelSettings.hasRunnableAdapters(localAI: env.localAI) ? Color.stxAccent : Color.stxMuted)
+                AIConfigsBadge(
+                    text: modelSettings.readinessSummary(appLLMSettings: env.appLLMSettings, localAI: env.localAI),
+                    color: modelSettings.hasRunnableAdapters(appLLMSettings: env.appLLMSettings, localAI: env.localAI) ? Color.stxAccent : Color.stxMuted
+                )
                 Spacer(minLength: 0)
             }
 
-            HStack(spacing: 10) {
-                AppSelect(
-                    .localized("Mode"),
-                    selection: $modelSettings.mode,
-                    options: MemoryLLMMode.allCases.map {
-                        AppSelectOption(value: $0, title: .localized($0.title))
-                    },
-                    width: 180,
-                    size: .small
-                )
-
-                if modelSettings.mode == .online {
-                    AppSelect(
-                        .localized("Protocol"),
-                        selection: $modelSettings.selectedProtocol,
-                        options: MemoryOnlineLLMProtocol.allCases.map {
-                            AppSelectOption(value: $0, title: .localized($0.title), subtitle: .verbatim($0.subtitle))
-                        },
-                        width: 230,
-                        size: .small,
-                        onSelectionChange: { modelSettings.selectProtocol($0) }
-                    )
+            HStack(spacing: 8) {
+                AIConfigsBadge(text: appLLM.mode.title, color: Color.stxMuted)
+                if appLLM.mode == .online, let provider = appLLM.resolvedOnlineProvider()?.provider {
+                    AIConfigsBadge(text: provider.protocol.title, color: Color.stxMuted)
+                    AIConfigsBadge(text: provider.model, color: Color.stxMuted)
+                }
+                if appLLM.mode == .local {
+                    AIConfigsBadge(text: env.localAI.localLLMAvailable ? "LLM ready" : "LLM missing", color: env.localAI.localLLMAvailable ? Color.stxAccent : Color.orange)
+                    AIConfigsBadge(text: env.localAI.semanticSearchAvailable ? "Embedding ready" : "Embedding missing", color: env.localAI.semanticSearchAvailable ? Color.stxAccent : Color.orange)
                 }
             }
 
-            if modelSettings.mode == .online {
+            Text("Provider, model, API key, and Online/Local mode are configured globally in Settings > LLM. Memory keeps only the source-specific extraction switch here.")
+                .font(.sora(10))
+                .foregroundStyle(Color.stxMuted)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if appLLM.mode == .online {
                 Toggle(isOn: $modelSettings.onlineExtractionEnabled) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Online memory extraction")
@@ -133,20 +129,6 @@ struct MemorySettingsView: View {
                     }
                 }
                 .toggleStyle(.appSwitch)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    memoryTextField("Name", text: $modelSettings.providerName)
-                    memoryTextField("Base URL", text: $modelSettings.providerBaseURL)
-                    memoryTextField("Model", text: $modelSettings.providerModel)
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        Text("API Key")
-                            .font(.sora(11, weight: .medium))
-                            .foregroundStyle(Color.stxMuted)
-                            .frame(width: 90, alignment: .leading)
-                        SecureField("sk-...", text: $modelSettings.apiKey)
-                            .textFieldStyle(.roundedBorder)
-                    }
-                }
             } else {
                 HStack(spacing: 8) {
                     AIConfigsBadge(text: env.localAI.semanticSearchAvailable ? "Embedding ready" : "Embedding missing", color: env.localAI.semanticSearchAvailable ? Color.stxAccent : Color.orange)

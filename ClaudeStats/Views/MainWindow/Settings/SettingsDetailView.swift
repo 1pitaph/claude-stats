@@ -66,6 +66,7 @@ struct SettingsDetailView: View {
         case .platforms: PlatformsSettingsView()
         case .tracking: TrackingSettingsView(onSelectSection: onSelectSection)
         case .dictionary: DictionarySettingsView()
+        case .llm: AppLLMSettingsView()
         case .localAI: LocalAIModelsSettingsView()
         case .leaderboards: LeaderboardsSettingsView(onSelectSection: onSelectSection)
         case .github: GitHubSettingsView(onSelectSection: onSelectSection)

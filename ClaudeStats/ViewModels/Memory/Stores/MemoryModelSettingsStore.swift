@@ -113,6 +113,75 @@ final class MemoryModelSettingsStore {
     }
 
     func sidecarLaunchConfiguration(
+        appLLMSettings: AppLLMSettingsStore,
+        localAI: LocalAIStore,
+        diagnosticsRetentionDays: Int = MemoryDiagnosticsLog.defaultRetentionDays
+    ) -> MemoryModelSidecarLaunchConfiguration {
+        switch appLLMSettings.mode {
+        case .online:
+            guard onlineExtractionEnabled else {
+                return MemoryModelSidecarLaunchConfiguration(runtimeConfig: nil, legacyLocalAIEnvironment: nil)
+            }
+            guard let resolved = appLLMSettings.resolvedOnlineProvider(),
+                  let llmBaseURL = URL(string: resolved.provider.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)),
+                  !resolved.provider.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else {
+                return MemoryModelSidecarLaunchConfiguration(runtimeConfig: nil, legacyLocalAIEnvironment: nil)
+            }
+            guard !resolved.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  localAI.semanticSearchAvailable
+            else {
+                return MemoryModelSidecarLaunchConfiguration(runtimeConfig: nil, legacyLocalAIEnvironment: nil)
+            }
+            guard let embeddingEnvironment = localAI.localAIEnvironment(adaptersEnabled: false, allowRestart: true) else {
+                return MemoryModelSidecarLaunchConfiguration(runtimeConfig: nil, legacyLocalAIEnvironment: nil)
+            }
+            let runtime = CodeMemoryModelRuntimeConfig(
+                mode: AppLLMMode.online.rawValue,
+                llm: CodeMemoryLLMEndpoint(
+                    protocolName: resolved.provider.protocol.codeMemoryProtocol,
+                    baseURL: llmBaseURL,
+                    apiKey: resolved.apiKey,
+                    model: resolved.provider.model.trimmingCharacters(in: .whitespacesAndNewlines)
+                ),
+                embedding: CodeMemoryEmbeddingEndpoint(
+                    baseURL: embeddingEnvironment.baseURL,
+                    apiKey: embeddingEnvironment.token,
+                    model: embeddingEnvironment.embeddingModelID,
+                    dimensions: embeddingEnvironment.embeddingDimensions
+                ),
+                diagnosticsRetentionDays: diagnosticsRetentionDays
+            )
+            return MemoryModelSidecarLaunchConfiguration(runtimeConfig: runtime, legacyLocalAIEnvironment: nil)
+
+        case .local:
+            guard localAI.semanticSearchAvailable, localAI.localLLMAvailable else {
+                return MemoryModelSidecarLaunchConfiguration(runtimeConfig: nil, legacyLocalAIEnvironment: nil)
+            }
+            guard let localEnvironment = localAI.localAIEnvironment(adaptersEnabled: true, allowRestart: true) else {
+                return MemoryModelSidecarLaunchConfiguration(runtimeConfig: nil, legacyLocalAIEnvironment: nil)
+            }
+            let runtime = CodeMemoryModelRuntimeConfig(
+                mode: AppLLMMode.local.rawValue,
+                llm: CodeMemoryLLMEndpoint(
+                    protocolName: .openAIChatCompletions,
+                    baseURL: localEnvironment.baseURL,
+                    apiKey: localEnvironment.token,
+                    model: localEnvironment.llmModelID
+                ),
+                embedding: CodeMemoryEmbeddingEndpoint(
+                    baseURL: localEnvironment.baseURL,
+                    apiKey: localEnvironment.token,
+                    model: localEnvironment.embeddingModelID,
+                    dimensions: localEnvironment.embeddingDimensions
+                ),
+                diagnosticsRetentionDays: diagnosticsRetentionDays
+            )
+            return MemoryModelSidecarLaunchConfiguration(runtimeConfig: runtime, legacyLocalAIEnvironment: localEnvironment)
+        }
+    }
+
+    func sidecarLaunchConfiguration(
         localAI: LocalAIStore,
         diagnosticsRetentionDays: Int = MemoryDiagnosticsLog.defaultRetentionDays
     ) -> MemoryModelSidecarLaunchConfiguration {
@@ -198,8 +267,24 @@ final class MemoryModelSettingsStore {
         }
     }
 
+    func readinessSummary(appLLMSettings: AppLLMSettingsStore, localAI: LocalAIStore) -> String {
+        switch appLLMSettings.mode {
+        case .online:
+            guard onlineExtractionEnabled else { return "Online extraction is off" }
+            guard localAI.semanticSearchAvailable else { return "Local embedding model is missing" }
+            return appLLMSettings.readinessSummary(localAI: localAI)
+        case .local:
+            if !localAI.semanticSearchAvailable { return "Local embedding model is missing" }
+            return appLLMSettings.readinessSummary(localAI: localAI)
+        }
+    }
+
     func hasRunnableAdapters(localAI: LocalAIStore) -> Bool {
         sidecarLaunchConfiguration(localAI: localAI).adaptersEnabled
+    }
+
+    func hasRunnableAdapters(appLLMSettings: AppLLMSettingsStore, localAI: LocalAIStore) -> Bool {
+        sidecarLaunchConfiguration(appLLMSettings: appLLMSettings, localAI: localAI).adaptersEnabled
     }
 
     private func apply(settings: MemoryLLMSettings) {

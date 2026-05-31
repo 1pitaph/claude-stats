@@ -38,6 +38,7 @@ final class AppEnvironment {
     let skills: SkillsStore
     let configWorkspace: ConfigWorkspaceStore
     let memory: MemoryStore
+    let appLLMSettings: AppLLMSettingsStore
     let memoryModelSettings: MemoryModelSettingsStore
     let chat: ChatStore
     let systemMonitor: SystemMonitorViewModel
@@ -111,6 +112,7 @@ final class AppEnvironment {
             configurationProfiles: self.configurationProfiles
         )
         self.memory = MemoryStore()
+        self.appLLMSettings = AppLLMSettingsStore()
         self.memoryModelSettings = MemoryModelSettingsStore()
         self.chat = ChatStore()
     }
@@ -143,6 +145,7 @@ final class AppEnvironment {
             await configurationProfiles.loadIfNeeded()
             await store.refresh()
             await aiConfigs.reload(sessions: store.sessions)
+            await appLLMSettings.loadIfNeeded()
             await memoryModelSettings.loadIfNeeded()
             await startCodeMemorySidecarFromCurrentModelSettings()
             await memory.syncAvailableSources(sessions: store.sessions, configProjects: aiConfigs.snapshot.projects)
@@ -170,8 +173,10 @@ final class AppEnvironment {
     }
 
     func startCodeMemorySidecarFromCurrentModelSettings() async {
+        await appLLMSettings.loadIfNeeded()
         await memoryModelSettings.loadIfNeeded()
         let launch = memoryModelSettings.sidecarLaunchConfiguration(
+            appLLMSettings: appLLMSettings,
             localAI: localAI,
             diagnosticsRetentionDays: memory.diagnosticsRetentionDays
         )
@@ -185,7 +190,7 @@ final class AppEnvironment {
     private func drainMemoryCaptureQueueIfAllowed() async {
         let mode = memory.captureMode
         guard mode.allowsAutomaticDrain else { return }
-        guard memoryModelSettings.hasRunnableAdapters(localAI: localAI) else { return }
+        guard memoryModelSettings.hasRunnableAdapters(appLLMSettings: appLLMSettings, localAI: localAI) else { return }
         await memory.drainQueuedMemoryCaptures(limit: mode.backgroundDrainLimit)
     }
 
