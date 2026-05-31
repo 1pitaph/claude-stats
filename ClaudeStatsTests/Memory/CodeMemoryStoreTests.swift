@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 import Testing
 @testable import ClaudeStats
 
@@ -216,30 +217,6 @@ struct CodeMemoryStoreTests {
         #expect(backend.drainIncludeFailed == [true])
     }
 
-    @MainActor
-    @Test("Graph store preserves stable node and edge selection")
-    func graphStoreSelectionUsesStableIDs() async throws {
-        let backend = FakeCodeMemoryBackend()
-        backend.graphResponse = CodeMemoryGraph(
-            projectID: "claude-stats",
-            nodes: [
-                CodeMemoryGraphNode(id: "project:claude-stats", kind: "project", title: "claude-stats", type: nil, status: nil, seq: nil, body: nil, sourceRefs: nil, metadata: nil),
-                CodeMemoryGraphNode(id: "memory:one", kind: "memory", title: "One", type: "fact", status: "active", seq: nil, body: "Body", sourceRefs: nil, metadata: nil),
-            ],
-            edges: [
-                CodeMemoryGraphEdge(source: "memory:one", target: "project:claude-stats", kind: "SCOPED_TO", primary: true, fact: nil, validAt: nil, invalidAt: nil, metadata: nil),
-            ]
-        )
-        let graphStore = MemoryGraphStore(backend: backend)
-
-        await graphStore.load(projectID: "claude-stats")
-        graphStore.selectNode("memory:one")
-        graphStore.selectEdge("memory:one-SCOPED_TO-project:claude-stats")
-
-        #expect(graphStore.selectedNode == nil)
-        #expect(graphStore.selectedEdge?.kind == "SCOPED_TO")
-    }
-
     @Test("HTTP client encodes path parameters once")
     func httpClientEncodesPathParametersOnce() async throws {
         MockCodeMemoryURLProtocol.capturedURLs = []
@@ -295,38 +272,6 @@ struct CodeMemoryStoreTests {
         #expect(event.before?.displayValue("active") == "true")
         #expect(event.after?["nested"]?.objectValue?["count"]?.displayString == "2")
         #expect(event.delta?["title"]?.arrayValue?.map(\.displayString) == ["Old", "New"])
-    }
-
-    @Test("Kinds none hides every knowledge graph node")
-    func kindsNoneHidesKnowledgeGraphNodes() {
-        let nodes = [
-            CodeMemoryGraphNode(id: "memory:one", kind: "memory", title: "One", type: nil, status: nil, seq: nil, body: nil, sourceRefs: nil, metadata: nil),
-            CodeMemoryGraphNode(id: "episode:one", kind: "episode", title: "Episode", type: nil, status: nil, seq: nil, body: nil, sourceRefs: nil, metadata: nil),
-        ]
-
-        let none = MemoryKnowledgeGraphFilter.nodes(
-            nodes,
-            selectedKinds: [],
-            showCanonical: true,
-            showEpisodes: true,
-            showEvents: true,
-            showGraphiti: true,
-            asOf: nil,
-            searchText: ""
-        )
-        let all = MemoryKnowledgeGraphFilter.nodes(
-            nodes,
-            selectedKinds: Set(nodes.map(\.kind)),
-            showCanonical: true,
-            showEpisodes: true,
-            showEvents: true,
-            showGraphiti: true,
-            asOf: nil,
-            searchText: ""
-        )
-
-        #expect(none.isEmpty)
-        #expect(all.count == 2)
     }
 
     @Test("Graph render limiter caps large graphs and keeps valid edges")
@@ -408,6 +353,107 @@ struct CodeMemoryStoreTests {
         #expect(graph.edges.contains { $0.kind == "AFFECTS" })
         #expect(graph.edges.contains { $0.kind == "NEXT_EVENT" })
         #expect(graph.edges.contains { $0.kind == "FROM_SOURCE" })
+    }
+
+    @Test("Change graph links source only events to provenance nodes")
+    func changeGraphLinksSourceOnlyEvents() {
+        let event = CodeMemoryEvent(
+            eventID: "event:source",
+            seq: 1,
+            timestamp: 1,
+            projectID: "claude-stats",
+            actor: ["kind": "sync"],
+            eventType: "memory.source_observed",
+            memoryID: nil,
+            before: nil,
+            after: ["body": .string("Observed transcript")],
+            delta: nil,
+            sourceRefs: [CodeMemorySourceRef(kind: "codex_transcript", sourceID: "source:1", quote: "Observed transcript")],
+            hash: "h1",
+            prevHash: nil
+        )
+
+        let graph = MemoryChangeGraphBuilder.build(projectID: "claude-stats", events: [event])
+
+        #expect(graph.nodes.contains { $0.id == "change:event:event:source" && $0.kind == "change_event" })
+        #expect(graph.nodes.contains { $0.kind == "source" })
+        #expect(graph.edges.contains { $0.source == "change:event:event:source" && $0.kind == "FROM_SOURCE" })
+    }
+
+    @Test("Focused change graph keeps selected event neighborhood local")
+    func focusedChangeGraphKeepsSelectedNeighborhoodLocal() {
+        let events = (1...60).map { seq in
+            Self.event(
+                eventID: "event:\(seq)",
+                seq: seq,
+                eventType: seq.isMultiple(of: 2) ? "updated" : "observed",
+                memoryID: seq.isMultiple(of: 3) ? "shared" : "memory:\(seq)",
+                title: "Event \(seq)",
+                sourceID: "src:\(seq)"
+            )
+        }
+        let fullGraph = MemoryChangeGraphBuilder.build(projectID: "claude-stats", events: events)
+
+        let focused = MemoryChangeGraphBuilder.focusedGraph(
+            projectID: "claude-stats",
+            events: events,
+            selectedEventID: "event:30",
+            selectedMemoryID: nil,
+            searchText: "",
+            eventLimit: 12
+        )
+        let eventNodeIDs = Set(focused.nodes.filter { $0.kind == "change_event" }.map(\.id))
+
+        #expect(eventNodeIDs.count <= 12)
+        #expect(eventNodeIDs.contains("change:event:event:30"))
+        #expect(!eventNodeIDs.contains("change:event:event:1"))
+        #expect(focused.nodes.count < fullGraph.nodes.count)
+        #expect(focused.edges.allSatisfy { edge in
+            focused.nodes.contains { $0.id == edge.source } && focused.nodes.contains { $0.id == edge.target }
+        })
+    }
+
+    @Test("Change graph layout uses source event memory columns")
+    func changeGraphLayoutUsesColumns() throws {
+        let events = [
+            Self.event(eventID: "event:1", seq: 1, eventType: "created", memoryID: "one", title: "One", sourceID: "src:1"),
+            Self.event(eventID: "event:2", seq: 2, eventType: "updated", memoryID: "one", title: "Two", sourceID: "src:2"),
+        ]
+        let graph = MemoryChangeGraphBuilder.build(projectID: "claude-stats", events: events)
+
+        let positions = MemoryChangeGraphLayout.positions(
+            for: graph.nodes,
+            edges: graph.edges,
+            in: CGSize(width: 900, height: 500),
+            pan: .zero,
+            zoom: 1
+        )
+        let firstEvent = try #require(positions["change:event:event:1"])
+        let secondEvent = try #require(positions["change:event:event:2"])
+        let memory = try #require(positions["memory:one"])
+        let source = try #require(graph.nodes.first { $0.kind == "source" }.flatMap { positions[$0.id] })
+
+        #expect(abs(firstEvent.x - secondEvent.x) < 0.1)
+        #expect(firstEvent.y < secondEvent.y)
+        #expect(source.x < firstEvent.x)
+        #expect(memory.x > firstEvent.x)
+    }
+
+    @MainActor
+    @Test("Change graph store auto selects newest loaded event")
+    func changeGraphStoreAutoSelectsNewestEvent() async throws {
+        let backend = FakeCodeMemoryBackend()
+        backend.eventResponse = [
+            Self.event(eventID: "event:1", seq: 1, eventType: "created", memoryID: "one", title: "One", sourceID: "src:1"),
+            Self.event(eventID: "event:3", seq: 3, eventType: "updated", memoryID: "one", title: "Three", sourceID: "src:3"),
+            Self.event(eventID: "event:2", seq: 2, eventType: "updated", memoryID: "one", title: "Two", sourceID: "src:2"),
+        ]
+        let graphStore = MemoryGraphStore(backend: backend)
+
+        await graphStore.loadChanges(projectID: "claude-stats")
+
+        #expect(graphStore.selectedChangeEvent?.eventID == "event:3")
+        #expect(graphStore.focusedChangeGraph?.nodes.contains { $0.id == "change:event:event:3" } == true)
     }
 
     @MainActor

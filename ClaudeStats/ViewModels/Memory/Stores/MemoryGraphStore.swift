@@ -2,45 +2,18 @@ import CoreGraphics
 import Foundation
 import Observation
 
-enum MemoryGraphLayer: String, CaseIterable, Identifiable, Sendable {
-    case knowledge
-    case changes
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .knowledge: "Knowledge"
-        case .changes: "Changes"
-        }
-    }
-}
-
 @MainActor
 @Observable
 final class MemoryGraphStore {
-    var layer: MemoryGraphLayer = .knowledge
-    var searchText = ""
     var changeSearchText = ""
-    var selectedNodeID: String?
-    var selectedEdgeID: String?
     var selectedChangeNodeID: String?
     var selectedChangeEdgeID: String?
-    var selectedKinds: Set<String> = []
-    var showCanonical = true
-    var showEpisodes = true
-    var showEvents = false
-    var showGraphiti = true
-    var asOf: Double?
     var zoom: Double = 1
     var pan = CGSize.zero
-    private(set) var graph: CodeMemoryGraph?
     private(set) var changeGraph: CodeMemoryGraph?
     private(set) var events: [CodeMemoryEvent] = []
     private(set) var histories: [String: CodeMemoryMemoryHistory] = [:]
-    private(set) var isLoading = false
     private(set) var isLoadingChanges = false
-    private(set) var lastError: String?
     private(set) var changeLastError: String?
     private(set) var historyLastError: String?
     private(set) var loadingHistoryMemoryIDs: Set<String> = []
@@ -49,21 +22,6 @@ final class MemoryGraphStore {
 
     init(backend: any CodeMemoryBackend) {
         self.backend = backend
-    }
-
-    var nodeKinds: [String] {
-        guard let graph else { return [] }
-        return Array(Set(graph.nodes.map(\.kind))).sorted()
-    }
-
-    var selectedNode: CodeMemoryGraphNode? {
-        guard let selectedNodeID else { return nil }
-        return graph?.nodes.first { $0.id == selectedNodeID }
-    }
-
-    var selectedEdge: CodeMemoryGraphEdge? {
-        guard let selectedEdgeID else { return nil }
-        return graph?.edges.first { $0.id == selectedEdgeID }
     }
 
     var filteredChangeEvents: [CodeMemoryEvent] {
@@ -117,29 +75,21 @@ final class MemoryGraphStore {
         return selectedChangeEvent?.memoryID ?? selectedChangeEdge?.metadata?["memory_id"]
     }
 
-    func load(projectID: String?) async {
-        guard let projectID, !projectID.isEmpty else {
-            graph = nil
-            selectedNodeID = nil
-            selectedEdgeID = nil
-            return
-        }
+    var focusedChangeGraph: CodeMemoryGraph? {
+        guard let projectID = changeGraph?.projectID else { return nil }
+        return MemoryChangeGraphBuilder.focusedGraph(
+            projectID: projectID,
+            events: events,
+            selectedEventID: selectedChangeEvent?.eventID,
+            selectedMemoryID: selectedChangeMemoryID,
+            selectedSourceNodeID: selectedChangeSourceNodeID,
+            searchText: changeSearchText
+        )
+    }
 
-        isLoading = true
-        defer { isLoading = false }
-
-        do {
-            graph = try await backend.graph(projectID: projectID)
-            selectedKinds = Set(nodeKinds)
-            selectedNodeID = selectedNodeID.flatMap { id in graph?.nodes.contains { $0.id == id } == true ? id : nil }
-            selectedEdgeID = selectedEdgeID.flatMap { id in graph?.edges.contains { $0.id == id } == true ? id : nil }
-            lastError = nil
-        } catch {
-            graph = nil
-            selectedNodeID = nil
-            selectedEdgeID = nil
-            lastError = error.localizedDescription
-        }
+    private var selectedChangeSourceNodeID: String? {
+        guard let node = selectedChangeNode, node.kind == "source" || node.kind == "episode" else { return nil }
+        return node.id
     }
 
     func loadChanges(projectID: String?) async {
@@ -159,6 +109,9 @@ final class MemoryGraphStore {
             changeGraph = MemoryChangeGraphBuilder.build(projectID: projectID, events: events)
             selectedChangeNodeID = selectedChangeNodeID.flatMap { id in changeGraph?.nodes.contains { $0.id == id } == true ? id : nil }
             selectedChangeEdgeID = selectedChangeEdgeID.flatMap { id in changeGraph?.edges.contains { $0.id == id } == true ? id : nil }
+            if selectedChangeNodeID == nil, selectedChangeEdgeID == nil {
+                selectedChangeNodeID = events.max { $0.seq < $1.seq }.map { MemoryChangeGraphBuilder.eventNodeID($0.eventID) }
+            }
             changeLastError = nil
         } catch {
             events = []
@@ -193,16 +146,6 @@ final class MemoryGraphStore {
         await loadHistory(memoryID: memoryID, limit: limit)
     }
 
-    func selectNode(_ id: String?) {
-        selectedNodeID = id
-        selectedEdgeID = nil
-    }
-
-    func selectEdge(_ id: String?) {
-        selectedEdgeID = id
-        selectedNodeID = nil
-    }
-
     func selectChangeNode(_ id: String?) {
         selectedChangeNodeID = id
         selectedChangeEdgeID = nil
@@ -228,6 +171,9 @@ final class MemoryGraphStore {
 }
 
 enum MemoryChangeGraphBuilder {
+    private static let focusedEventLimit = 18
+    private static let focusedSeqRadius = 5
+
     static func build(projectID: String, events: [CodeMemoryEvent]) -> CodeMemoryGraph {
         var nodesByID: [String: CodeMemoryGraphNode] = [:]
         var edges: [CodeMemoryGraphEdge] = []
@@ -251,6 +197,12 @@ enum MemoryChangeGraphBuilder {
                     "actor": actorLabel(event.actor),
                 ].filter { !$0.value.isEmpty }
             )
+
+            var sourceAnchorNodeID = eventNodeID
+            var sourceMetadata = [
+                "event_id": event.eventID,
+                "memory_id": event.memoryID ?? "",
+            ].filter { !$0.value.isEmpty }
 
             if let memoryID = event.memoryID, !memoryID.isEmpty {
                 let memoryNodeID = memoryNodeID(memoryID)
@@ -276,21 +228,25 @@ enum MemoryChangeGraphBuilder {
                     invalidAt: nil,
                     metadata: ["event_id": event.eventID, "memory_id": memoryID]
                 ))
+                sourceAnchorNodeID = memoryNodeID
+                sourceMetadata["memory_id"] = memoryID
+            }
 
-                for ref in event.sourceRefs {
-                    let sourceNode = sourceNode(for: ref, projectID: projectID)
-                    nodesByID[sourceNode.id] = sourceNode
-                    edges.append(CodeMemoryGraphEdge(
-                        source: memoryNodeID,
-                        target: sourceNode.id,
-                        kind: "FROM_SOURCE",
-                        primary: nil,
-                        fact: ref.quote,
-                        validAt: nil,
-                        invalidAt: nil,
-                        metadata: ["event_id": event.eventID, "memory_id": memoryID, "source_kind": ref.kind]
-                    ))
-                }
+            for ref in event.sourceRefs {
+                let sourceNode = sourceNode(for: ref, projectID: projectID)
+                nodesByID[sourceNode.id] = sourceNode
+                var metadata = sourceMetadata
+                metadata["source_kind"] = ref.kind
+                edges.append(CodeMemoryGraphEdge(
+                    source: sourceAnchorNodeID,
+                    target: sourceNode.id,
+                    kind: "FROM_SOURCE",
+                    primary: nil,
+                    fact: ref.quote,
+                    validAt: nil,
+                    invalidAt: nil,
+                    metadata: metadata
+                ))
             }
         }
 
@@ -312,6 +268,82 @@ enum MemoryChangeGraphBuilder {
             nodes: nodesByID.values.sorted { $0.id < $1.id },
             edges: dedupe(edges).sorted { $0.id < $1.id }
         )
+    }
+
+    static func focusedGraph(
+        projectID: String,
+        events: [CodeMemoryEvent],
+        selectedEventID: String?,
+        selectedMemoryID: String?,
+        selectedSourceNodeID: String? = nil,
+        searchText: String,
+        eventLimit: Int = focusedEventLimit
+    ) -> CodeMemoryGraph {
+        guard !events.isEmpty else {
+            return CodeMemoryGraph(projectID: projectID, nodes: [], edges: [])
+        }
+
+        let sortedAscending = events.sorted { $0.seq < $1.seq }
+        let sortedDescending = sortedAscending.reversed()
+        let selectedEvent = selectedEventID.flatMap { id in events.first { $0.eventID == id } }
+        let normalizedSearch = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        var includedEventIDs: Set<String> = []
+        var orderedEvents: [CodeMemoryEvent] = []
+
+        func append(_ event: CodeMemoryEvent) {
+            if includedEventIDs.insert(event.eventID).inserted {
+                orderedEvents.append(event)
+            }
+        }
+
+        if !normalizedSearch.isEmpty {
+            for event in sortedDescending where matches(event, search: normalizedSearch) {
+                append(event)
+                if orderedEvents.count >= eventLimit {
+                    break
+                }
+            }
+        }
+
+        if let selectedEvent {
+            append(selectedEvent)
+            appendSequenceWindow(around: selectedEvent, from: sortedAscending, into: append)
+        }
+
+        let memoryID = selectedMemoryID ?? selectedEvent?.memoryID
+        if let memoryID, !memoryID.isEmpty {
+            for event in sortedDescending where event.memoryID == memoryID {
+                append(event)
+                if orderedEvents.count >= eventLimit {
+                    break
+                }
+            }
+        }
+
+        if let selectedSourceNodeID, !selectedSourceNodeID.isEmpty {
+            for event in sortedDescending where event.sourceRefs.contains(where: { sourceNodeID(for: $0) == selectedSourceNodeID }) {
+                append(event)
+                if orderedEvents.count >= eventLimit {
+                    break
+                }
+            }
+        }
+
+        if orderedEvents.isEmpty {
+            for event in sortedDescending.prefix(min(eventLimit, 8)) {
+                append(event)
+            }
+        }
+
+        var focusedEvents = Array(orderedEvents.prefix(eventLimit))
+        if let selectedEvent, !focusedEvents.contains(where: { $0.eventID == selectedEvent.eventID }) {
+            if focusedEvents.count >= eventLimit {
+                focusedEvents.removeLast()
+            }
+            focusedEvents.insert(selectedEvent, at: 0)
+        }
+        focusedEvents.sort { $0.seq < $1.seq }
+        return build(projectID: projectID, events: focusedEvents)
     }
 
     static func eventNodeID(_ eventID: String) -> String {
@@ -337,7 +369,7 @@ enum MemoryChangeGraphBuilder {
             ?? ref.episodeID
             ?? ref.kind
         return CodeMemoryGraphNode(
-            id: "\(kind):\(rawID.memoryGraphStableIDComponent)",
+            id: sourceNodeID(rawID: rawID, kind: kind),
             kind: kind,
             title: title,
             type: ref.kind,
@@ -355,8 +387,46 @@ enum MemoryChangeGraphBuilder {
         )
     }
 
+    private static func sourceNodeID(for ref: CodeMemorySourceRef) -> String {
+        let rawID = ref.episodeID ?? ref.sourceID ?? ref.uri ?? ref.path ?? ref.id
+        let kind = ref.episodeID == nil ? "source" : "episode"
+        return sourceNodeID(rawID: rawID, kind: kind)
+    }
+
+    private static func sourceNodeID(rawID: String, kind: String) -> String {
+        "\(kind):\(rawID.memoryGraphStableIDComponent)"
+    }
+
     private static func actorLabel(_ actor: [String: String]) -> String {
         actor["id"] ?? actor["name"] ?? actor["kind"] ?? "system"
+    }
+
+    private static func appendSequenceWindow(
+        around selectedEvent: CodeMemoryEvent,
+        from sortedAscending: [CodeMemoryEvent],
+        into append: (CodeMemoryEvent) -> Void
+    ) {
+        guard let selectedIndex = sortedAscending.firstIndex(where: { $0.eventID == selectedEvent.eventID }) else { return }
+        let lowerBound = max(sortedAscending.startIndex, selectedIndex - focusedSeqRadius)
+        let upperBound = min(sortedAscending.endIndex, selectedIndex + focusedSeqRadius + 1)
+        for index in lowerBound..<upperBound {
+            append(sortedAscending[index])
+        }
+    }
+
+    private static func matches(_ event: CodeMemoryEvent, search: String) -> Bool {
+        [
+            event.eventType,
+            event.memoryID,
+            event.titleCandidate,
+            event.statusTransition,
+            event.actor["id"],
+            event.actor["kind"],
+        ]
+        .compactMap { $0 }
+        .joined(separator: " ")
+        .lowercased()
+        .contains(search)
     }
 
     private static func dedupe(_ edges: [CodeMemoryGraphEdge]) -> [CodeMemoryGraphEdge] {

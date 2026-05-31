@@ -1,156 +1,5 @@
 import SwiftUI
 
-struct MemoryGraphCanvasView: View {
-    @Bindable var graphStore: MemoryGraphStore
-    @State private var dragStart = CGSize.zero
-    @State private var isDragging = false
-
-    var body: some View {
-        GeometryReader { proxy in
-            graphContent(size: proxy.size)
-        }
-        .background(Color.primary.opacity(0.018))
-        .gesture(
-            DragGesture(minimumDistance: 2)
-                .onChanged { value in
-                    if !isDragging {
-                        dragStart = graphStore.pan
-                        isDragging = true
-                    }
-                    graphStore.pan = CGSize(
-                        width: dragStart.width + value.translation.width,
-                        height: dragStart.height + value.translation.height
-                    )
-                }
-                .onEnded { _ in
-                    isDragging = false
-                }
-        )
-    }
-
-    @ViewBuilder
-    private func graphContent(size: CGSize) -> some View {
-        if let graph = graphStore.graph, !graph.nodes.isEmpty {
-            let nodes = filteredNodes(graph.nodes)
-            let nodeIDs = Set(nodes.map(\.id))
-            let edges = filteredEdges(graph.edges, nodeIDs: nodeIDs)
-            let render = MemoryGraphRenderLimiter.limit(
-                nodes: nodes,
-                edges: edges,
-                maxNodes: MemoryGraphRenderLimiter.knowledgeNodeLimit,
-                maxEdges: MemoryGraphRenderLimiter.knowledgeEdgeLimit,
-                selectedNodeID: graphStore.selectedNodeID,
-                selectedEdgeID: graphStore.selectedEdgeID
-            )
-            let positions = MemoryGraphLayout.positions(
-                for: render.nodes,
-                in: size,
-                pan: graphStore.pan,
-                zoom: CGFloat(graphStore.zoom)
-            )
-
-            ZStack {
-                Canvas { context, _ in
-                    drawEdges(render.edges, positions: positions, in: &context)
-                }
-
-                if render.showsEdgeHitTargets {
-                    ForEach(render.edges) { edge in
-                        if let midpoint = MemoryGraphLayout.midpoint(for: edge, positions: positions) {
-                            Button {
-                                graphStore.selectEdge(edge.id)
-                            } label: {
-                                Circle()
-                                    .fill(graphStore.selectedEdgeID == edge.id ? Color.stxAccent : Color.primary.opacity(0.18))
-                                    .frame(width: graphStore.selectedEdgeID == edge.id ? 10 : 7, height: graphStore.selectedEdgeID == edge.id ? 10 : 7)
-                            }
-                            .buttonStyle(.plain)
-                            .position(midpoint)
-                            .help(edge.kind)
-                        }
-                    }
-                }
-
-                ForEach(render.nodes) { node in
-                    if let position = positions[node.id] {
-                        let highlighted = isHighlighted(node)
-                        MemoryGraphNodeView(
-                            node: node,
-                            isSelected: graphStore.selectedNodeID == node.id,
-                            isHighlighted: highlighted,
-                            isCompact: render.usesCompactNodes
-                                && graphStore.selectedNodeID != node.id
-                                && !highlighted
-                                && node.kind != "project"
-                        ) {
-                            graphStore.selectNode(node.id)
-                        }
-                        .position(position)
-                    }
-                }
-            }
-            .frame(width: size.width, height: size.height)
-            .clipped()
-            .overlay(alignment: .topLeading) {
-                if render.usesCompactNodes || graph.truncated == true {
-                    MemoryGraphRenderLimitBadge(
-                        render: render,
-                        backendTotalNodes: graph.totalNodes,
-                        backendTotalEdges: graph.totalEdges,
-                        backendTruncated: graph.truncated == true
-                    )
-                    .padding(12)
-                }
-            }
-        } else {
-            MemoryEmptyState(
-                title: graphStore.isLoading ? "Loading graph" : "No graph loaded",
-                message: graphStore.lastError ?? "Select a project.",
-                symbol: "point.3.connected.trianglepath.dotted"
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
-    private func drawEdges(_ edges: [CodeMemoryGraphEdge], positions: [String: CGPoint], in context: inout GraphicsContext) {
-        for edge in edges {
-            guard let source = positions[edge.source], let target = positions[edge.target] else { continue }
-            var path = Path()
-            path.move(to: source)
-            path.addLine(to: target)
-            let selected = graphStore.selectedEdgeID == edge.id
-            let color = selected ? Color.stxAccent : Color.stxStroke.opacity(0.72)
-            context.stroke(path, with: .color(color), lineWidth: selected ? 2.0 : 1.0)
-        }
-    }
-
-    private func filteredNodes(_ nodes: [CodeMemoryGraphNode]) -> [CodeMemoryGraphNode] {
-        MemoryKnowledgeGraphFilter.nodes(
-            nodes,
-            selectedKinds: graphStore.selectedKinds,
-            showCanonical: graphStore.showCanonical,
-            showEpisodes: graphStore.showEpisodes,
-            showEvents: graphStore.showEvents,
-            showGraphiti: graphStore.showGraphiti,
-            asOf: graphStore.asOf,
-            searchText: graphStore.searchText
-        )
-    }
-
-    private func filteredEdges(_ edges: [CodeMemoryGraphEdge], nodeIDs: Set<String>) -> [CodeMemoryGraphEdge] {
-        MemoryKnowledgeGraphFilter.edges(edges, nodeIDs: nodeIDs, asOf: graphStore.asOf)
-    }
-
-    private func isHighlighted(_ node: CodeMemoryGraphNode) -> Bool {
-        let search = graphStore.searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !search.isEmpty else { return false }
-        return "\(node.title) \(node.body ?? "") \(node.kind) \(node.type ?? "")"
-            .lowercased()
-            .contains(search)
-    }
-
-}
-
 struct MemoryGraphNodeView: View {
     let node: CodeMemoryGraphNode
     let isSelected: Bool
@@ -240,8 +89,6 @@ struct MemoryGraphRenderModel: Sendable, Hashable {
 }
 
 enum MemoryGraphRenderLimiter {
-    static let knowledgeNodeLimit = 180
-    static let knowledgeEdgeLimit = 360
     static let changeNodeLimit = 220
     static let changeEdgeLimit = 420
 
@@ -399,7 +246,7 @@ struct MemoryGraphRenderLimitBadge: View {
         if backendTruncated, let backendTotalNodes, let backendTotalEdges {
             parts.append("Backend capped source graph from \(backendTotalNodes) nodes and \(backendTotalEdges) edges.")
         }
-        parts.append("Use search or kind filters to expand a focused area.")
+        parts.append("Use search or selection to narrow the focused area.")
         return parts.joined(separator: " ")
     }
 }
@@ -452,169 +299,100 @@ enum MemoryGraphStyle {
 }
 
 enum MemoryGraphLayout {
-    static func positions(for nodes: [CodeMemoryGraphNode], in size: CGSize, pan: CGSize, zoom: CGFloat) -> [String: CGPoint] {
-        guard !nodes.isEmpty else { return [:] }
-        let center = CGPoint(x: size.width / 2 + pan.width, y: size.height / 2 + pan.height)
-        var positions: [String: CGPoint] = [:]
-        let grouped = Dictionary(grouping: nodes.sorted(by: { $0.id < $1.id }), by: \.kind)
-        let orderedKinds = grouped.keys.sorted(by: kindOrder)
-        let maxRadius = max(80, min(size.width, size.height) * 0.38)
-
-        for (kindIndex, kind) in orderedKinds.enumerated() {
-            let group = grouped[kind] ?? []
-            if kind == "project", group.count == 1 {
-                positions[group[0].id] = center
-                continue
-            }
-            let ring = radius(for: kind, kindIndex: kindIndex, maxRadius: maxRadius) * zoom
-            let angleOffset = Double(kindIndex) * .pi / 9
-            for (index, node) in group.enumerated() {
-                let angle = angleOffset + (Double(index) / Double(max(group.count, 1))) * 2 * .pi
-                positions[node.id] = CGPoint(
-                    x: center.x + cos(angle) * ring,
-                    y: center.y + sin(angle) * ring
-                )
-            }
-        }
-        return positions
-    }
-
     static func midpoint(for edge: CodeMemoryGraphEdge, positions: [String: CGPoint]) -> CGPoint? {
         guard let source = positions[edge.source], let target = positions[edge.target] else { return nil }
         return CGPoint(x: (source.x + target.x) / 2, y: (source.y + target.y) / 2)
     }
-
-    private static func radius(for kind: String, kindIndex: Int, maxRadius: CGFloat) -> CGFloat {
-        switch kind {
-        case "project":
-            0
-        case "module", "scope":
-            maxRadius * 0.35
-        case "memory":
-            maxRadius * 0.58
-        case "event", "change_event":
-            maxRadius * 0.78
-        case "source", "episode":
-            maxRadius * 0.92
-        default:
-            maxRadius * (0.48 + min(CGFloat(kindIndex) * 0.08, 0.44))
-        }
-    }
-
-    private static func kindOrder(_ lhs: String, _ rhs: String) -> Bool {
-        order(lhs) < order(rhs)
-    }
-
-    private static func order(_ kind: String) -> Int {
-        switch kind {
-        case "project": 0
-        case "module", "scope": 1
-        case "memory": 2
-        case "event", "change_event": 3
-        case "source", "episode": 4
-        default: MemoryGraphStyle.isGraphitiKind(kind) ? 5 : 6
-        }
-    }
 }
 
-enum MemoryKnowledgeGraphFilter {
-    static func nodes(
+enum MemoryChangeGraphLayout {
+    static func positions(
+        for nodes: [CodeMemoryGraphNode],
+        edges: [CodeMemoryGraphEdge],
+        in size: CGSize,
+        pan: CGSize,
+        zoom: CGFloat
+    ) -> [String: CGPoint] {
+        guard !nodes.isEmpty else { return [:] }
+
+        let canvasWidth = max(size.width, 320)
+        let canvasHeight = max(size.height, 260)
+        let center = CGPoint(x: canvasWidth / 2 + pan.width, y: canvasHeight / 2 + pan.height)
+        let rowGap = min(82 * zoom, max(52, canvasHeight / CGFloat(max(nodes.count, 4))))
+        var positions: [String: CGPoint] = [:]
+
+        let eventNodes = nodes
+            .filter { $0.kind == "change_event" }
+            .sorted { lhs, rhs in (lhs.seq ?? 0, lhs.id) < (rhs.seq ?? 0, rhs.id) }
+        if !eventNodes.isEmpty {
+            let startY = center.y - CGFloat(eventNodes.count - 1) * rowGap / 2
+            for (index, node) in eventNodes.enumerated() {
+                positions[node.id] = CGPoint(x: center.x, y: startY + CGFloat(index) * rowGap)
+            }
+        }
+
+        place(
+            nodes.filter { $0.kind == "memory" }.sorted { $0.id < $1.id },
+            x: min(canvasWidth - 110, center.x + max(150, canvasWidth * 0.22) * zoom),
+            fallbackCenterY: center.y,
+            edges: edges,
+            positions: &positions
+        )
+        place(
+            nodes.filter { $0.kind == "source" || $0.kind == "episode" }.sorted { $0.id < $1.id },
+            x: max(110, center.x - max(170, canvasWidth * 0.26) * zoom),
+            fallbackCenterY: center.y,
+            edges: edges,
+            positions: &positions
+        )
+        place(
+            nodes.filter { positions[$0.id] == nil }.sorted { lhs, rhs in (lhs.kind, lhs.id) < (rhs.kind, rhs.id) },
+            x: center.x,
+            fallbackCenterY: center.y + CGFloat(max(eventNodes.count, 1)) * rowGap / 2 + 72,
+            edges: edges,
+            positions: &positions
+        )
+
+        return positions.mapValues { point in
+            CGPoint(
+                x: min(max(point.x, 42), canvasWidth - 42),
+                y: min(max(point.y, 34), canvasHeight - 34)
+            )
+        }
+    }
+
+    private static func place(
         _ nodes: [CodeMemoryGraphNode],
-        selectedKinds: Set<String>,
-        showCanonical: Bool,
-        showEpisodes: Bool,
-        showEvents: Bool,
-        showGraphiti: Bool,
-        asOf: Double?,
-        searchText: String
-    ) -> [CodeMemoryGraphNode] {
-        nodes.filter { node in
-            if !selectedKinds.contains(node.kind) {
-                return false
-            }
-            if !showCanonical, node.kind == "memory" {
-                return false
-            }
-            if !showEvents, node.kind == "event" {
-                return false
-            }
-            if !showEpisodes, node.kind == "source" || node.kind == "episode" {
-                return false
-            }
-            if !showGraphiti, MemoryGraphStyle.isGraphitiKind(node.kind) {
-                return false
-            }
-            if !isValid(node.metadata, asOf: asOf) {
-                return false
-            }
-            let search = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            guard !search.isEmpty else { return true }
-            return "\(node.title) \(node.body ?? "") \(node.kind) \(node.type ?? "")"
-                .lowercased()
-                .contains(search)
-        }
-    }
+        x: CGFloat,
+        fallbackCenterY: CGFloat,
+        edges: [CodeMemoryGraphEdge],
+        positions: inout [String: CGPoint]
+    ) {
+        guard !nodes.isEmpty else { return }
 
-    static func edges(_ edges: [CodeMemoryGraphEdge], nodeIDs: Set<String>, asOf: Double?) -> [CodeMemoryGraphEdge] {
-        edges.filter { edge in
-            nodeIDs.contains(edge.source)
-                && nodeIDs.contains(edge.target)
-                && isValid(edge.metadata, validAt: edge.validAt, invalidAt: edge.invalidAt, asOf: asOf)
-        }
-    }
-
-    private static func isValid(_ metadata: [String: String]?, validAt: String? = nil, invalidAt: String? = nil, asOf: Double?) -> Bool {
-        guard let asOf else { return true }
-        let start = GraphTemporalValue.parse(validAt ?? metadata?["valid_at"])
-        let end = GraphTemporalValue.parse(invalidAt ?? metadata?["invalid_at"])
-        if let start, start > asOf {
-            return false
-        }
-        if let end, end <= asOf {
-            return false
-        }
-        return true
-    }
-}
-
-enum MemoryGraphTemporalRange {
-    static func range(for graph: CodeMemoryGraph?) -> ClosedRange<Double> {
-        let items = graph.map { temporalValues(in: $0) } ?? []
-        if let minValue = items.min(), let maxValue = items.max(), minValue < maxValue {
-            return minValue...maxValue
-        }
-        let now = Date().timeIntervalSince1970
-        return (now - 86_400 * 30)...(now + 86_400 * 30)
-    }
-
-    private static func temporalValues(in graph: CodeMemoryGraph) -> [Double] {
-        var result: [Double] = []
-        for node in graph.nodes {
-            if let value = GraphTemporalValue.parse(node.metadata?["valid_at"]) {
-                result.append(value)
+        var proposed = nodes.map { node in
+            let connectedYValues = edges.compactMap { edge -> CGFloat? in
+                if edge.source == node.id {
+                    return positions[edge.target]?.y
+                }
+                if edge.target == node.id {
+                    return positions[edge.source]?.y
+                }
+                return nil
             }
-            if let value = GraphTemporalValue.parse(node.metadata?["invalid_at"]) {
-                result.append(value)
-            }
+            let y = connectedYValues.isEmpty
+                ? fallbackCenterY
+                : connectedYValues.reduce(0, +) / CGFloat(connectedYValues.count)
+            return (node: node, y: y)
         }
-        for edge in graph.edges {
-            if let value = GraphTemporalValue.parse(edge.validAt ?? edge.metadata?["valid_at"]) {
-                result.append(value)
-            }
-            if let value = GraphTemporalValue.parse(edge.invalidAt ?? edge.metadata?["invalid_at"]) {
-                result.append(value)
-            }
-        }
-        return result
-    }
-}
+        proposed.sort { lhs, rhs in (lhs.y, lhs.node.id) < (rhs.y, rhs.node.id) }
 
-enum GraphTemporalValue {
-    static func parse(_ value: String?) -> Double? {
-        guard let value, !value.isEmpty else { return nil }
-        if let number = Double(value) {
-            return number
+        let minGap: CGFloat = 42
+        var previousY: CGFloat?
+        for item in proposed {
+            let adjustedY = previousY.map { max(item.y, $0 + minGap) } ?? item.y
+            positions[item.node.id] = CGPoint(x: x, y: adjustedY)
+            previousY = adjustedY
         }
-        return ISO8601DateFormatter().date(from: value)?.timeIntervalSince1970
     }
 }

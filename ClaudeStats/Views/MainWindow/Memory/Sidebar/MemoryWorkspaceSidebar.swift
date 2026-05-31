@@ -115,7 +115,8 @@ struct MemoryWorkspaceSidebar: View {
         case .memories:
             return store.codeHealth?.memoryCount
         case .graph:
-            return store.codeGraph?.nodes.count
+            let count = store.graph.filteredChangeEvents.count
+            return count > 0 ? count : nil
         case .review:
             return store.review.totalCount
         case .settings:

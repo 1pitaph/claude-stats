@@ -86,7 +86,7 @@ struct MemoryWorkspaceView: View {
         switch section {
         case .search: "Canonical memory, graph facts, sources, and trace provenance."
         case .memories: "Active project and module memory library."
-        case .graph: "Entity relationships with provenance and temporal filters."
+        case .graph: "Memory change timeline, version diffs, and local event context."
         case .review: "Human gate for proposals, conflicts, and low-confidence facts."
         case .settings: "Local sidecar, adapters, projection jobs, and shell capture."
         }

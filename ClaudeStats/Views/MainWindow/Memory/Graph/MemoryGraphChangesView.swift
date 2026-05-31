@@ -161,8 +161,9 @@ private struct MemoryChangeGraphCanvasView: View {
                 selectedNodeID: graphStore.selectedChangeNodeID,
                 selectedEdgeID: graphStore.selectedChangeEdgeID
             )
-            let positions = MemoryGraphLayout.positions(
+            let positions = MemoryChangeGraphLayout.positions(
                 for: render.nodes,
+                edges: render.edges,
                 in: size,
                 pan: graphStore.pan,
                 zoom: CGFloat(graphStore.zoom)
@@ -238,29 +239,7 @@ private struct MemoryChangeGraphCanvasView: View {
     }
 
     private var visibleGraph: CodeMemoryGraph? {
-        guard let graph = graphStore.changeGraph else { return nil }
-        let search = graphStore.changeSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !search.isEmpty else { return graph }
-
-        let eventNodeIDs = Set(graphStore.filteredChangeEvents.map { MemoryChangeGraphBuilder.eventNodeID($0.eventID) })
-        var includedNodeIDs = eventNodeIDs
-        var includedEdges: [CodeMemoryGraphEdge] = []
-
-        for edge in graph.edges where eventNodeIDs.contains(edge.source) || eventNodeIDs.contains(edge.target) {
-            includedEdges.append(edge)
-            includedNodeIDs.insert(edge.source)
-            includedNodeIDs.insert(edge.target)
-        }
-        for edge in graph.edges where includedNodeIDs.contains(edge.source) && edge.kind == "FROM_SOURCE" {
-            includedEdges.append(edge)
-            includedNodeIDs.insert(edge.target)
-        }
-
-        return CodeMemoryGraph(
-            projectID: graph.projectID,
-            nodes: graph.nodes.filter { includedNodeIDs.contains($0.id) },
-            edges: dedupe(includedEdges.filter { includedNodeIDs.contains($0.source) && includedNodeIDs.contains($0.target) })
-        )
+        graphStore.focusedChangeGraph
     }
 
     private func drawEdges(_ edges: [CodeMemoryGraphEdge], positions: [String: CGPoint], in context: inout GraphicsContext) {
@@ -295,14 +274,6 @@ private struct MemoryChangeGraphCanvasView: View {
             .contains(search)
     }
 
-    private func dedupe(_ edges: [CodeMemoryGraphEdge]) -> [CodeMemoryGraphEdge] {
-        var seen: Set<String> = []
-        var result: [CodeMemoryGraphEdge] = []
-        for edge in edges where seen.insert(edge.id).inserted {
-            result.append(edge)
-        }
-        return result
-    }
 }
 
 private struct MemoryGraphChangeInspectorView: View {
@@ -324,11 +295,16 @@ private struct MemoryGraphChangeInspectorView: View {
                 .font(.sora(13, weight: .semibold))
             HStack(spacing: 10) {
                 AIConfigsMiniStat(value: "\(store.graph.events.count)", label: "events")
-                AIConfigsMiniStat(value: "\(store.graph.changeGraph?.nodes.count ?? 0)", label: "nodes")
-                AIConfigsMiniStat(value: "\(store.graph.changeGraph?.edges.count ?? 0)", label: "edges")
+                AIConfigsMiniStat(value: "\(store.graph.focusedChangeGraph?.nodes.count ?? 0)", label: "nodes")
+                AIConfigsMiniStat(value: "\(store.graph.focusedChangeGraph?.edges.count ?? 0)", label: "edges")
             }
             if let projectID = store.graph.changeGraph?.projectID {
                 MemoryGraphInspectorFactRow(label: "project", value: projectID.memoryAbbreviatingHomeDirectory)
+            }
+            if let graph = store.graph.changeGraph,
+               let focused = store.graph.focusedChangeGraph,
+               focused.nodes.count != graph.nodes.count || focused.edges.count != graph.edges.count {
+                MemoryGraphInspectorFactRow(label: "focus", value: "\(focused.nodes.count)/\(graph.nodes.count) nodes, \(focused.edges.count)/\(graph.edges.count) edges")
             }
         }
         .padding(12)

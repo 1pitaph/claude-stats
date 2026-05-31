@@ -85,7 +85,6 @@ final class MemoryWorkspaceStore {
     var codeContextPack: CodeMemoryContextPack? { search.contextPack }
     var codeProposals: [CodeMemoryMemory] { review.proposals }
     var codeEvents: [CodeMemoryEvent] { search.events }
-    var codeGraph: CodeMemoryGraph? { graph.graph }
     var codeTrace: CodeMemoryRunTrace? { search.trace }
     var codeOutboxLastDrainResult: CodeMemoryOutboxDrainResult? { settings.outboxLastDrainResult }
     var codeLastProjectionDrainResult: CodeMemoryProjectionDrainResponse? {
@@ -94,11 +93,11 @@ final class MemoryWorkspaceStore {
     var codeLastReindexResult: CodeMemoryProjectionDrainResponse? { settings.lastReindexResult }
     var codeLastReinferResult: CodeMemoryReinferSourcesResponse? { settings.lastReinferResult }
     var isCodeMemoryLoading: Bool {
-        isLoading || search.isLoading || search.isSearching || library.isLoading || graph.isLoading || review.isLoading || settings.isLoading
+        isLoading || search.isLoading || search.isSearching || library.isLoading || graph.isLoadingChanges || review.isLoading || settings.isLoading
     }
     var isSearching: Bool { search.isSearching }
     var lastError: String? {
-        syncError ?? settings.lastError ?? search.lastError ?? library.lastError ?? graph.lastError ?? review.lastError
+        syncError ?? settings.lastError ?? search.lastError ?? library.lastError ?? graph.changeLastError ?? review.lastError
     }
     var setupMessage: String? { settings.setupMessage }
 
@@ -168,7 +167,7 @@ final class MemoryWorkspaceStore {
     func selectCodeProject(_ projectID: String) async {
         selectedProjectID = projectID
         await library.load(projectID: projectID)
-        await graph.load(projectID: projectID)
+        await graph.loadChanges(projectID: projectID)
         await review.load(projectID: projectID)
     }
 
@@ -247,20 +246,6 @@ final class MemoryWorkspaceStore {
             syncError = "Mem0 capture failed: \(error.localizedDescription)"
         }
         await settings.refresh()
-    }
-
-    func loadCodeGraph(projectID: String? = nil) async {
-        let projectID = projectID ?? selectedProjectID ?? library.projects.first?.projectID
-        await graph.load(projectID: projectID)
-        selectedProjectID = projectID
-    }
-
-    func loadCodeGraphIfNeeded() async {
-        let projectID = selectedProjectID ?? library.projects.first?.projectID
-        guard let projectID else { return }
-        guard graph.graph?.projectID != projectID else { return }
-        await graph.load(projectID: projectID)
-        selectedProjectID = projectID
     }
 
     func loadCodeTrace(runID: String) async {
