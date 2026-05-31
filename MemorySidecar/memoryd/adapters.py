@@ -15,6 +15,7 @@ from typing import Any, Protocol
 from urllib.parse import urlparse
 
 from .config import LocalAIConfig, load_local_ai_config
+from .diagnostics import MemoryDiagnosticsLogger, input_fingerprint, text_fingerprint
 
 
 @dataclass
@@ -246,8 +247,9 @@ class CompositeAdapters:
 class Mem0Adapter:
     name = "mem0"
 
-    def __init__(self, config: LocalAIConfig):
+    def __init__(self, config: LocalAIConfig, diagnostics: MemoryDiagnosticsLogger | None = None):
         self.config = config
+        self.diagnostics = diagnostics
         self.last_error = ""
         try:
             from mem0 import Memory  # type: ignore
@@ -276,11 +278,14 @@ class Mem0Adapter:
                 }
             )
             _set_mem0_openai_timeouts(self.client, config.adapter_timeout_seconds)
+            _instrument_mem0_embedding_client(self.client, config, diagnostics)
             self.available = True
         except Exception as error:  # noqa: BLE001
             self.client = None
             self.available = False
             self.last_error = str(error)
+            if diagnostics is not None:
+                diagnostics.log("mem0.adapter.init.error", level="error", error=_compact_error(error))
 
     def health(self) -> dict[str, str]:
         if self.available:
@@ -302,6 +307,18 @@ class Mem0Adapter:
             if not body:
                 continue
             project_id = str(chunk.get("project_id") or source.get("project_id") or "default")
+            run_id = str(chunk.get("run_id") or source.get("run_id") or "")
+            chunk_started = time.time()
+            if self.diagnostics is not None:
+                self.diagnostics.log(
+                    "capture.chunk.start",
+                    run_id=run_id,
+                    source_id=str(source.get("id") or ""),
+                    source_kind=str(source.get("kind") or ""),
+                    project_id=project_id,
+                    chunk_index=index,
+                    **text_fingerprint(body),
+                )
             source_refs = chunk.get("source_refs") if isinstance(chunk.get("source_refs"), list) else source.get("source_refs")
             if not isinstance(source_refs, list):
                 source_refs = [
@@ -338,11 +355,35 @@ class Mem0Adapter:
             if isinstance(extra, dict):
                 metadata.update({str(key): str(value) for key, value in extra.items() if value is not None})
             if bool(chunk.get("infer", True)):
-                candidates = self._extract_chunk_memories(body, chunk=chunk, source=source)
+                candidates, raw_candidate_count = self._extract_chunk_memories(body, chunk=chunk, source=source)
+                if self.diagnostics is not None and raw_candidate_count > len(candidates):
+                    self.diagnostics.log(
+                        "llm.extract.candidate.rejected",
+                        run_id=run_id,
+                        source_id=str(source.get("id") or ""),
+                        source_kind=str(source.get("kind") or ""),
+                        project_id=project_id,
+                        chunk_index=index,
+                        counts={"rejected": raw_candidate_count - len(candidates)},
+                        reason="parser_filter",
+                    )
                 for candidate in candidates:
                     candidate_body = str(candidate.get("memory") or "").strip()
                     if not candidate_body:
                         continue
+                    if self.diagnostics is not None:
+                        self.diagnostics.log(
+                            "llm.extract.candidate.accepted",
+                            run_id=run_id,
+                            source_id=str(source.get("id") or ""),
+                            source_kind=str(source.get("kind") or ""),
+                            project_id=project_id,
+                            chunk_index=index,
+                            memory_type=str(candidate.get("type") or metadata.get("type") or "fact"),
+                            confidence=str(candidate.get("confidence") or metadata.get("confidence") or "0.82"),
+                            importance=str(candidate.get("importance") or metadata.get("importance") or "0.6"),
+                            **text_fingerprint(candidate_body),
+                        )
                     candidate_metadata = dict(metadata)
                     candidate_metadata.update(
                         {
@@ -353,33 +394,62 @@ class Mem0Adapter:
                             "extracted_by": "llm_direct_mem0",
                         }
                     )
-                    raw = self.client.add(
+                    raw = self._add_to_mem0(
                         candidate_body,
-                        user_id=project_id,
+                        project_id=project_id,
                         metadata=candidate_metadata,
-                        infer=False,
+                        run_id=run_id,
+                        source=source,
+                        chunk_index=index,
                     )
                     for item in _mem0_result_items(raw):
                         memory = self._memory_from_mem0_item(item, fallback_metadata=candidate_metadata)
                         if memory is not None:
                             captured.append(memory)
+                if self.diagnostics is not None:
+                    self.diagnostics.log(
+                        "capture.chunk.end",
+                        run_id=run_id,
+                        source_id=str(source.get("id") or ""),
+                        source_kind=str(source.get("kind") or ""),
+                        project_id=project_id,
+                        chunk_index=index,
+                        duration_ms=int((time.time() - chunk_started) * 1000),
+                        counts={"raw_candidates": raw_candidate_count, "accepted": len(candidates)},
+                    )
                 continue
 
-            raw = self.client.add(
+            raw = self._add_to_mem0(
                 body,
-                user_id=project_id,
+                project_id=project_id,
                 metadata=metadata,
-                infer=False,
+                run_id=run_id,
+                source=source,
+                chunk_index=index,
             )
             for item in _mem0_result_items(raw):
                 memory = self._memory_from_mem0_item(item, fallback_metadata=metadata)
                 if memory is not None:
                     captured.append(memory)
+            if self.diagnostics is not None:
+                self.diagnostics.log(
+                    "capture.chunk.end",
+                    run_id=run_id,
+                    source_id=str(source.get("id") or ""),
+                    source_kind=str(source.get("kind") or ""),
+                    project_id=project_id,
+                    chunk_index=index,
+                    duration_ms=int((time.time() - chunk_started) * 1000),
+                    counts={"accepted": len(_mem0_result_items(raw))},
+                )
         return captured
 
-    def _extract_chunk_memories(self, body: str, *, chunk: dict[str, Any], source: dict[str, Any]) -> list[dict[str, Any]]:
+    def _extract_chunk_memories(self, body: str, *, chunk: dict[str, Any], source: dict[str, Any]) -> tuple[list[dict[str, Any]], int]:
         prompt = str(chunk.get("prompt") or "").strip()
         source_kind = str(source.get("kind") or chunk.get("type") or "source")
+        run_id = str(chunk.get("run_id") or source.get("run_id") or "")
+        project_id = str(chunk.get("project_id") or source.get("project_id") or "default")
+        chunk_index = chunk.get("chunk_index")
         user_prompt = (
             f"{prompt}\n\n" if prompt else ""
         ) + (
@@ -389,9 +459,102 @@ class Mem0Adapter:
             "Extract at most 8 memories from this chunk. Return JSON only.\n\n"
             f"{body}"
         )
-        text = self._call_extraction_llm(user_prompt)
-        memories = _parse_extracted_memories(text)
-        return memories[:8]
+        started = time.time()
+        if self.diagnostics is not None:
+            self.diagnostics.log(
+                "llm.extract.start",
+                run_id=run_id,
+                source_id=str(source.get("id") or ""),
+                source_kind=source_kind,
+                project_id=project_id,
+                chunk_index=chunk_index,
+                model=self.config.llm.model,
+                protocol=self.config.llm.protocol,
+                **text_fingerprint(body),
+            )
+        try:
+            text = self._call_extraction_llm(user_prompt)
+            memories, raw_count = _parse_extracted_memories_with_counts(text)
+            memories = memories[:8]
+            if self.diagnostics is not None:
+                self.diagnostics.log(
+                    "llm.extract.end",
+                    run_id=run_id,
+                    source_id=str(source.get("id") or ""),
+                    source_kind=source_kind,
+                    project_id=project_id,
+                    chunk_index=chunk_index,
+                    model=self.config.llm.model,
+                    duration_ms=int((time.time() - started) * 1000),
+                    counts={"raw_candidates": raw_count, "accepted": len(memories), "rejected": max(0, raw_count - len(memories))},
+                )
+            return memories, raw_count
+        except Exception as error:  # noqa: BLE001
+            if self.diagnostics is not None:
+                self.diagnostics.log(
+                    "llm.extract.error",
+                    level="error",
+                    run_id=run_id,
+                    source_id=str(source.get("id") or ""),
+                    source_kind=source_kind,
+                    project_id=project_id,
+                    chunk_index=chunk_index,
+                    model=self.config.llm.model,
+                    duration_ms=int((time.time() - started) * 1000),
+                    error=_compact_error(error),
+                )
+            raise
+
+    def _add_to_mem0(
+        self,
+        body: str,
+        *,
+        project_id: str,
+        metadata: dict[str, str],
+        run_id: str,
+        source: dict[str, Any],
+        chunk_index: int,
+    ) -> Any:
+        started = time.time()
+        if self.diagnostics is not None:
+            self.diagnostics.log(
+                "mem0.add.start",
+                run_id=run_id,
+                source_id=str(source.get("id") or ""),
+                source_kind=str(source.get("kind") or ""),
+                project_id=project_id,
+                chunk_index=chunk_index,
+                memory_type=str(metadata.get("type") or "fact"),
+                **text_fingerprint(body),
+            )
+        try:
+            raw = self.client.add(body, user_id=project_id, metadata=metadata, infer=False)
+            if self.diagnostics is not None:
+                self.diagnostics.log(
+                    "mem0.add.end",
+                    run_id=run_id,
+                    source_id=str(source.get("id") or ""),
+                    source_kind=str(source.get("kind") or ""),
+                    project_id=project_id,
+                    chunk_index=chunk_index,
+                    duration_ms=int((time.time() - started) * 1000),
+                    counts={"items": len(_mem0_result_items(raw))},
+                )
+            return raw
+        except Exception as error:  # noqa: BLE001
+            if self.diagnostics is not None:
+                self.diagnostics.log(
+                    "mem0.add.error",
+                    level="error",
+                    run_id=run_id,
+                    source_id=str(source.get("id") or ""),
+                    source_kind=str(source.get("kind") or ""),
+                    project_id=project_id,
+                    chunk_index=chunk_index,
+                    duration_ms=int((time.time() - started) * 1000),
+                    error=_compact_error(error),
+                )
+            raise
 
     def _call_extraction_llm(self, prompt: str) -> str:
         protocol = str(self.config.llm.protocol or "openai_chat_completions")
@@ -983,6 +1146,68 @@ def _set_mem0_openai_timeouts(client: Any, timeout_seconds: float) -> None:
             setattr(owner, attr_path[1], replacement)
 
 
+def _instrument_mem0_embedding_client(
+    client: Any,
+    config: LocalAIConfig,
+    diagnostics: MemoryDiagnosticsLogger | None,
+) -> None:
+    if diagnostics is None:
+        return
+    target = getattr(getattr(client, "embedding_model", None), "client", None)
+    embeddings = getattr(target, "embeddings", None)
+    create = getattr(embeddings, "create", None)
+    if target is None or embeddings is None or not callable(create):
+        diagnostics.log(
+            "embedding.instrumentation_unavailable",
+            level="warning",
+            model=config.embedding_model,
+            reason="mem0 embedding client shape was not recognized",
+        )
+        return
+
+    def create_wrapper(*args: Any, **kwargs: Any) -> Any:
+        input_value = kwargs.get("input")
+        if input_value is None and args:
+            input_value = args[0]
+        started = time.time()
+        diagnostics.log(
+            "embedding.request.start",
+            model=str(kwargs.get("model") or config.embedding_model),
+            dimensions=config.embedding_dims,
+            **input_fingerprint(input_value),
+        )
+        try:
+            result = create(*args, **kwargs)
+            diagnostics.log(
+                "embedding.request.end",
+                model=str(kwargs.get("model") or config.embedding_model),
+                dimensions=config.embedding_dims,
+                duration_ms=int((time.time() - started) * 1000),
+            )
+            return result
+        except Exception as error:  # noqa: BLE001
+            diagnostics.log(
+                "embedding.request.error",
+                level="error",
+                model=str(kwargs.get("model") or config.embedding_model),
+                dimensions=config.embedding_dims,
+                duration_ms=int((time.time() - started) * 1000),
+                error=_compact_error(error),
+            )
+            raise
+
+    try:
+        setattr(embeddings, "create", create_wrapper)
+        diagnostics.log("embedding.instrumentation.enabled", model=config.embedding_model, dimensions=config.embedding_dims)
+    except Exception as error:  # noqa: BLE001
+        diagnostics.log(
+            "embedding.instrumentation_unavailable",
+            level="warning",
+            model=config.embedding_model,
+            reason=_compact_error(error),
+        )
+
+
 def _mem0_result_items(raw: Any) -> list[dict[str, Any]]:
     if isinstance(raw, dict):
         items = raw.get("results")
@@ -1058,6 +1283,11 @@ def _responses_text(raw: dict[str, Any]) -> str:
 
 
 def _parse_extracted_memories(text: str) -> list[dict[str, Any]]:
+    memories, _ = _parse_extracted_memories_with_counts(text)
+    return memories
+
+
+def _parse_extracted_memories_with_counts(text: str) -> tuple[list[dict[str, Any]], int]:
     payload = _json_payload_from_text(text)
     if payload is None:
         raise RuntimeError("LLM extraction did not return the required JSON memory payload")
@@ -1069,7 +1299,8 @@ def _parse_extracted_memories(text: str) -> list[dict[str, Any]]:
     if isinstance(raw_items, dict):
         raw_items = [raw_items]
     if not isinstance(raw_items, list):
-        return []
+        return [], 0
+    raw_count = len(raw_items)
     memories: list[dict[str, Any]] = []
     seen: set[str] = set()
     for item in raw_items:
@@ -1081,7 +1312,7 @@ def _parse_extracted_memories(text: str) -> list[dict[str, Any]]:
             continue
         seen.add(key)
         memories.append(memory)
-    return memories
+    return memories, raw_count
 
 
 def _json_payload_from_text(text: str) -> Any | None:
@@ -1309,13 +1540,18 @@ def _compact_error(error: Exception) -> str:
     return text or error.__class__.__name__
 
 
-def build_adapters(root) -> MemoryAdapters:
-    config = load_local_ai_config(root)
+def build_adapters(
+    root,
+    *,
+    config: LocalAIConfig | None = None,
+    diagnostics: MemoryDiagnosticsLogger | None = None,
+) -> MemoryAdapters:
+    config = config or load_local_ai_config(root)
     if not config.enabled:
         return NullAdapters(_disabled_detail(config))
     adapters: list[MemoryAdapters] = []
     if config.mem0_enabled:
-        adapters.append(Mem0Adapter(config))
+        adapters.append(Mem0Adapter(config, diagnostics=diagnostics))
     if config.graphiti_enabled:
         adapters.append(GraphitiAdapter(config))
     if not adapters:

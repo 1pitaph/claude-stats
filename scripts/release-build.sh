@@ -27,10 +27,6 @@
 # Environment (all release builds):
 #   LINGUIST_RUNTIME_SOURCE    relocatable GitTools runtime produced by
 #                              scripts/build-gittools-runtime.sh
-#   GHOSTTY_RELEASE_OPTIMIZE   GhosttyKit optimize mode for distributable builds;
-#                              defaults to ReleaseFast. Must be ReleaseFast or
-#                              ReleaseSmall so Ghostty's debug warning is never
-#                              shipped.
 #
 # The finished artifacts are written to ./dist/.
 set -euo pipefail
@@ -49,26 +45,14 @@ ZIP="$DIST/ClaudeStats-$VERSION.zip"
 
 SIGNED=0
 [[ -n "${SIGN_IDENTITY:-}" ]] && SIGNED=1
-GHOSTTY_RELEASE_OPTIMIZE="${GHOSTTY_RELEASE_OPTIMIZE:-ReleaseFast}"
 
 if [[ "$(uname -m)" != "arm64" ]]; then
     echo "error: Claude Stats release builds must run on Apple Silicon." >&2
     exit 1
 fi
 
-case "$GHOSTTY_RELEASE_OPTIMIZE" in
-    ReleaseFast|ReleaseSmall) ;;
-    *)
-        echo "error: release builds require GHOSTTY_RELEASE_OPTIMIZE=ReleaseFast or ReleaseSmall" >&2
-        echo "hint: Ghostty shows a debug performance warning for Debug and ReleaseSafe builds" >&2
-        exit 1
-        ;;
-esac
-
 echo "==> Building Claude Stats $VERSION (Release, $([[ $SIGNED -eq 1 ]] && echo "signed + notarized" || echo "unsigned"))"
-GHOSTTY_OPTIMIZE="$GHOSTTY_RELEASE_OPTIMIZE" \
-GHOSTTY_XCFRAMEWORK_TARGET="${GHOSTTY_XCFRAMEWORK_TARGET:-native}" \
-    bash scripts/build-ghosttykit.sh
+bash scripts/build-warp-embed.sh
 REQUIRE_LINGUIST_RUNTIME="${REQUIRE_LINGUIST_RUNTIME:-1}" \
 REQUIRE_RELOCATABLE_LINGUIST_RUNTIME="${REQUIRE_RELOCATABLE_LINGUIST_RUNTIME:-1}" \
     bash scripts/build-linguist-runtime.sh

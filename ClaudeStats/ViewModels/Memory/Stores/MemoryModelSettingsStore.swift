@@ -112,7 +112,10 @@ final class MemoryModelSettingsStore {
         await saveDraft()
     }
 
-    func sidecarLaunchConfiguration(localAI: LocalAIStore) -> MemoryModelSidecarLaunchConfiguration {
+    func sidecarLaunchConfiguration(
+        localAI: LocalAIStore,
+        diagnosticsRetentionDays: Int = MemoryDiagnosticsLog.defaultRetentionDays
+    ) -> MemoryModelSidecarLaunchConfiguration {
         switch mode {
         case .online:
             guard onlineExtractionEnabled else {
@@ -147,7 +150,8 @@ final class MemoryModelSettingsStore {
                     apiKey: embeddingEnvironment.token,
                     model: embeddingEnvironment.embeddingModelID,
                     dimensions: embeddingEnvironment.embeddingDimensions
-                )
+                ),
+                diagnosticsRetentionDays: diagnosticsRetentionDays
             )
             return MemoryModelSidecarLaunchConfiguration(runtimeConfig: runtime, legacyLocalAIEnvironment: nil)
 
@@ -171,7 +175,8 @@ final class MemoryModelSettingsStore {
                     apiKey: localEnvironment.token,
                     model: localEnvironment.embeddingModelID,
                     dimensions: localEnvironment.embeddingDimensions
-                )
+                ),
+                diagnosticsRetentionDays: diagnosticsRetentionDays
             )
             return MemoryModelSidecarLaunchConfiguration(runtimeConfig: runtime, legacyLocalAIEnvironment: localEnvironment)
         }

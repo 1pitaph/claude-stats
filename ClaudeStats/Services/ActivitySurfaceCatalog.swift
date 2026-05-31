@@ -49,7 +49,6 @@ enum ActivitySurfaceCatalog {
     /// Terminal-style hosts shown separately from coding-surface time.
     static let cliHostDefaults: [App] = [
         App(bundleID: "com.apple.Terminal", name: "Terminal"),
-        App(bundleID: "com.mitchellh.ghostty", name: "Ghostty"),
         App(bundleID: "dev.warp.Warp-Stable", name: "Warp"),
     ]
 

@@ -109,6 +109,8 @@ class MemoryHTTPRequestHandler(BaseHTTPRequestHandler):
                 limit = _bounded_int(body.get("limit") if isinstance(body, dict) else None, default=10, minimum=1, maximum=25)
                 include_failed = _bool_value(body.get("include_failed")) if isinstance(body, dict) else False
                 self._json(self.store.drain_projection_jobs(limit=limit, include_failed=include_failed))
+            elif parsed.path == "/v1/diagnostics/configure":
+                self._json(self.store.configure_diagnostics(body if isinstance(body, dict) else {}))
             elif parsed.path == "/v1/memories/propose":
                 self._json(self.store.propose_memory(body))
             elif parsed.path == "/v1/graph-facts/promote":

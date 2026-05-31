@@ -26,6 +26,7 @@ protocol CodeMemoryBackend: Sendable {
     func reinferSources(projectID: String?) async throws -> CodeMemoryReinferSourcesResponse
     func ingestSource(_ source: CodeMemorySourceInput) async throws -> CodeMemorySyncSourceResponse
     func recordEvent(_ event: CodeMemoryEventInput) async throws
+    func configureDiagnostics(retentionDays: Int) async throws -> CodeMemoryDiagnosticsConfigurationResponse
 }
 
 extension CodeMemoryBackend {
@@ -92,6 +93,9 @@ extension CodeMemoryBackend {
     func reinferSources(projectID: String?) async throws -> CodeMemoryReinferSourcesResponse { CodeMemoryReinferSourcesResponse() }
     func ingestSource(_ source: CodeMemorySourceInput) async throws -> CodeMemorySyncSourceResponse {
         CodeMemorySyncSourceResponse(status: "unsupported", created: nil, proposed: nil)
+    }
+    func configureDiagnostics(retentionDays: Int) async throws -> CodeMemoryDiagnosticsConfigurationResponse {
+        CodeMemoryDiagnosticsConfigurationResponse(status: "unsupported")
     }
 }
 
@@ -271,6 +275,10 @@ struct CodeMemoryHTTPClient: CodeMemoryBackend {
         let _: EmptyResponse = try await post("/v1/events", body: event)
     }
 
+    func configureDiagnostics(retentionDays: Int) async throws -> CodeMemoryDiagnosticsConfigurationResponse {
+        try await post("/v1/diagnostics/configure", body: CodeMemoryDiagnosticsConfigurationRequest(retentionDays: retentionDays))
+    }
+
     private func get<T: Decodable>(_ path: String, queryItems: [URLQueryItem] = []) async throws -> T {
         let url = try makeURL(path, queryItems: queryItems)
         var request = URLRequest(url: url)
@@ -401,6 +409,14 @@ private struct CodeMemoryProjectionDrainRequest: Encodable {
     enum CodingKeys: String, CodingKey {
         case limit
         case includeFailed = "include_failed"
+    }
+}
+
+private struct CodeMemoryDiagnosticsConfigurationRequest: Encodable {
+    var retentionDays: Int
+
+    enum CodingKeys: String, CodingKey {
+        case retentionDays = "retention_days"
     }
 }
 

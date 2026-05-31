@@ -1,5 +1,4 @@
 import Foundation
-import GhosttyEmbed
 import Observation
 import WarpEmbed
 
@@ -20,7 +19,6 @@ final class AppEnvironment {
     let updater = UpdaterController()
     let floatingStatsPanel = FloatingStatsPanelController()
     let notchIsland = NotchIslandController()
-    let terminalStore: EmbeddedTerminalStore
     let warpSessionStore: WarpSessionStore
     /// View models live in the environment so the Settings window and the
     /// individual pages can share state — and so the VMs persist across
@@ -51,7 +49,6 @@ final class AppEnvironment {
         preferences: Preferences,
         providerRegistry: ProviderRegistry,
         store: SessionStore,
-        terminalStore: EmbeddedTerminalStore = EmbeddedTerminalStore(),
         warpSessionStore: WarpSessionStore = WarpSessionStore(),
         usageLimits: UsageLimitStore? = nil,
         cliEnvironment: CLIEnvironmentViewModel = CLIEnvironmentViewModel(),
@@ -80,7 +77,6 @@ final class AppEnvironment {
                 }
             )
         )
-        self.terminalStore = terminalStore
         self.warpSessionStore = warpSessionStore
         self.cliEnvironment = cliEnvironment
         self.systemMonitor = systemMonitor
@@ -120,18 +116,13 @@ final class AppEnvironment {
     }
 
     convenience init() {
-        self.init(terminalStore: EmbeddedTerminalStore())
-    }
-
-    convenience init(terminalStore: EmbeddedTerminalStore) {
         let pricing = ModelPricing.loadDefault()
         let registry = ProviderRegistry(pricing: pricing)
         self.init(
             pricing: pricing,
             preferences: Preferences(),
             providerRegistry: registry,
-            store: SessionStore(registry: registry, pricing: pricing),
-            terminalStore: terminalStore
+            store: SessionStore(registry: registry, pricing: pricing)
         )
     }
 
@@ -180,7 +171,10 @@ final class AppEnvironment {
 
     func startCodeMemorySidecarFromCurrentModelSettings() async {
         await memoryModelSettings.loadIfNeeded()
-        let launch = memoryModelSettings.sidecarLaunchConfiguration(localAI: localAI)
+        let launch = memoryModelSettings.sidecarLaunchConfiguration(
+            localAI: localAI,
+            diagnosticsRetentionDays: memory.diagnosticsRetentionDays
+        )
         await memory.startCodeMemorySidecar(
             localAIEnvironment: launch.legacyLocalAIEnvironment,
             modelRuntimeConfig: launch.runtimeConfig

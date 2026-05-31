@@ -143,7 +143,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          formulae=(xcodegen zig@0.15 ruby-build go cmake pkg-config icu4c openssl@3 readline libyaml gmp)
+          formulae=(xcodegen ruby-build go cmake pkg-config icu4c openssl@3 readline libyaml gmp)
           missing=()
           for formula in "${formulae[@]}"; do
             if brew list --formula "$formula" >/dev/null 2>&1; then
@@ -158,14 +158,6 @@ jobs:
           else
             echo "All Homebrew build tools are already installed."
           fi
-
-          ZIG_PREFIX="$(brew --prefix zig@0.15)"
-          ZIG_CACHE="$RUNNER_TEMP/zig-cache"
-          mkdir -p "$ZIG_CACHE"
-          echo "ZIG_BIN=$ZIG_PREFIX/bin/zig" >> "$GITHUB_ENV"
-          echo "ZIG_GLOBAL_CACHE_DIR=$ZIG_CACHE" >> "$GITHUB_ENV"
-          "$ZIG_PREFIX/bin/zig" version
-          ZIG_GLOBAL_CACHE_DIR="$ZIG_CACHE" "$ZIG_PREFIX/bin/zig" libc >/dev/null
 
       - name: Import Developer ID signing certificate
         if: steps.signing.outputs.enabled == 'true'

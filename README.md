@@ -27,7 +27,7 @@ The app began as a focused macOS take on the open-source [Claude Statistics](htt
 - Provider support for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and OpenAI Codex session logs; Gemini, Kimi, and MiniMax are recognized in the UI while their on-disk session parsers are still future work.
 - Usage-limit and service-status views for supported providers.
 - Git and repository activity views, including optional bundled Git tooling for release builds.
-- A Ghostty-powered embedded terminal.
+- A Warp-powered embedded terminal surface.
 - An Atoll-backed Notch Island surface for optional media, timer, stats, clipboard, terminal, and related modules.
 - A Rockxy-backed network debugger with proxy, rule, certificate, and helper-tool integration.
 - Sparkle-based automatic updates for packaged releases.
@@ -177,7 +177,6 @@ Install local build tools:
 
 ```bash
 brew install xcodegen
-bash scripts/install-zig.sh  # installs the Zig version used to build GhosttyKit
 ```
 
 Generate the Xcode project if you want to inspect it directly:
@@ -201,7 +200,6 @@ bash scripts/run-tests.sh  # generate + build test dependencies + run unit tests
 - Apple Silicon Mac with macOS 15+
 - Xcode 26+ with Swift 6 language mode
 - XcodeGen for project generation
-- Zig 0.15.2 for rebuilding `GhosttyKit.xcframework`
 
 ## Project Layout
 
@@ -217,10 +215,9 @@ ClaudeStats/
   Views/        menu bar, main window, settings, terminal, network, activity UI
   Utilities/    formatters, logging, shared helpers
 AtollEmbed/       app-side wrapper for the Atoll/DynamicIsland integration
-GhosttyEmbed/     app-side wrapper for embedded Ghostty terminal support
 RockxyBackendEmbed/ app-side wrapper for Rockxy proxy/debugging support
-WarpEmbed/        experimental boundary for an embedded Warp ADE runtime
-ThirdParty/       git submodules for Atoll, Rockxy, Ghostty, Warp, mem0, and Graphiti
+WarpEmbed/        app-side boundary for the embedded Warp ADE runtime
+ThirdParty/       git submodules for Atoll, Rockxy, Warp, mem0, and Graphiti
 ClaudeStatsTests/ parser, scanner, settings, integration, and feature tests
 docs/assets/      README images, icons, screenshots, and GIFs
 scripts/          project generation, local run/test, release, appcast tooling
@@ -234,8 +231,7 @@ Claude Stats is released under the [GNU Affero General Public License v3.0](LICE
 | --- | --- | --- |
 | [Rockxy](https://github.com/1pitaph/Rockxy) | AGPL-3.0 | Integrated through `RockxyBackendEmbed` and `RockxyHelperTool` for the network debugger, proxy engine, rule handling, certificates, and privileged helper flow. |
 | [Atoll / DynamicIsland](https://github.com/1pitaph/Atoll) | GPL-3.0 | Integrated through `AtollEmbed` for the optional Notch Island surface and modules. Its [`NOTICE`](ThirdParty/Atoll/NOTICE) and [`COPYRIGHT_ASSETS`](ThirdParty/Atoll/COPYRIGHT_ASSETS) files remain part of the attribution trail. |
-| [Ghostty](https://github.com/ghostty-org/ghostty) | MIT | Integrated through `GhosttyEmbed` and `ThirdParty/ghostty/macos/GhosttyKit.xcframework` for the embedded terminal. Vendored Ghostty assets and dependencies retain their own licenses. |
-| [Warp](https://github.com/1pitaph/Warp) | AGPL-3.0 / MIT for `warpui_core` and `warpui` | Vendored as an experimental fork submodule for future in-window ADE embedding. The active app still defaults to `GhosttyEmbed` until the Warp bridge is production-ready. |
+| [Warp](https://github.com/1pitaph/Warp) | AGPL-3.0 / MIT for `warpui_core` and `warpui` | Vendored as the active in-window ADE/terminal embedding boundary through `WarpEmbed`. |
 | [mem0](https://github.com/1pitaph/mem0) | Apache-2.0 | Vendored as a fork submodule for the optional Code Agent memory sidecar. The default local mode keeps the adapter disabled until an embedding/LLM provider is configured. |
 | [Graphiti](https://github.com/1pitaph/graphiti) | Apache-2.0 | Vendored as a fork submodule for the optional temporal graph projection in the Code Agent memory sidecar. The first local backend targets embedded Kuzu. |
 
@@ -255,4 +251,4 @@ For app behavior changes, also run:
 bash scripts/run-debug.sh
 ```
 
-Keep Swift 6 strict concurrency warning-free. When changing Atoll, Rockxy, or Ghostty integration code, make the source changes in the relevant submodule/fork first, then update the submodule pointer in this repo.
+Keep Swift 6 strict concurrency warning-free. When changing Atoll, Rockxy, or Warp integration code, make the source changes in the relevant submodule/fork first, then update the submodule pointer in this repo.

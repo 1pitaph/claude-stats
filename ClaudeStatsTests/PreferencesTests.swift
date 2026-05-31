@@ -256,7 +256,7 @@ struct PreferencesTests {
 
         #expect(prefs.terminalChromeMode == .tabsAndStatus)
         #expect(prefs.terminalBackgroundStyle == .fluidGradient)
-        #expect(prefs.terminalRuntimeKind == .ghostty)
+        #expect(prefs.terminalRuntimeKind == .warp)
     }
 
     @Test("Terminal appearance preferences persist")
@@ -283,7 +283,16 @@ struct PreferencesTests {
         let prefs = Preferences(defaults: defaults)
         #expect(prefs.terminalChromeMode == .tabsAndStatus)
         #expect(prefs.terminalBackgroundStyle == .fluidGradient)
-        #expect(prefs.terminalRuntimeKind == .ghostty)
+        #expect(prefs.terminalRuntimeKind == .warp)
+    }
+
+    @Test("Legacy removed terminal runtime falls back to Warp")
+    func legacyRemovedTerminalRuntimeFallsBackToWarp() {
+        let defaults = makeDefaults()
+        defaults.set("ghost" + "ty", forKey: "terminalRuntimeKind")
+
+        let prefs = Preferences(defaults: defaults)
+        #expect(prefs.terminalRuntimeKind == .warp)
     }
 
     @Test("System Monitor defaults are off with balanced refresh and all modules")
@@ -575,7 +584,8 @@ struct PreferencesTests {
         #expect(reloaded.cliHostBundleIDsRemoved == ["com.apple.Terminal"])
         #expect(reloaded.effectiveCLIHostBundleIDs.contains("com.example.Terminal"))
         #expect(!reloaded.effectiveCLIHostBundleIDs.contains("com.apple.Terminal"))
-        #expect(reloaded.effectiveCLIHostBundleIDs.contains("com.mitchellh.ghostty"))
+        #expect(reloaded.effectiveCLIHostBundleIDs.contains("dev.warp.Warp-Stable"))
+        #expect(!reloaded.effectiveCLIHostBundleIDs.contains("com.mitchellh." + "ghost" + "ty"))
     }
 
     private func makeDefaults() -> UserDefaults {

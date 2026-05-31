@@ -1,31 +1,25 @@
 import AppKit
-import GhosttyEmbed
 import UserNotifications
 
 /// Owns the ``AppEnvironment`` and kicks off the first scan once AppKit has
 /// finished launching. `MenuBarExtra`'s label/window views don't run a normal
 /// `onAppear`/`task` lifecycle at launch, so the kickoff lives here instead.
-final class AppDelegate: GhosttyEmbed.AppDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate {
     let env: AppEnvironment
     private let linuxDoNotificationDelegate = LinuxDoUserNotificationDelegate()
     private var residentStatusItem: NSStatusItem?
     private var userRequestedTermination = false
 
     override init() {
-        let terminalStore = MainActor.assumeIsolated {
-            EmbeddedTerminalStore()
-        }
         self.env = MainActor.assumeIsolated {
-            AppEnvironment(terminalStore: terminalStore)
+            AppEnvironment()
         }
-        super.init(terminalStore: terminalStore)
+        super.init()
     }
 
-    override func applicationDidFinishLaunching(_ notification: Notification) {
-        super.applicationDidFinishLaunching(notification)
+    func applicationDidFinishLaunching(_ notification: Notification) {
         ProcessInfo.processInfo.disableAutomaticTermination("Claude Stats is a resident menu bar app.")
         ProcessInfo.processInfo.disableSuddenTermination()
-        linuxDoNotificationDelegate.fallback = self
         UNUserNotificationCenter.current().delegate = linuxDoNotificationDelegate
         MainActor.assumeIsolated {
             installResidentStatusItem()
@@ -144,8 +138,6 @@ enum AppLivenessRescue {
 }
 
 private final class LinuxDoUserNotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
-    weak var fallback: GhosttyEmbed.AppDelegate?
-
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
@@ -155,8 +147,7 @@ private final class LinuxDoUserNotificationDelegate: NSObject, UNUserNotificatio
             completionHandler([.banner, .sound])
             return
         }
-        fallback?.userNotificationCenter(center, willPresent: notification, withCompletionHandler: completionHandler)
-            ?? completionHandler([])
+        completionHandler([])
     }
 
     func userNotificationCenter(
@@ -165,8 +156,7 @@ private final class LinuxDoUserNotificationDelegate: NSObject, UNUserNotificatio
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         guard let route = Self.topicRoute(from: response.notification.request.content.userInfo) else {
-            fallback?.userNotificationCenter(center, didReceive: response, withCompletionHandler: completionHandler)
-                ?? completionHandler()
+            completionHandler()
             return
         }
         DispatchQueue.main.async {

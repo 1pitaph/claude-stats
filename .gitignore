@@ -48,10 +48,6 @@ __pycache__/
 dist/
 *.gguf
 
-# === Generated Ghostty embedding resources === #
-GhosttyEmbed/Resources/*
-!GhosttyEmbed/Resources/.gitkeep
-
 # === Generated language-stat runtime resources === #
 ClaudeStats/Resources/GitTools/bin/*
 ClaudeStats/Resources/GitTools/gems/*

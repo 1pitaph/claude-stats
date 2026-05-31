@@ -367,7 +367,7 @@ struct MainWindowView: View {
         case .system:
             MainSystemMonitorView()
         case .terminal:
-            TerminalWorkspaceView(store: env.terminalStore, warpStore: env.warpSessionStore)
+            TerminalWorkspaceView(warpStore: env.warpSessionStore)
         }
     }
 

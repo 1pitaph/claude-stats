@@ -1,22 +1,22 @@
 import Defaults
-import GhosttyEmbed
 import SwiftUI
+import WarpEmbed
 
 @MainActor
 final class TerminalManager: ObservableObject {
     static let shared = TerminalManager()
 
     @Published private(set) var terminalTitle = "Terminal"
-    let store = EmbeddedTerminalStore()
+    let store = WarpSessionStore()
 
     private init() {
-        store.ensureDefaultTab()
+        store.ensureDefaultSession()
         refreshTitle()
     }
 
     func restartShell() {
-        _ = store.closeSelectedTab(force: true)
-        store.ensureDefaultTab()
+        _ = store.closeSelectedSession(force: true)
+        store.ensureDefaultSession()
         refreshTitle()
     }
 
@@ -29,7 +29,7 @@ final class TerminalManager: ObservableObject {
     func resignTerminalFirstResponderIfNeeded() {}
 
     private func refreshTitle() {
-        terminalTitle = store.tabs.first(where: { $0.id == store.selectedTabID })?.title ?? "Terminal"
+        terminalTitle = store.tabs.first(where: { $0.id == store.selectedTabID })?.title ?? "Warp"
     }
 }
 
@@ -101,7 +101,7 @@ struct NotchTerminalView: View {
                 Divider()
                     .padding(.horizontal, notchTerminalContentEdgePadding.horizontal)
 
-                EmbeddedTerminalPaneView(store: terminalManager.store)
+                WarpHostView(store: terminalManager.store)
                     .clipShape(terminalClipShape)
                     .padding(
                         EdgeInsets(

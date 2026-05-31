@@ -19,6 +19,7 @@ struct MemorySettingsView: View {
                     sidecarCard
                     memoryLLMCard
                     projectionCard
+                    diagnosticsCard
                     adaptersCard
                     shellCard
                     runtimeContextCard
@@ -291,6 +292,63 @@ struct MemorySettingsView: View {
                 }
             } else {
                 MemoryMutedLine(text: "No adapter status.")
+            }
+        }
+        .padding(16)
+        .appSurface(.compactCard(radius: 8, fillOpacity: 0.55, cornerStyle: .circular, maxWidth: nil), padding: nil)
+    }
+
+    private var diagnosticsCard: some View {
+        @Bindable var settings = store.settings
+        let logPath = store.codeHealth?.diagnosticsLogPath ?? MemoryDiagnosticsLog.currentLogURL().path
+        let devLogPath = store.codeHealth?.diagnosticsDevLogPath
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("Diagnostics Log")
+                .font(.sora(15, weight: .semibold))
+
+            fact("current", logPath.memoryAbbreviatingHomeDirectory)
+            if let devLogPath {
+                fact("dev", devLogPath.memoryAbbreviatingHomeDirectory)
+            }
+            if let size = store.codeHealth?.diagnosticsLogSize {
+                fact("size", ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))
+            }
+
+            HStack(spacing: 10) {
+                AppSelect(
+                    .localized("Retention"),
+                    selection: $settings.diagnosticsRetention,
+                    options: MemoryDiagnosticsRetention.allCases.map {
+                        AppSelectOption(value: $0, title: .localized($0.title))
+                    },
+                    width: 170,
+                    size: .small,
+                    onSelectionChange: { retention in
+                        Task { await settings.configureDiagnosticsRetention(retention) }
+                    }
+                )
+
+                Button {
+                    MemoryDiagnosticsLog.openCurrentLog()
+                } label: {
+                    Label("Open Current Log", systemImage: "doc.text.magnifyingglass")
+                }
+                .controlSize(.small)
+
+                Button {
+                    MemoryDiagnosticsLog.revealLogFolder()
+                } label: {
+                    Label("Reveal Log Folder", systemImage: "folder")
+                }
+                .controlSize(.small)
+
+                MemoryCopyButton(value: logPath, label: "Copy Log Path", systemImage: "link")
+            }
+
+            if let result = settings.lastDiagnosticsConfigurationResult {
+                Text("Diagnostics retention saved: \(result.diagnosticsRetentionDays ?? settings.diagnosticsRetention.rawValue) days")
+                    .font(.sora(11))
+                    .foregroundStyle(Color.stxMuted)
             }
         }
         .padding(16)

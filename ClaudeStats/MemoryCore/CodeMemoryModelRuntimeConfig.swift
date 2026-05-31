@@ -42,13 +42,26 @@ struct CodeMemoryEmbeddingEndpoint: Codable, Sendable, Hashable {
     }
 }
 
+struct CodeMemoryDiagnosticsRuntimeConfig: Codable, Sendable, Hashable {
+    var retentionDays: Int
+
+    init(retentionDays: Int = MemoryDiagnosticsLog.defaultRetentionDays) {
+        self.retentionDays = retentionDays >= 7 ? 7 : 3
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case retentionDays = "retention_days"
+    }
+}
+
 struct CodeMemoryModelRuntimeConfig: Codable, Sendable, Hashable {
-    static let currentSchemaVersion = 1
+    static let currentSchemaVersion = 2
 
     var schemaVersion: Int
     var mode: String
     var llm: CodeMemoryLLMEndpoint
     var embedding: CodeMemoryEmbeddingEndpoint
+    var diagnostics: CodeMemoryDiagnosticsRuntimeConfig
     var mem0Enabled: Bool
     var graphitiEnabled: Bool
     var configurationHash: String
@@ -57,6 +70,7 @@ struct CodeMemoryModelRuntimeConfig: Codable, Sendable, Hashable {
         mode: String,
         llm: CodeMemoryLLMEndpoint,
         embedding: CodeMemoryEmbeddingEndpoint,
+        diagnosticsRetentionDays: Int = MemoryDiagnosticsLog.defaultRetentionDays,
         mem0Enabled: Bool = true,
         graphitiEnabled: Bool = true
     ) {
@@ -64,6 +78,7 @@ struct CodeMemoryModelRuntimeConfig: Codable, Sendable, Hashable {
         self.mode = mode
         self.llm = llm
         self.embedding = embedding
+        self.diagnostics = CodeMemoryDiagnosticsRuntimeConfig(retentionDays: diagnosticsRetentionDays)
         self.mem0Enabled = mem0Enabled
         self.graphitiEnabled = graphitiEnabled
         self.configurationHash = Self.computeHash(
@@ -71,6 +86,7 @@ struct CodeMemoryModelRuntimeConfig: Codable, Sendable, Hashable {
             mode: mode,
             llm: llm,
             embedding: embedding,
+            diagnosticsRetentionDays: self.diagnostics.retentionDays,
             mem0Enabled: mem0Enabled,
             graphitiEnabled: graphitiEnabled
         )
@@ -92,6 +108,7 @@ struct CodeMemoryModelRuntimeConfig: Codable, Sendable, Hashable {
         mode: String,
         llm: CodeMemoryLLMEndpoint,
         embedding: CodeMemoryEmbeddingEndpoint,
+        diagnosticsRetentionDays: Int,
         mem0Enabled: Bool,
         graphitiEnabled: Bool
     ) -> String {
@@ -106,6 +123,7 @@ struct CodeMemoryModelRuntimeConfig: Codable, Sendable, Hashable {
             "embedding_model=\(embedding.model)",
             "embedding_dims=\(embedding.dimensions)",
             "embedding_key_digest=\(secretDigest(embedding.apiKey))",
+            "diagnostics_retention_days=\(diagnosticsRetentionDays >= 7 ? 7 : 3)",
             "mem0=\(mem0Enabled)",
             "graphiti=\(graphitiEnabled)",
         ].joined(separator: "\n")
@@ -125,6 +143,7 @@ struct CodeMemoryModelRuntimeConfig: Codable, Sendable, Hashable {
         case mode
         case llm
         case embedding
+        case diagnostics
         case mem0Enabled = "mem0_enabled"
         case graphitiEnabled = "graphiti_enabled"
         case configurationHash = "configuration_hash"

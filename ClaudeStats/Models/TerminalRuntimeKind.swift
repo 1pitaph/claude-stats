@@ -1,7 +1,6 @@
 import Foundation
 
 enum TerminalRuntimeKind: String, CaseIterable, Identifiable, Sendable {
-    case ghostty
     case warp
     case disabled
 
@@ -9,7 +8,6 @@ enum TerminalRuntimeKind: String, CaseIterable, Identifiable, Sendable {
 
     var displayName: String {
         switch self {
-        case .ghostty: "Ghostty"
         case .warp: "Warp"
         case .disabled: "Disabled"
         }
@@ -17,7 +15,6 @@ enum TerminalRuntimeKind: String, CaseIterable, Identifiable, Sendable {
 
     var description: String {
         switch self {
-        case .ghostty: "Use the current embedded Ghostty terminal."
         case .warp: "Use the experimental embedded Warp ADE bridge."
         case .disabled: "Hide the embedded terminal runtime."
         }
@@ -25,7 +22,6 @@ enum TerminalRuntimeKind: String, CaseIterable, Identifiable, Sendable {
 
     var symbol: String {
         switch self {
-        case .ghostty: "terminal"
         case .warp: "sparkles"
         case .disabled: "nosign"
         }

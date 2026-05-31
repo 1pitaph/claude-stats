@@ -70,7 +70,7 @@ trap cleanup_after_tests EXIT
 require_apple_silicon
 python3 -B -m unittest discover scripts/tests
 
-bash scripts/build-ghosttykit.sh
+bash scripts/build-warp-embed.sh
 bash scripts/build-linguist-runtime.sh
 bash scripts/build-llama-runtime.sh
 bash scripts/generate.sh

@@ -14,6 +14,11 @@ struct CodeMemoryHealth: Codable, Sendable, Hashable {
     var capturePending: Int? = nil
     var captureFailed: Int? = nil
     var migrationPending: Int? = nil
+    var diagnosticsLogPath: String? = nil
+    var diagnosticsLogSize: Int? = nil
+    var diagnosticsDevLogPath: String? = nil
+    var diagnosticsDevLogSize: Int? = nil
+    var diagnosticsRetentionDays: Int? = nil
     var adapters: [String: String]
 
     enum CodingKeys: String, CodingKey {
@@ -30,6 +35,11 @@ struct CodeMemoryHealth: Codable, Sendable, Hashable {
         case capturePending = "capture_pending"
         case captureFailed = "capture_failed"
         case migrationPending = "migration_pending"
+        case diagnosticsLogPath = "diagnostics_log_path"
+        case diagnosticsLogSize = "diagnostics_log_size"
+        case diagnosticsDevLogPath = "diagnostics_dev_log_path"
+        case diagnosticsDevLogSize = "diagnostics_dev_log_size"
+        case diagnosticsRetentionDays = "diagnostics_retention_days"
         case adapters
     }
 }
@@ -1001,6 +1011,24 @@ struct CodeMemoryReinferSourcesResponse: Codable, Sendable, Hashable {
     var proposed: Int = 0
     var skipped: Int = 0
     var errors: [CodeMemoryInferenceError] = []
+}
+
+struct CodeMemoryDiagnosticsConfigurationResponse: Codable, Sendable, Hashable {
+    var status: String
+    var diagnosticsLogPath: String?
+    var diagnosticsLogSize: Int?
+    var diagnosticsDevLogPath: String?
+    var diagnosticsDevLogSize: Int?
+    var diagnosticsRetentionDays: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case diagnosticsLogPath = "diagnostics_log_path"
+        case diagnosticsLogSize = "diagnostics_log_size"
+        case diagnosticsDevLogPath = "diagnostics_dev_log_path"
+        case diagnosticsDevLogSize = "diagnostics_dev_log_size"
+        case diagnosticsRetentionDays = "diagnostics_retention_days"
+    }
 }
 
 struct CodeMemoryEventInput: Codable, Sendable, Hashable {

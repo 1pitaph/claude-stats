@@ -71,7 +71,7 @@ final class MemoryWorkspaceStore {
         self.library = MemoryLibraryStore(backend: codeBackend)
         self.graph = MemoryGraphStore(backend: codeBackend)
         self.review = MemoryReviewStore(backend: codeBackend)
-        self.settings = MemorySettingsStore(backend: codeBackend, outbox: codeOutbox)
+        self.settings = MemorySettingsStore(backend: codeBackend, outbox: codeOutbox, defaults: defaults)
     }
 
     var codeHealth: CodeMemoryHealth? { settings.health }
@@ -100,6 +100,7 @@ final class MemoryWorkspaceStore {
         syncError ?? settings.lastError ?? search.lastError ?? library.lastError ?? graph.changeLastError ?? review.lastError
     }
     var setupMessage: String? { settings.setupMessage }
+    var diagnosticsRetentionDays: Int { settings.diagnosticsRetention.rawValue }
 
     var searchText: String {
         get { search.query }
@@ -234,15 +235,40 @@ final class MemoryWorkspaceStore {
         isBackgroundCapturing = true
         defer { isBackgroundCapturing = false }
 
+        MemoryDiagnosticsLog.record(
+            "swift.capture.drain.request",
+            retentionDays: diagnosticsRetentionDays,
+            fields: [
+                "limit": "\(limit)",
+                "include_failed": "\(includeFailed)",
+            ]
+        )
         do {
             let response = try await codeBackend.drainCaptures(limit: limit, includeFailed: includeFailed)
             codeLastBackgroundCaptureResult = response
+            MemoryDiagnosticsLog.record(
+                "swift.capture.drain.result",
+                retentionDays: diagnosticsRetentionDays,
+                fields: [
+                    "delivered": "\(response.delivered ?? 0)",
+                    "failed": "\(response.failed ?? 0)",
+                    "remaining": "\(response.remaining ?? 0)",
+                    "pending": "\(response.pending ?? 0)",
+                    "skipped": "\(response.skipped ?? false)",
+                ]
+            )
             if response.skipped == true {
                 syncError = response.message
             } else {
                 syncError = nil
             }
         } catch {
+            MemoryDiagnosticsLog.record(
+                "swift.capture.drain.error",
+                level: "error",
+                retentionDays: diagnosticsRetentionDays,
+                fields: ["error": error.localizedDescription]
+            )
             syncError = "Mem0 capture failed: \(error.localizedDescription)"
         }
         await settings.refresh()
@@ -297,8 +323,32 @@ final class MemoryWorkspaceStore {
         var skipped = 0
         var failed = 0
         for source in sources {
+            MemoryDiagnosticsLog.record(
+                "swift.source.upload.start",
+                retentionDays: diagnosticsRetentionDays,
+                fields: [
+                    "source_id": source.id ?? "",
+                    "source_kind": source.kind,
+                    "project_id": source.projectID,
+                    "content_hash": source.contentHash,
+                    "text_chars": "\(source.body.count)",
+                ]
+            )
             do {
                 let response = try await codeBackend.ingestSource(source)
+                MemoryDiagnosticsLog.record(
+                    "swift.source.upload.end",
+                    retentionDays: diagnosticsRetentionDays,
+                    fields: [
+                        "source_id": source.id ?? "",
+                        "source_kind": source.kind,
+                        "project_id": source.projectID,
+                        "status": response.status,
+                        "queued": "\(response.queued ?? 0)",
+                        "created": "\(response.created?.count ?? 0)",
+                        "proposed": "\(response.proposed?.count ?? 0)",
+                    ]
+                )
                 if response.status == "skipped" {
                     skipped += 1
                 }
@@ -306,6 +356,17 @@ final class MemoryWorkspaceStore {
                 proposed += response.proposed?.count ?? 0
                 queued += response.queued ?? (response.status == "queued" ? 1 : 0)
             } catch {
+                MemoryDiagnosticsLog.record(
+                    "swift.source.upload.error",
+                    level: "error",
+                    retentionDays: diagnosticsRetentionDays,
+                    fields: [
+                        "source_id": source.id ?? "",
+                        "source_kind": source.kind,
+                        "project_id": source.projectID,
+                        "error": error.localizedDescription,
+                    ]
+                )
                 failed += 1
             }
         }

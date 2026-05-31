@@ -529,7 +529,7 @@ final class Preferences {
         sessionsExpandedOnAppOpen = (defaults.object(forKey: Keys.sessionsExpandedOnAppOpen) as? Bool) ?? false
         terminalChromeMode = TerminalChromeMode(rawValue: defaults.string(forKey: Keys.terminalChromeMode) ?? "") ?? .tabsAndStatus
         terminalBackgroundStyle = TerminalBackgroundStyle(rawValue: defaults.string(forKey: Keys.terminalBackgroundStyle) ?? "") ?? .fluidGradient
-        terminalRuntimeKind = TerminalRuntimeKind(rawValue: defaults.string(forKey: Keys.terminalRuntimeKind) ?? "") ?? .ghostty
+        terminalRuntimeKind = TerminalRuntimeKind(rawValue: defaults.string(forKey: Keys.terminalRuntimeKind) ?? "") ?? .warp
         apiProviderKeyStorageMode = APIProviderKeyStorageMode(rawValue: defaults.string(forKey: Keys.apiProviderKeyStorageMode) ?? "") ?? .json
         systemMonitorEnabled = defaults.bool(forKey: Keys.systemMonitorEnabled)
         systemMonitorRefreshRate = SystemMonitorRefreshRate(rawValue: defaults.string(forKey: Keys.systemMonitorRefreshRate) ?? "") ?? .threeSeconds

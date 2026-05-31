@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from .adapters import MemoryAdapters, build_adapters
+from .config import load_local_ai_config
+from .diagnostics import MemoryDiagnosticsLogger, text_fingerprint
 from .models import DETERMINISTIC_SOURCE_KINDS, MEMORY_STATUSES, MemoryInput, Scope, string_map
 from .singleflight import SingleFlightGate
 
@@ -78,7 +80,21 @@ class MemoryStore:
         self.root = root
         self.root.mkdir(parents=True, exist_ok=True)
         self.db_path = self.root / "code-memory.sqlite3"
-        self.adapters = adapters if adapters is not None else build_adapters(root)
+        self.model_config = load_local_ai_config(root)
+        self.diagnostics = MemoryDiagnosticsLogger.from_environment(
+            root,
+            retention_days=self.model_config.diagnostics_retention_days,
+        )
+        self.diagnostics.log(
+            "sidecar.start",
+            root=str(root),
+            store=str(self.db_path),
+            adapters_enabled=self.model_config.enabled,
+            mem0_enabled=self.model_config.mem0_enabled,
+            graphiti_enabled=self.model_config.graphiti_enabled,
+            retention_days=self.model_config.diagnostics_retention_days,
+        )
+        self.adapters = adapters if adapters is not None else build_adapters(root, config=self.model_config, diagnostics=self.diagnostics)
         self._capture_drain_gate = SingleFlightGate("mem0_capture_drain")
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
@@ -90,6 +106,12 @@ class MemoryStore:
 
     def close(self) -> None:
         self.conn.close()
+
+    def configure_diagnostics(self, payload: dict[str, Any]) -> dict[str, Any]:
+        retention_days = _bounded_int(payload.get("retention_days"), default=3, minimum=3, maximum=7)
+        retention_days = 7 if retention_days >= 7 else 3
+        self.diagnostics.configure(retention_days=retention_days)
+        return {"status": "ok", **self.diagnostics.summary()}
 
     def health(self) -> dict[str, Any]:
         counts = self._health_counts()
@@ -111,6 +133,7 @@ class MemoryStore:
             "capture_failed": failed,
             "capture_running": bool(capture_gate.get("running")),
             "migration_pending": counts["migration_pending"],
+            **self.diagnostics.summary(),
             "adapters": self.adapters.health()
             | {
                 "projection_pending": str(counts["projection_pending"]),
@@ -513,6 +536,16 @@ class MemoryStore:
             "uri": uri,
             "hash": content_hash,
         }).encode("utf-8")).hexdigest()[:24])
+        self.diagnostics.log(
+            "source.ingest.start",
+            source_id=source_id,
+            source_kind=kind,
+            project_id=project_id,
+            source_uri=uri,
+            source_path=path,
+            content_hash=content_hash,
+            **text_fingerprint(raw_body),
+        )
         source = {
             "id": source_id,
             "project_id": project_id,
@@ -530,6 +563,14 @@ class MemoryStore:
             not self._should_capture_source(kind, raw_body, title=title, path=path, uri=uri)
             or self._source_capture_succeeded(source_id, content_hash)
         ):
+            self.diagnostics.log(
+                "source.ingest.skipped",
+                source_id=source_id,
+                source_kind=kind,
+                project_id=project_id,
+                content_hash=content_hash,
+                reason="unchanged_or_capture_succeeded",
+            )
             return {"status": "skipped", "source": source, "created": [], "proposed": [], "inference_errors": []}
 
         observed: dict[str, Any] = {"status": "already_observed", "source_id": source_id}
@@ -550,9 +591,32 @@ class MemoryStore:
         queued = 0
         if self._should_capture_source(kind, raw_body, title=title, path=path, uri=uri):
             if self._source_capture_succeeded(source_id, content_hash):
+                self.diagnostics.log(
+                    "source.ingest.skipped",
+                    source_id=source_id,
+                    source_kind=kind,
+                    project_id=project_id,
+                    content_hash=content_hash,
+                    reason="capture_succeeded",
+                )
                 return {"status": "skipped", "source": source, "created": [], "proposed": [], "inference_errors": []}
             self._mark_source_capture(source_id, project_id, kind, content_hash, "pending")
             queued = 1
+            self.diagnostics.log(
+                "source.ingest.queued",
+                source_id=source_id,
+                source_kind=kind,
+                project_id=project_id,
+                content_hash=content_hash,
+            )
+        self.diagnostics.log(
+            "source.ingest.end",
+            source_id=source_id,
+            source_kind=kind,
+            project_id=project_id,
+            status="queued" if queued else "ok",
+            queued=queued,
+        )
         return {
             "status": "queued" if queued else "ok",
             "event": observed,
@@ -703,9 +767,36 @@ class MemoryStore:
     def _drain_capture_jobs(self, *, limit: int = 10, include_failed: bool = False) -> dict[str, Any]:
         with self._capture_drain_gate.run() as lease:
             if lease is None:
-                return self._capture_drain_busy_response()
-            result = self._drain_capture_jobs_locked(limit=limit, include_failed=include_failed)
+                response = self._capture_drain_busy_response()
+                self.diagnostics.log(
+                    "capture.drain.busy",
+                    level="warning",
+                    single_flight=response.get("single_flight"),
+                    pending=response.get("pending"),
+                    failed_total=response.get("failed_total"),
+                )
+                return response
+            run_id = f"capture-run:{uuid.uuid4()}"
+            started = time.time()
+            self.diagnostics.log(
+                "capture.drain.start",
+                run_id=run_id,
+                limit=limit,
+                include_failed=include_failed,
+                single_flight=lease.to_json(),
+            )
+            result = self._drain_capture_jobs_locked(limit=limit, include_failed=include_failed, run_id=run_id)
             result["single_flight"] = lease.to_json()
+            self.diagnostics.log(
+                "capture.drain.end",
+                run_id=run_id,
+                duration_ms=int((time.time() - started) * 1000),
+                delivered=result.get("delivered"),
+                failed=result.get("failed"),
+                pending=result.get("pending"),
+                failed_total=result.get("failed_total"),
+                skipped=result.get("skipped"),
+            )
             return result
 
     def _capture_drain_busy_response(self) -> dict[str, Any]:
@@ -724,7 +815,7 @@ class MemoryStore:
             "single_flight": self._capture_drain_gate.snapshot(),
         }
 
-    def _drain_capture_jobs_locked(self, *, limit: int = 10, include_failed: bool = False) -> dict[str, Any]:
+    def _drain_capture_jobs_locked(self, *, limit: int = 10, include_failed: bool = False, run_id: str = "") -> dict[str, Any]:
         bounded_limit = max(1, min(limit, 25))
         pending_before = self._source_capture_count("pending") + self._legacy_migration_count("pending")
         failed_before = self._source_capture_count("failed") + self._legacy_migration_count("failed")
@@ -754,7 +845,7 @@ class MemoryStore:
 
         delivered = 0
         failed = 0
-        source_stats = self._drain_source_captures(limit=bounded_limit, include_failed=include_failed)
+        source_stats = self._drain_source_captures(limit=bounded_limit, include_failed=include_failed, run_id=run_id)
         delivered += source_stats["delivered"]
         failed += source_stats["failed"]
         remaining_limit = bounded_limit - source_stats["attempted"]
@@ -1215,7 +1306,7 @@ class MemoryStore:
             return False
         return not _looks_like_sensitive_ai_config(kind, raw_body, title=title, path=path, uri=uri)
 
-    def _capture_chunks_for_source(self, source: dict[str, Any]) -> list[dict[str, Any]]:
+    def _capture_chunks_for_source(self, source: dict[str, Any], *, run_id: str = "") -> list[dict[str, Any]]:
         kind = str(source.get("kind") or "source")
         body = str(source.get("body") or "").strip()
         project_id = str(source.get("project_id") or "unknown")
@@ -1249,6 +1340,7 @@ class MemoryStore:
                 "infer": infer,
                 "prompt": prompt,
                 "section": section,
+                "run_id": run_id,
                 "capture_version": MEM0_CAPTURE_VERSION,
                 "source_refs": [ref],
                 "scopes": scopes,
@@ -1274,10 +1366,12 @@ class MemoryStore:
                         line_end=section.get("line_end"),
                     )
                 )
+            for chunk_index, chunk in enumerate(chunks, start=1):
+                chunk["chunk_index"] = chunk_index
             return chunks
 
         if kind in TRANSCRIPT_SOURCE_KINDS:
-            return [
+            chunks = [
                 base_chunk(
                     _source_chunk_header(source, str(source.get("title") or "Transcript")) + "\n\n" + chunk,
                     title=str(source.get("title") or "Transcript")[:160],
@@ -1287,8 +1381,11 @@ class MemoryStore:
                 )
                 for chunk in _paragraph_chunks(body, limit=14_000)
             ]
+            for chunk_index, chunk in enumerate(chunks, start=1):
+                chunk["chunk_index"] = chunk_index
+            return chunks
 
-        return [
+        chunks = [
             base_chunk(
                 body,
                 title=str(source.get("title") or "Memory")[:160],
@@ -1296,6 +1393,8 @@ class MemoryStore:
                 memory_type=_memory_type_for_source(kind),
             )
         ]
+        chunks[0]["chunk_index"] = 1
+        return chunks
 
     def _source_capture_succeeded(self, source_id: str, content_hash: str) -> bool:
         row = self.conn.execute(
@@ -1328,7 +1427,7 @@ class MemoryStore:
             return {}
         return {"mem0": mem0 or "mem0 unavailable"}
 
-    def _drain_source_captures(self, *, limit: int, include_failed: bool) -> dict[str, int]:
+    def _drain_source_captures(self, *, limit: int, include_failed: bool, run_id: str = "") -> dict[str, int]:
         statuses = ["pending"]
         if include_failed:
             statuses.append("failed")
@@ -1369,8 +1468,26 @@ class MemoryStore:
             project_id = str(row["project_id"])
             kind = str(row["kind"])
             content_hash = str(row["content_hash"] or "")
+            source_started = time.time()
+            self.diagnostics.log(
+                "capture.source.start",
+                run_id=run_id,
+                source_id=source_id,
+                source_kind=kind,
+                project_id=project_id,
+                content_hash=content_hash,
+            )
             if row["title"] is None:
                 self._mark_source_capture(source_id, project_id, kind, content_hash, "failed", error="source row missing")
+                self.diagnostics.log(
+                    "capture.source.error",
+                    level="error",
+                    run_id=run_id,
+                    source_id=source_id,
+                    source_kind=kind,
+                    project_id=project_id,
+                    error="source row missing",
+                )
                 failed += 1
                 continue
             source = {
@@ -1387,6 +1504,17 @@ class MemoryStore:
             body = self._reinfer_source_body(source)
             if not body:
                 self._mark_source_capture(source_id, project_id, kind, content_hash, "succeeded", created_count=0)
+                self.diagnostics.log(
+                    "capture.source.end",
+                    run_id=run_id,
+                    source_id=source_id,
+                    source_kind=kind,
+                    project_id=project_id,
+                    status="succeeded",
+                    duration_ms=int((time.time() - source_started) * 1000),
+                    counts={"created": 0},
+                    reason="empty_body",
+                )
                 continue
             if not self._should_capture_source(
                 kind,
@@ -1396,9 +1524,21 @@ class MemoryStore:
                 uri=str(source.get("uri") or ""),
             ):
                 self._mark_source_capture(source_id, project_id, kind, content_hash, "succeeded", created_count=0)
+                self.diagnostics.log(
+                    "capture.source.end",
+                    run_id=run_id,
+                    source_id=source_id,
+                    source_kind=kind,
+                    project_id=project_id,
+                    status="succeeded",
+                    duration_ms=int((time.time() - source_started) * 1000),
+                    counts={"created": 0},
+                    reason="not_capture_eligible",
+                )
                 continue
             inference_source = source | {
                 "body": body,
+                "run_id": run_id,
                 "scope": self._source_scope(
                     project_id,
                     path=str(source.get("path") or ""),
@@ -1406,7 +1546,7 @@ class MemoryStore:
                 ).to_json(),
             }
             try:
-                chunks = self._capture_chunks_for_source(inference_source)
+                chunks = self._capture_chunks_for_source(inference_source, run_id=run_id)
                 memories = self.adapters.capture_source(inference_source, chunks)
                 accepted_memories: list[dict[str, Any]] = []
                 for memory in memories:
@@ -1453,12 +1593,53 @@ class MemoryStore:
                         error=inference_errors[0].get("error", ""),
                         created_count=len(accepted_memories),
                     )
+                    self.diagnostics.log(
+                        "capture.source.error",
+                        level="error",
+                        run_id=run_id,
+                        source_id=source_id,
+                        source_kind=kind,
+                        project_id=project_id,
+                        duration_ms=int((time.time() - source_started) * 1000),
+                        counts={
+                            "chunks": len(chunks),
+                            "returned": len(memories),
+                            "accepted": len(accepted_memories),
+                            "rejected": max(0, len(memories) - len(accepted_memories)),
+                        },
+                        error=inference_errors[0].get("error", ""),
+                    )
                     failed += 1
                 else:
                     self._mark_source_capture(source_id, project_id, kind, content_hash, "succeeded", created_count=len(accepted_memories))
+                    self.diagnostics.log(
+                        "capture.source.end",
+                        run_id=run_id,
+                        source_id=source_id,
+                        source_kind=kind,
+                        project_id=project_id,
+                        status="succeeded",
+                        duration_ms=int((time.time() - source_started) * 1000),
+                        counts={
+                            "chunks": len(chunks),
+                            "returned": len(memories),
+                            "accepted": len(accepted_memories),
+                            "rejected": max(0, len(memories) - len(accepted_memories)),
+                        },
+                    )
                     delivered += len(accepted_memories)
             except Exception as error:  # noqa: BLE001
                 self._mark_source_capture(source_id, project_id, kind, content_hash, "failed", error=_compact_exception(error))
+                self.diagnostics.log(
+                    "capture.source.error",
+                    level="error",
+                    run_id=run_id,
+                    source_id=source_id,
+                    source_kind=kind,
+                    project_id=project_id,
+                    duration_ms=int((time.time() - source_started) * 1000),
+                    error=_compact_exception(error),
+                )
                 failed += 1
         return {"attempted": attempted, "delivered": delivered, "failed": failed}
 

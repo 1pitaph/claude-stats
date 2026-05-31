@@ -40,6 +40,7 @@ class MemoryModelConfig:
     qdrant_path: Path
     kuzu_path: Path
     adapter_timeout_seconds: float
+    diagnostics_retention_days: int = 3
     configuration_hash: str = ""
     source: str = "env"
 
@@ -95,6 +96,7 @@ def _load_runtime_config(path: Path, root: Path) -> MemoryModelConfig:
     raw = json.loads(path.read_text(encoding="utf-8"))
     llm = _dict(raw.get("llm"))
     embedding = _dict(raw.get("embedding"))
+    diagnostics = _dict(raw.get("diagnostics"))
     return MemoryModelConfig(
         llm=LLMEndpointConfig(
             protocol=str(llm.get("protocol") or "").strip(),
@@ -113,6 +115,7 @@ def _load_runtime_config(path: Path, root: Path) -> MemoryModelConfig:
         qdrant_path=root / "mem0-qdrant",
         kuzu_path=root / "graphiti.kuzu",
         adapter_timeout_seconds=_float_env("CLAUDE_STATS_MEMORY_ADAPTER_TIMEOUT_SECONDS", 120.0),
+        diagnostics_retention_days=_retention_days(diagnostics.get("retention_days")),
         configuration_hash=str(raw.get("configuration_hash") or ""),
         source="runtime_config",
     )
@@ -139,6 +142,7 @@ def _load_legacy_env_config(root: Path) -> MemoryModelConfig:
         qdrant_path=root / "mem0-qdrant",
         kuzu_path=root / "graphiti.kuzu",
         adapter_timeout_seconds=_float_env("CLAUDE_STATS_MEMORY_ADAPTER_TIMEOUT_SECONDS", 120.0),
+        diagnostics_retention_days=_retention_days(os.environ.get("CLAUDE_STATS_MEMORY_DIAGNOSTICS_RETENTION_DAYS")),
         configuration_hash=os.environ.get("CLAUDE_STATS_LOCAL_AI_CONFIG_HASH", ""),
         source="legacy_env",
     )
@@ -153,6 +157,7 @@ def _disabled_config(root: Path, detail: str) -> MemoryModelConfig:
         qdrant_path=root / "mem0-qdrant",
         kuzu_path=root / "graphiti.kuzu",
         adapter_timeout_seconds=_float_env("CLAUDE_STATS_MEMORY_ADAPTER_TIMEOUT_SECONDS", 120.0),
+        diagnostics_retention_days=_retention_days(os.environ.get("CLAUDE_STATS_MEMORY_DIAGNOSTICS_RETENTION_DAYS")),
         source="disabled",
     )
 
@@ -189,3 +194,11 @@ def _float_env(name: str, default: float) -> float:
         return float(os.environ.get(name, str(default)))
     except ValueError:
         return default
+
+
+def _retention_days(value: Any) -> int:
+    try:
+        parsed = int(value if value is not None else 3)
+    except (TypeError, ValueError):
+        parsed = 3
+    return 7 if parsed >= 7 else 3
