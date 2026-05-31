@@ -1,7 +1,3 @@
-[submodule "ThirdParty/ghostty"]
-	path = ThirdParty/ghostty
-	url = https://github.com/1pitaph/ghostty.git
-	branch = integration/claude-stats
 [submodule "ThirdParty/Atoll"]
 	path = ThirdParty/Atoll
 	url = https://github.com/1pitaph/Atoll.git
