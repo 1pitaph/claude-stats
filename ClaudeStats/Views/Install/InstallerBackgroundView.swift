@@ -113,7 +113,7 @@ private struct ApplicationsFolderIcon: View {
                 .overlay(Circle().stroke(.black.opacity(0.22), lineWidth: 1))
                 .frame(width: 58, height: 58)
                 .overlay {
-                    Image(systemName: "arrow.turn.up.right")
+                    Image(systemName: AppIcon.Navigation.turnUpRight)
                         .font(.system(size: 31, weight: .heavy))
                         .foregroundStyle(Color(red: 0.16, green: 0.17, blue: 0.19))
                         .offset(x: 2, y: -1)
@@ -169,7 +169,7 @@ private struct FinderTitleBar: View {
             }
 
             HStack(spacing: 8) {
-                Image(systemName: "arrow.down.app.fill")
+                Image(systemName: AppIcon.Action.installApp)
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.secondary)
                 Text(verbatim: "Claude Stats")
@@ -194,9 +194,9 @@ private struct FinderTitleBar: View {
 private struct FinderPathBar: View {
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "arrow.down.app.fill")
+            Image(systemName: AppIcon.Action.installApp)
             Text(verbatim: "Claude Stats")
-            Image(systemName: "chevron.right")
+            Image(systemName: AppIcon.Navigation.disclosure)
                 .font(.system(size: 12, weight: .bold))
             Image(nsImage: NSImage(named: NSImage.applicationIconName) ?? NSApplication.shared.applicationIconImage)
                 .resizable()

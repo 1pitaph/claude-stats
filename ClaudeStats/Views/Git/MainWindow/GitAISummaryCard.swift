@@ -113,7 +113,7 @@ struct GitAISummaryCard: View {
             Button {
                 generate(forceRefresh: false)
             } label: {
-                Label(result == nil ? "Generate" : "Regenerate", systemImage: "sparkles")
+                Label(result == nil ? "Generate" : "Regenerate", systemImage: AppIcon.Feature.ai)
             }
             .controlSize(.small)
             .disabled(isLoading)
@@ -122,7 +122,7 @@ struct GitAISummaryCard: View {
                 Button {
                     generate(forceRefresh: true)
                 } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
+                    Label("Refresh", systemImage: AppIcon.Action.refresh)
                 }
                 .controlSize(.small)
                 .disabled(isLoading)
@@ -132,13 +132,13 @@ struct GitAISummaryCard: View {
                 Button {
                     copy(result.summary)
                 } label: {
-                    Label("Copy Summary", systemImage: "doc.on.doc")
+                    Label("Copy Summary", systemImage: AppIcon.Action.copy)
                 }
                 .controlSize(.small)
                 Button {
                     copy(result.commitMessage)
                 } label: {
-                    Label("Copy Commit", systemImage: "text.badge.checkmark")
+                    Label("Copy Commit", systemImage: AppIcon.Git.commitCheck)
                 }
                 .controlSize(.small)
             }

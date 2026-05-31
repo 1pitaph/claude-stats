@@ -88,7 +88,7 @@ struct NetworkWebSocketWorkspace: View {
 
     private var sessionList: some View {
         VStack(alignment: .leading, spacing: 0) {
-            workspaceHeader("Connections", symbol: "point.3.connected.trianglepath.dotted")
+            workspaceHeader("Connections", symbol: AppIcon.Network.webSocket)
             StxRule()
             AppScrollView {
                 VStack(spacing: 6) {
@@ -115,8 +115,8 @@ struct NetworkWebSocketWorkspace: View {
                                     .lineLimit(1)
                                     .truncationMode(.middle)
                                 HStack(spacing: 8) {
-                                    Label("\(session.sentCount)", systemImage: "arrow.up")
-                                    Label("\(session.receivedCount)", systemImage: "arrow.down")
+                                    Label("\(session.sentCount)", systemImage: AppIcon.Navigation.arrowUp)
+                                    Label("\(session.receivedCount)", systemImage: AppIcon.Navigation.arrowDown)
                                     Spacer()
                                     Text(session.lastActivityAt.formatted(date: .omitted, time: .standard))
                                 }
@@ -147,7 +147,7 @@ struct NetworkWebSocketWorkspace: View {
     private var messageList: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
-                workspaceHeader("Messages", symbol: "text.bubble")
+                workspaceHeader("Messages", symbol: AppIcon.Resource.textBubble)
                     .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                 AppSelect(
                     .localized("Opcode"),
@@ -162,7 +162,7 @@ struct NetworkWebSocketWorkspace: View {
             .padding(.trailing, 10)
 
             HStack {
-                Image(systemName: "magnifyingglass")
+                Image(systemName: AppIcon.Action.search)
                     .foregroundStyle(Color.stxMuted)
                 TextField("Search payload", text: $store.webSocketFilter.query)
                     .textFieldStyle(.plain)
@@ -204,7 +204,7 @@ struct NetworkWebSocketWorkspace: View {
                                     .truncationMode(.tail)
                                 Spacer()
                                 if message.isInjected {
-                                    Image(systemName: "paperplane.fill")
+                                    Image(systemName: AppIcon.Action.sendFilled)
                                         .foregroundStyle(Color.stxAccent)
                                 }
                             }
@@ -247,7 +247,7 @@ struct NetworkWebSocketWorkspace: View {
     private var inspector: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
-                workspaceHeader("Inspector", symbol: "sidebar.right")
+                workspaceHeader("Inspector", symbol: AppIcon.Navigation.sidebarRight)
                     .frame(minWidth: 0, idealWidth: 128, maxWidth: 128, alignment: .leading)
                 FadingLine(fadeWidth: 28) {
                     HStack(spacing: 14) {
@@ -306,7 +306,7 @@ struct NetworkWebSocketWorkspace: View {
                 Button {
                     store.sendWebSocketMessage()
                 } label: {
-                    Label("Send", systemImage: "paperplane")
+                    Label("Send", systemImage: AppIcon.Action.send)
                 }
                 .disabled(store.selectedWebSocketSession?.isActive != true || store.webSocketSendDraft.payloadText.isEmpty)
             }
@@ -380,12 +380,12 @@ struct NetworkReplayWorkspace: View {
     private var sessionList: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                workspaceHeader("Replay Sessions", symbol: "arrow.clockwise")
+                workspaceHeader("Replay Sessions", symbol: AppIcon.Action.refresh)
                 Spacer()
                 Button {
                     store.createComposeSession()
                 } label: {
-                    Image(systemName: "plus")
+                    Image(systemName: AppIcon.Action.add)
                 }
                 .buttonStyle(.plain)
             }
@@ -457,7 +457,7 @@ struct NetworkReplayWorkspace: View {
             Button {
                 store.importRequestToReplay()
             } label: {
-                Label("Import to Replay", systemImage: "square.and.arrow.down")
+                Label("Import to Replay", systemImage: AppIcon.Action.importFile)
             }
             .disabled(store.importRequestText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
@@ -467,12 +467,12 @@ struct NetworkReplayWorkspace: View {
     private var editor: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                workspaceHeader("Request Editor", symbol: "square.and.pencil")
+                workspaceHeader("Request Editor", symbol: AppIcon.Action.compose)
                 Spacer()
                 Button {
                     store.sendSelectedReplaySession()
                 } label: {
-                    Label("Send", systemImage: "paperplane")
+                    Label("Send", systemImage: AppIcon.Action.send)
                 }
                 .disabled(store.selectedReplaySession == nil || store.isReplayWorking)
             }
@@ -521,7 +521,7 @@ struct NetworkReplayWorkspace: View {
                         Button {
                             removeHeader(header.id)
                         } label: {
-                            Image(systemName: "minus.circle")
+                            Image(systemName: AppIcon.Action.removeCircle)
                         }
                         .buttonStyle(.plain)
                     }
@@ -529,7 +529,7 @@ struct NetworkReplayWorkspace: View {
                 Button {
                     addHeader()
                 } label: {
-                    Label("Add Header", systemImage: "plus.circle")
+                    Label("Add Header", systemImage: AppIcon.Action.addCircle)
                 }
                 .buttonStyle(.borderless)
 
@@ -644,7 +644,7 @@ struct NetworkInterceptWorkspace: View {
     private var queueList: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
-                workspaceHeader("Intercept Queue", symbol: "pause.circle")
+                workspaceHeader("Intercept Queue", symbol: AppIcon.Action.pause)
                     .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                 workspaceAdaptiveActionPair(
                     maxWidth: 260,
@@ -706,7 +706,7 @@ struct NetworkInterceptWorkspace: View {
     private var editor: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
-                workspaceHeader("Intercept Editor", symbol: "square.and.pencil")
+                workspaceHeader("Intercept Editor", symbol: AppIcon.Action.compose)
                     .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                 workspaceAdaptiveActionPair(
                     maxWidth: 180,
@@ -806,13 +806,13 @@ struct NetworkAutomateWorkspace: View {
     private var editor: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
-                workspaceHeader("Automate", symbol: "slider.horizontal.below.rectangle")
+                workspaceHeader("Automate", symbol: AppIcon.Network.automate)
                     .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                 workspaceActionStrip(maxWidth: 92) {
                     Button {
                         store.runAutomate()
                     } label: {
-                        Label("Run", systemImage: "play.fill")
+                        Label("Run", systemImage: AppIcon.Action.start)
                     }
                     .disabled(store.automateDraft == nil || store.isAutomateWorking)
                 }
@@ -857,7 +857,7 @@ struct NetworkAutomateWorkspace: View {
 
     private var results: some View {
         VStack(alignment: .leading, spacing: 0) {
-            workspaceHeader("Results", symbol: "chart.bar")
+            workspaceHeader("Results", symbol: AppIcon.Metric.chart)
             StxRule()
             AppScrollView {
                 VStack(alignment: .leading, spacing: 8) {

@@ -33,7 +33,7 @@ private struct TerminalRuntimeDisabledView: View {
         ZStack {
             Color.stxBackground
             VStack(spacing: 10) {
-                Image(systemName: "nosign")
+                Image(systemName: AppIcon.Status.disabled)
                     .font(.system(size: 28, weight: .semibold))
                     .foregroundStyle(TerminalPalette.dimmed)
                 Text("Terminal runtime disabled")

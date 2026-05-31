@@ -49,7 +49,7 @@ struct GitFileDiffViewer: View {
             Button {
                 dismiss()
             } label: {
-                Image(systemName: "xmark")
+                Image(systemName: AppIcon.Action.close)
                     .font(.system(size: 11, weight: .semibold))
                     .frame(width: 24, height: 24)
             }

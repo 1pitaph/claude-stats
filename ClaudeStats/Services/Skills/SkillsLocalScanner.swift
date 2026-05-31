@@ -52,7 +52,7 @@ struct SkillsLocalScanner: SkillsLocalScanning, Sendable {
             let provider = SkillProviderDefinition(
                 id: "claude-plugin",
                 displayName: "Claude Plugin",
-                symbol: "puzzlepiece.extension"
+                symbol: AppIcon.Skill.file
             )
             let root = SkillRootDefinition(
                 provider: provider,
@@ -349,7 +349,7 @@ struct SkillsLocalScanner: SkillsLocalScanning, Sendable {
         let provider = SkillProviderDefinition(
             id: "codex-plugin",
             displayName: "Codex Plugin",
-            symbol: "puzzlepiece.extension"
+            symbol: AppIcon.Skill.file
         )
 
         for marketplace in directoryChildren(root) where isDirectoryOrDirectorySymlink(marketplace) {

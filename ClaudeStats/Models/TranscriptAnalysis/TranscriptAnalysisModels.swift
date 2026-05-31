@@ -33,17 +33,17 @@ enum TranscriptTermKind: String, CaseIterable, Codable, Identifiable, Sendable, 
 
     var symbol: String {
         switch self {
-        case .language: "character.book.closed"
-        case .framework: "shippingbox"
-        case .api: "point.3.connected.trianglepath.dotted"
-        case .typeName: "curlybraces"
-        case .function: "function"
-        case .filePath: "doc.text"
-        case .command: "terminal"
-        case .configKey: "slider.horizontal.3"
-        case .error: "exclamationmark.triangle"
-        case .workflow: "arrow.triangle.branch"
-        case .general: "tag"
+        case .language: AppIcon.Session.language
+        case .framework: AppIcon.Session.framework
+        case .api: AppIcon.Network.webSocket
+        case .typeName: AppIcon.Session.typeName
+        case .function: AppIcon.Session.function
+        case .filePath: AppIcon.Resource.documentText
+        case .command: AppIcon.Session.command
+        case .configKey: AppIcon.Workspace.configs
+        case .error: AppIcon.Status.warning
+        case .workflow: AppIcon.Workspace.git
+        case .general: AppIcon.Resource.tag
         }
     }
 }

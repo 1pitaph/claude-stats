@@ -24,7 +24,7 @@ struct MemoryDetailSheet: View {
             Button {
                 dismiss()
             } label: {
-                Image(systemName: "xmark")
+                Image(systemName: AppIcon.Action.close)
                     .font(.system(size: 11, weight: .semibold))
                     .frame(width: 24, height: 24)
             }
@@ -59,8 +59,8 @@ struct MemoryDetailSheet: View {
             Spacer(minLength: 12)
 
             MemoryCopyIconButton(value: memory.body, label: "Copy Text")
-            MemoryCopyIconButton(value: memory.id, label: "Copy ID", systemImage: "link")
-            MemoryCopyIconButton(value: memory.projectID, label: "Copy Project", systemImage: "folder")
+            MemoryCopyIconButton(value: memory.id, label: "Copy ID", systemImage: AppIcon.Resource.link)
+            MemoryCopyIconButton(value: memory.projectID, label: "Copy Project", systemImage: AppIcon.Resource.folder)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -193,7 +193,7 @@ private struct MemoryDetailSourceRefRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 6) {
-                Image(systemName: "link")
+                Image(systemName: AppIcon.Resource.link)
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(Color.stxAccent)
                 Text(sourceRef.label)
@@ -202,7 +202,7 @@ private struct MemoryDetailSourceRefRow: View {
                     .truncationMode(.middle)
                     .textSelection(.enabled)
                 Spacer(minLength: 8)
-                MemoryCopyIconButton(value: sourceRef.helpText, label: "Copy Source", systemImage: "doc.on.doc")
+                MemoryCopyIconButton(value: sourceRef.helpText, label: "Copy Source", systemImage: AppIcon.Action.copy)
             }
 
             VStack(alignment: .leading, spacing: 4) {

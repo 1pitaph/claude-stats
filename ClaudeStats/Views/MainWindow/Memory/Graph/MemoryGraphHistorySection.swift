@@ -13,7 +13,7 @@ struct MemoryGraphMemoryHistorySection: View {
                 Button {
                     Task { await graphStore.refreshHistory(memoryID: memoryID) }
                 } label: {
-                    Image(systemName: "arrow.clockwise")
+                    Image(systemName: AppIcon.Action.refresh)
                 }
                 .buttonStyle(.plain)
                 .help("Reload history")
@@ -44,7 +44,7 @@ struct MemoryGraphMemoryHistorySection: View {
                 Button {
                     Task { await graphStore.loadHistory(memoryID: memoryID) }
                 } label: {
-                    Label("Load History", systemImage: "clock.arrow.circlepath")
+                    Label("Load History", systemImage: AppIcon.Status.history)
                 }
                 .controlSize(.small)
             }

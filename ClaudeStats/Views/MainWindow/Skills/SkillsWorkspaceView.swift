@@ -277,7 +277,7 @@ private struct SkillsHeader: View {
                 refreshRemote()
             }
         } label: {
-            Label("Refresh", systemImage: "arrow.clockwise")
+            Label("Refresh", systemImage: AppIcon.Action.refresh)
         }
         .controlSize(.small)
         .disabled(isLoading)
@@ -392,7 +392,7 @@ private struct SkillsWorkspaceControls: View {
             Button {
                 showingFilters.toggle()
             } label: {
-                Image(systemName: "line.3.horizontal.decrease.circle")
+                Image(systemName: AppIcon.Filter.filterCircle)
             }
             .controlSize(.small)
             .help("Filters")
@@ -429,7 +429,7 @@ private struct SkillsProviderPicker: View {
         AppSelect(
             .localized("Provider"),
             selection: providerBinding,
-            options: [AppSelectOption(value: "all", title: .localized("All providers"), systemImage: "square.grid.2x2")]
+            options: [AppSelectOption(value: "all", title: .localized("All providers"), systemImage: AppIcon.Workspace.dashboard)]
                 + providers.map { provider in
                     AppSelectOption(value: provider.id, title: .verbatim(provider.displayName), systemImage: provider.symbol)
                 },
@@ -586,7 +586,7 @@ private struct SkillsListColumn: View {
             }
 
             HStack(spacing: 7) {
-                Image(systemName: "magnifyingglass")
+                Image(systemName: AppIcon.Action.search)
                     .font(.system(size: 11))
                     .foregroundStyle(Color.stxMuted)
                 TextField(searchPlaceholder, text: $searchText)
@@ -601,7 +601,7 @@ private struct SkillsListColumn: View {
                     Button {
                         searchRemote()
                     } label: {
-                        Image(systemName: "arrow.right")
+                        Image(systemName: AppIcon.Navigation.forward)
                     }
                     .buttonStyle(.plain)
                     .help("Search skills.sh")
@@ -667,7 +667,7 @@ private struct SkillsInstalledList: View {
             LazyVStack(alignment: .leading, spacing: 6) {
                 if rows.isEmpty {
                     SkillsEmptyState(
-                        symbol: "sparkles",
+                        symbol: AppIcon.Feature.ai,
                         title: isScanning ? "Scanning..." : "No skills found",
                         message: "Refresh or adjust filters to inspect local SKILL.md directories."
                     )
@@ -701,14 +701,14 @@ private struct SkillsRemoteList: View {
             LazyVStack(alignment: .leading, spacing: 6) {
                 if !hasAPIKey {
                     SkillsEmptyState(
-                        symbol: "key",
+                        symbol: AppIcon.Resource.key,
                         title: "API key required",
                         message: missingKeyMessage
                     )
                 } else if let remoteError {
-                    SkillsEmptyState(symbol: "exclamationmark.triangle", title: "Could not load skills", message: remoteError)
+                    SkillsEmptyState(symbol: AppIcon.Status.warning, title: "Could not load skills", message: remoteError)
                 } else if rows.isEmpty {
-                    SkillsEmptyState(symbol: "magnifyingglass", title: "No remote skills", message: emptyMessage)
+                    SkillsEmptyState(symbol: AppIcon.Action.search, title: "No remote skills", message: emptyMessage)
                 } else {
                     ForEach(rows) { row in
                         SkillsRemoteRow(
@@ -738,14 +738,14 @@ private struct SkillsCuratedList: View {
             LazyVStack(alignment: .leading, spacing: 12) {
                 if !hasAPIKey {
                     SkillsEmptyState(
-                        symbol: "key",
+                        symbol: AppIcon.Resource.key,
                         title: "API key required",
                         message: "Save a skills.sh API key from the top-right key control to browse curated skills."
                     )
                 } else if let remoteError {
-                    SkillsEmptyState(symbol: "exclamationmark.triangle", title: "Could not load curated skills", message: remoteError)
+                    SkillsEmptyState(symbol: AppIcon.Status.warning, title: "Could not load curated skills", message: remoteError)
                 } else if owners.isEmpty {
-                    SkillsEmptyState(symbol: "sparkles", title: "No curated skills", message: "Refresh to load official skills from skills.sh.")
+                    SkillsEmptyState(symbol: AppIcon.Feature.ai, title: "No curated skills", message: "Refresh to load official skills from skills.sh.")
                 } else {
                     ForEach(owners) { owner in
                         VStack(alignment: .leading, spacing: 6) {
@@ -800,7 +800,7 @@ private struct SkillsDetailPane: View {
             if let detail = localDetail {
                 SkillsInspectorShell(
                     selection: $selectedDetailTab,
-                    symbol: "sparkles",
+                    symbol: AppIcon.Feature.ai,
                     title: detail.title,
                     subtitle: detail.subtitle
                 ) {
@@ -823,7 +823,7 @@ private struct SkillsDetailPane: View {
             if let detail = remoteDetail {
                 SkillsInspectorShell(
                     selection: $selectedDetailTab,
-                    symbol: "bag",
+                    symbol: AppIcon.Skill.market,
                     title: detail.title,
                     subtitle: detail.subtitle
                 ) {
@@ -843,7 +843,7 @@ private struct SkillsDetailPane: View {
     private var emptyInspector: some View {
         SkillsInspectorShell(
             selection: $selectedDetailTab,
-            symbol: "sidebar.right",
+            symbol: AppIcon.Navigation.sidebarRight,
             title: "Inspector",
             subtitle: "Select a skill to inspect metadata, files, and SKILL.md.",
             showsTabs: false
@@ -955,7 +955,7 @@ private struct SkillsLocalDetail: View {
             SkillFilesList(files: detail.files)
         case .market:
             SkillsEmptyState(
-                symbol: "bag",
+                symbol: AppIcon.Skill.market,
                 title: "Market comparison",
                 message: "Select a skills.sh result in Discover or Curated to inspect remote metadata and audits."
             )
@@ -1111,7 +1111,7 @@ private struct SkillsRemoteDetail: View {
                     }
                 } else {
                     SkillsEmptyState(
-                        symbol: "checkmark.shield",
+                        symbol: AppIcon.Status.secure,
                         title: "No audit results",
                         message: "skills.sh returns audits after partner scans are available."
                     )
@@ -1140,13 +1140,13 @@ private struct SkillsLocalActions: View {
 
     private var actionButtons: some View {
         HStack(spacing: 8) {
-            SkillsToolbarButton("Copy Path", systemImage: "doc.on.doc", showLabel: false) {
+            SkillsToolbarButton("Copy Path", systemImage: AppIcon.Action.copy, showLabel: false) {
                 SkillsClipboard.copy(actions.folderPath)
             }
-            SkillsToolbarButton("Reveal", systemImage: "finder", showLabel: false) {
+            SkillsToolbarButton("Reveal", systemImage: AppIcon.Action.revealInFinder, showLabel: false) {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: actions.skillMarkdownPath)])
             }
-            SkillsToolbarButton("Open", systemImage: "arrow.up.right.square", showLabel: false) {
+            SkillsToolbarButton("Open", systemImage: AppIcon.Action.openExternal, showLabel: false) {
                 NSWorkspace.shared.open(URL(fileURLWithPath: actions.skillMarkdownPath))
             }
         }
@@ -1162,12 +1162,12 @@ private struct SkillsRemoteActions: View {
 
     private var actionButtons: some View {
         HStack(spacing: 8) {
-            SkillsToolbarButton("Copy Install", systemImage: "doc.on.doc", showLabel: false, disabled: actions.installCommand == nil) {
+            SkillsToolbarButton("Copy Install", systemImage: AppIcon.Action.copy, showLabel: false, disabled: actions.installCommand == nil) {
                 if let command = actions.installCommand {
                     SkillsClipboard.copy(command)
                 }
             }
-            SkillsToolbarButton("Open", systemImage: "arrow.up.right.square", showLabel: false, disabled: remoteURL == nil) {
+            SkillsToolbarButton("Open", systemImage: AppIcon.Action.openExternal, showLabel: false, disabled: remoteURL == nil) {
                 if let remoteURL {
                     NSWorkspace.shared.open(remoteURL)
                 }
@@ -1280,10 +1280,10 @@ private struct SkillsRemoteRowContent: View, Equatable {
                 .truncationMode(.middle)
             HStack(spacing: 8) {
                 if let installs = skill.installs {
-                    Label("\(installs)", systemImage: "arrow.down.circle")
+                    Label("\(installs)", systemImage: AppIcon.Action.download)
                 }
                 if skill.isDuplicate {
-                    Label("Duplicate", systemImage: "doc.on.doc")
+                    Label("Duplicate", systemImage: AppIcon.Action.copy)
                 }
             }
             .font(.sora(9))
@@ -1426,7 +1426,7 @@ private struct SkillFilesList: View {
         AppScrollView {
             LazyVStack(alignment: .leading, spacing: 6) {
                 if files.isEmpty {
-                    SkillsEmptyState(symbol: "folder", title: "No file snapshot", message: "No supporting files are available for this skill.")
+                    SkillsEmptyState(symbol: AppIcon.Resource.folder, title: "No file snapshot", message: "No supporting files are available for this skill.")
                 } else {
                     ForEach(files) { file in
                         HStack(spacing: 9) {
@@ -1604,7 +1604,7 @@ private struct SkillsLoadingState: View {
 private struct SkillsEmptyDetail: View {
     var body: some View {
         SkillsEmptyState(
-            symbol: "sparkles",
+            symbol: AppIcon.Feature.ai,
             title: "No skill selected",
             message: "Choose a local or market skill to inspect its SKILL.md, files, and metadata."
         )

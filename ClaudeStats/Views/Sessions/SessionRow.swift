@@ -34,7 +34,7 @@ struct SessionRow: View {
                         modelDots(stats.models)
                         Label(
                             Format.tokens(stats.totalTokens(includingCacheRead: env.preferences.includeCacheInTokens)),
-                            systemImage: "number"
+                            systemImage: AppIcon.Metric.number
                         )
                         .labelStyle(.titleAndIcon)
                         Text(Format.cost(stats.totalCost(for: env.preferences.costEstimationMode)))

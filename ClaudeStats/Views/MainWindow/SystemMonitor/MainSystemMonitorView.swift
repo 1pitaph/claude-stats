@@ -56,7 +56,7 @@ struct MainSystemMonitorView: View {
             Button {
                 Task { await vm.refreshNow() }
             } label: {
-                Label("Refresh", systemImage: "arrow.clockwise")
+                Label("Refresh", systemImage: AppIcon.Action.refresh)
                     .font(.sora(11, weight: .medium))
             }
             .buttonStyle(.bordered)

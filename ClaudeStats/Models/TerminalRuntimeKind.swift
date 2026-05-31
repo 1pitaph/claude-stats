@@ -22,8 +22,8 @@ enum TerminalRuntimeKind: String, CaseIterable, Identifiable, Sendable {
 
     var symbol: String {
         switch self {
-        case .warp: "terminal"
-        case .disabled: "nosign"
+        case .warp: AppIcon.Workspace.warp
+        case .disabled: AppIcon.Status.disabled
         }
     }
 }

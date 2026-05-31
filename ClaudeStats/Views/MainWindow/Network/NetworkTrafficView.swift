@@ -185,14 +185,14 @@ private struct NetworkTrafficWorkspaceBar: View {
                 Button {
                     store.createComposeSession()
                 } label: {
-                    Label("Compose", systemImage: "plus")
+                    Label("Compose", systemImage: AppIcon.Action.add)
                 }
                 .controlSize(.small)
             } else if store.selectedTrafficWorkspace == .automate, let flow = store.selectedFlow {
                 Button {
                     store.sendFlowToAutomate(flow)
                 } label: {
-                    Label("Use Selected", systemImage: "paperplane")
+                    Label("Use Selected", systemImage: AppIcon.Action.send)
                 }
                 .controlSize(.small)
             }
@@ -261,7 +261,7 @@ private struct NetworkTrafficAutoLayoutPopover: View {
             Button {
                 preferences.resetNetworkTrafficAutoBreakpoint()
             } label: {
-                Label("Reset to 900 pt", systemImage: "arrow.counterclockwise")
+                Label("Reset to 900 pt", systemImage: AppIcon.Action.reset)
             }
             .buttonStyle(.borderless)
             .controlSize(.small)
@@ -1177,7 +1177,7 @@ private struct NetworkPayloadPane: View {
                             store.deleteFlow(flow.id)
                         }
                     } label: {
-                        Image(systemName: "ellipsis.circle")
+                        Image(systemName: AppIcon.Action.more)
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(Color.stxMuted)
                     }
@@ -1327,7 +1327,7 @@ private struct NetworkPayloadPane: View {
 
     private func commentEditor(for flow: NetworkFlow) -> some View {
         HStack(spacing: 8) {
-            Label("Comment", systemImage: "text.bubble")
+            Label("Comment", systemImage: AppIcon.Resource.textBubble)
                 .font(.sora(10, weight: .semibold))
                 .foregroundStyle(Color.stxMuted)
             TextField("Add a note for this flow", text: Binding {
@@ -1579,7 +1579,7 @@ private struct NetworkReplayEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Label("Edit and Resend", systemImage: "arrow.clockwise")
+                Label("Edit and Resend", systemImage: AppIcon.Action.refresh)
                     .font(.sora(15, weight: .semibold))
                 Spacer()
                 Button("Cancel") {
@@ -1617,7 +1617,7 @@ private struct NetworkReplayEditor: View {
                                 Button {
                                     removeHeader(header.id)
                                 } label: {
-                                    Image(systemName: "minus.circle")
+                                    Image(systemName: AppIcon.Action.removeCircle)
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -1625,7 +1625,7 @@ private struct NetworkReplayEditor: View {
                         Button {
                             addHeader()
                         } label: {
-                            Label("Add Header", systemImage: "plus.circle")
+                            Label("Add Header", systemImage: AppIcon.Action.addCircle)
                         }
                         .buttonStyle(.borderless)
                     }

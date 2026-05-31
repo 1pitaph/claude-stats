@@ -20,7 +20,7 @@ struct CursorCommandOverlayView: View {
 
     private var collapsedPill: some View {
         Button(action: onToggleExpanded) {
-            Image(systemName: "terminal.fill")
+            Image(systemName: AppIcon.Runtime.terminalFilled)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.primary)
                 .frame(width: CursorCommandOverlayGeometry.collapsedSize.width, height: CursorCommandOverlayGeometry.collapsedSize.height)
@@ -39,7 +39,7 @@ struct CursorCommandOverlayView: View {
     private var expandedPanel: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                Image(systemName: "terminal.fill")
+                Image(systemName: AppIcon.Runtime.terminalFilled)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Color.stxAccent)
                     .frame(width: 22, height: 22)
@@ -55,7 +55,7 @@ struct CursorCommandOverlayView: View {
                 Spacer(minLength: 8)
 
                 Button(action: onCollapse) {
-                    Image(systemName: "xmark")
+                    Image(systemName: AppIcon.Action.close)
                         .font(.system(size: 11, weight: .semibold))
                         .frame(width: 24, height: 24)
                 }
@@ -68,9 +68,9 @@ struct CursorCommandOverlayView: View {
             if state.isLoading {
                 loadingView
             } else if let error = state.lastError {
-                emptyMessage(error, symbol: "exclamationmark.triangle")
+                emptyMessage(error, symbol: AppIcon.Status.warning)
             } else if state.summaries.isEmpty {
-                emptyMessage("No recent sessions found.", symbol: "clock")
+                emptyMessage("No recent sessions found.", symbol: AppIcon.Status.clock)
             } else {
                 AppScrollView {
                     VStack(alignment: .leading, spacing: 10) {

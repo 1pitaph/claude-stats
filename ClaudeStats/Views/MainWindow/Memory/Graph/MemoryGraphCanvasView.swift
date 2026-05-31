@@ -149,7 +149,7 @@ struct MemoryGraphRenderLimitBadge: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                Image(systemName: "rectangle.compress.vertical")
+                Image(systemName: AppIcon.Layout.compressVertical)
                     .font(.system(size: 11, weight: .semibold))
                 Text("Large graph")
                     .font(.sora(11, weight: .semibold))

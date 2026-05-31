@@ -195,7 +195,7 @@ private struct GitRepoSelectionColumn: View {
                         title: "All Repos",
                         subtitle: "\(totalCommits) commits",
                         detail: Format.tokens(totalChurn) + " churn",
-                        symbol: "square.grid.2x2",
+                        symbol: AppIcon.Workspace.dashboard,
                         isSelected: selection == "all"
                     ) {
                         onSelect("all")
@@ -206,7 +206,7 @@ private struct GitRepoSelectionColumn: View {
                             title: activity.repo.displayName,
                             subtitle: "\(activity.commitCount) commits",
                             detail: "\(activity.filesChanged) files",
-                            symbol: "folder",
+                            symbol: AppIcon.Resource.folder,
                             isSelected: selection == activity.repo.id
                         ) {
                             onSelect(activity.repo.id)

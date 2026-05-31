@@ -46,7 +46,7 @@ struct MemoryWorkspaceView: View {
                 Button {
                     Task { await store.refreshCodeMemoryStatus(sessions: env.store.sessions) }
                 } label: {
-                    Label("Refresh", systemImage: "arrow.triangle.2.circlepath")
+                    Label("Refresh", systemImage: AppIcon.Action.sync)
                 }
                 .controlSize(.small)
                 .disabled(store.isCodeMemoryLoading)

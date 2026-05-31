@@ -31,11 +31,11 @@ enum AIConfigDocumentKind: String, CaseIterable, Sendable, Hashable, Identifiabl
 
     var symbol: String {
         switch self {
-        case .instruction: "doc.text"
-        case .providerConfig: "slider.horizontal.3"
-        case .plan: "checklist"
-        case .pluginConfig: "puzzlepiece.extension"
-        case .other: "doc"
+        case .instruction: AppIcon.AIConfig.instruction
+        case .providerConfig: AppIcon.AIConfig.provider
+        case .plan: AppIcon.AIConfig.plan
+        case .pluginConfig: AppIcon.AIConfig.pluginManifest
+        case .other: AppIcon.AIConfig.document
         }
     }
 }
@@ -61,7 +61,7 @@ enum AIConfigsFilter: String, CaseIterable, Sendable, Hashable, Identifiable {
 
     var symbol: String {
         switch self {
-        case .all: "square.grid.2x2"
+        case .all: AppIcon.Workspace.dashboard
         case .instructions: AIConfigDocumentKind.instruction.symbol
         case .provider: AIConfigDocumentKind.providerConfig.symbol
         case .plans: AIConfigDocumentKind.plan.symbol
@@ -108,12 +108,12 @@ enum AIConfigsSection: String, CaseIterable, Sendable, Hashable, Identifiable {
 
     var symbol: String {
         switch self {
-        case .overview: "square.grid.2x2"
+        case .overview: AppIcon.Workspace.dashboard
         case .instructions: AIConfigDocumentKind.instruction.symbol
         case .provider: AIConfigDocumentKind.providerConfig.symbol
         case .plans: AIConfigDocumentKind.plan.symbol
         case .plugins: AIConfigDocumentKind.pluginConfig.symbol
-        case .diagnostics: "exclamationmark.triangle"
+        case .diagnostics: AppIcon.AIConfig.diagnostics
         }
     }
 

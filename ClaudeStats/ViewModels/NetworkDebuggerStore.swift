@@ -43,10 +43,10 @@ struct NetworkTrafficSnapshot: Sendable {
         self.httpTrafficFlows = filteredFlows.filter { $0.flowProtocol != .webSocket }
         self.apps = Self.groupedFilters(
             flows.map { $0.clientName.isEmpty ? "Proxy Client" : $0.clientName },
-            symbol: "app"
+            symbol: AppIcon.App.generic
         )
-        self.domains = Self.groupedFilters(flows.map(\.domainDisplay), symbol: "globe")
-        self.methods = Self.groupedFilters(flows.map(\.methodDisplay), symbol: "arrow.right.circle")
+        self.domains = Self.groupedFilters(flows.map(\.domainDisplay), symbol: AppIcon.Network.domain)
+        self.methods = Self.groupedFilters(flows.map(\.methodDisplay), symbol: AppIcon.Navigation.forwardCircle)
         self.pinnedCount = flows.lazy.filter { $0.isPinned }.count
         self.savedCount = flows.lazy.filter { $0.isSaved }.count
         self.statusCounts = Dictionary(

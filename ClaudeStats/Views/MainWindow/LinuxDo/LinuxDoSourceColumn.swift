@@ -12,7 +12,7 @@ struct LinuxDoSidebarColumn: View {
 
             SidebarRow(
                 title: "Back to App",
-                symbol: "chevron.left",
+                symbol: AppIcon.Navigation.back,
                 isSelected: false,
                 action: onExit
             )
@@ -52,15 +52,15 @@ struct LinuxDoSourceColumn: View {
     private var feedSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             sourceHeader("Feeds")
-            sourceButton(title: "Latest", symbol: "clock", feed: .latest)
-            sourceButton(title: "Hot", symbol: "flame", feed: .hot)
+            sourceButton(title: "Latest", symbol: AppIcon.Status.clock, feed: .latest)
+            sourceButton(title: "Hot", symbol: AppIcon.LinuxDo.hot, feed: .hot)
         }
     }
 
     private var topSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             sourceHeader("Top")
-            sourceButton(title: "Top \(store.topPeriod.displayName)", symbol: "trophy.fill", feed: .top(store.topPeriod))
+            sourceButton(title: "Top \(store.topPeriod.displayName)", symbol: AppIcon.Leaderboard.trophyFilled, feed: .top(store.topPeriod))
         }
     }
 
@@ -79,7 +79,7 @@ struct LinuxDoSourceColumn: View {
             Button {
                 store.submitSearch()
             } label: {
-                Label("Search", systemImage: "magnifyingglass")
+                Label("Search", systemImage: AppIcon.Action.search)
                     .frame(maxWidth: .infinity)
             }
             .controlSize(.small)
@@ -180,7 +180,7 @@ struct LinuxDoSourceColumn: View {
                     .font(.sora(11, weight: .semibold))
                     .foregroundStyle(Color.stxAccent)
             } else {
-                Image(systemName: "person")
+                Image(systemName: AppIcon.People.person)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Color.stxMuted)
             }

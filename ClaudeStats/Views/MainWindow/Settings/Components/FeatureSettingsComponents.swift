@@ -69,7 +69,7 @@ struct FeatureControlCard<Preview: View, Controls: View>: View {
                 Spacer(minLength: 8)
                 if let onConfigure {
                     Button(action: onConfigure) {
-                        Label("Configure", systemImage: "slider.horizontal.3")
+                        Label("Configure", systemImage: AppIcon.Workspace.configs)
                             .labelStyle(.titleAndIcon)
                     }
                     .controlSize(.small)
@@ -116,7 +116,7 @@ struct FeatureDisabledNotice: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "power")
+            Image(systemName: AppIcon.Action.quit)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Color.stxAccent)
                 .frame(width: 22, height: 22)

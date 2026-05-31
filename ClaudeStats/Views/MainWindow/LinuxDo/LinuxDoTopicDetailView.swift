@@ -27,7 +27,7 @@ struct LinuxDoTopicDetailView: View {
                 detail(state: state, topicID: topicID)
             } else {
                 ContentUnavailableView {
-                    Label("Select a Topic", systemImage: "text.bubble")
+                    Label("Select a Topic", systemImage: AppIcon.Resource.textBubble)
                 } description: {
                     Text("Choose a LinuxDo topic to read it here.")
                 }
@@ -93,7 +93,7 @@ struct LinuxDoTopicDetailView: View {
             }
         } else {
             ContentUnavailableView {
-                Label("Topic Unavailable", systemImage: "exclamationmark.triangle")
+                Label("Topic Unavailable", systemImage: AppIcon.Status.warning)
             } description: {
                 Text(state.error ?? "Linux.do did not return this topic.")
             }
@@ -172,7 +172,7 @@ struct LinuxDoTopicDetailView: View {
                                 ProgressView()
                                     .controlSize(.small)
                             } else {
-                                Label("Load More Posts", systemImage: "arrow.down.circle")
+                                Label("Load More Posts", systemImage: AppIcon.Action.download)
                             }
                         }
                         .frame(maxWidth: LinuxDoDetailLayout.contentMaxWidth)
@@ -299,19 +299,19 @@ struct LinuxDoTopicDetailView: View {
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 10) {
-                Label("\(detail.postsCount)", systemImage: "text.bubble")
-                Label("\(detail.posts.count) loaded", systemImage: "tray.and.arrow.down")
+                Label("\(detail.postsCount)", systemImage: AppIcon.Resource.textBubble)
+                Label("\(detail.posts.count) loaded", systemImage: AppIcon.Action.downloadTray)
                 if state.isStale {
-                    Label("Stale", systemImage: "clock.badge.exclamationmark")
+                    Label("Stale", systemImage: AppIcon.Status.clockWarning)
                 }
                 if state.isJumping {
-                    Label("Jumping", systemImage: "arrow.up.and.down")
+                    Label("Jumping", systemImage: AppIcon.Navigation.verticalResize)
                 }
                 if let position = visibleContinuePosition(topicID: topicID, totalFloors: totalFloors) {
                     Button {
                         Task { await store.continueReading(topicID: topicID) }
                     } label: {
-                        Label("Continue #\(position.postNumber)", systemImage: "arrow.down.to.line")
+                        Label("Continue #\(position.postNumber)", systemImage: AppIcon.Action.downloadToLine)
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(Color.stxAccent)
@@ -514,7 +514,7 @@ private struct LinuxDoPostAvatarColumn: View {
         AsyncImage(url: post.avatarURL) { image in
             image.resizable().scaledToFill()
         } placeholder: {
-            Image(systemName: "person.crop.circle.fill")
+            Image(systemName: AppIcon.People.profileFilled)
                 .foregroundStyle(Color.stxMuted)
         }
         .frame(width: 38, height: 38)
@@ -649,14 +649,14 @@ private struct LinuxDoPostActionBar: View {
     var body: some View {
         HStack(spacing: 10) {
             Button(action: onToggleLike) {
-                Label("\(post.effectiveLikeCount)", systemImage: post.isLikedByCurrentUser ? "heart.fill" : "heart")
+                Label("\(post.effectiveLikeCount)", systemImage: post.isLikedByCurrentUser ? AppIcon.LinuxDo.likeFilled : AppIcon.LinuxDo.like)
                     .foregroundStyle(post.isLikedByCurrentUser ? .red : Color.stxMuted)
             }
             .disabled(!canWrite || isLikePending || !post.canToggleLike)
             .help(canWrite ? "Like" : "Sign in with a browser session to like")
 
             Button(action: onBeginReply) {
-                Label("Reply", systemImage: "arrowshape.turn.up.left")
+                Label("Reply", systemImage: AppIcon.Action.reply)
             }
             .disabled(!canWrite)
             .help(canWrite ? "Reply" : "Sign in with a browser session to reply")
@@ -689,21 +689,21 @@ private struct LinuxDoPostActionBar: View {
                     }
                 }
             } label: {
-                Image(systemName: "face.smiling")
+                Image(systemName: AppIcon.People.smile)
                     .frame(width: 18, height: 18)
             }
             .disabled(!canWrite || isReactionPending)
             .help(canWrite ? "Add reaction" : "Sign in with a browser session to react")
 
             if post.reads > 0 {
-                Label("\(post.reads)", systemImage: "eye")
+                Label("\(post.reads)", systemImage: AppIcon.Status.visible)
                     .foregroundStyle(Color.stxMuted)
             }
 
             Spacer(minLength: 0)
 
             Button(action: onOpenInBrowser) {
-                Image(systemName: "safari")
+                Image(systemName: AppIcon.App.safari)
                     .frame(width: 18, height: 18)
             }
             .buttonStyle(.plain)
@@ -797,7 +797,7 @@ private struct LinuxDoReplyPreviewRow: View {
                 .font(.sora(10, weight: .medium).monospacedDigit())
                 .foregroundStyle(Color.stxMuted)
                 .frame(width: 28, alignment: .trailing)
-            Image(systemName: "arrowshape.turn.up.left")
+            Image(systemName: AppIcon.Action.reply)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(Color.stxMuted)
                 .frame(width: 16)
@@ -910,7 +910,7 @@ private struct LinuxDoComposer: View {
                     if isSubmitting {
                         ProgressView().controlSize(.small)
                     } else {
-                        Label(submitTitle, systemImage: "paperplane")
+                        Label(submitTitle, systemImage: AppIcon.Action.send)
                     }
                 }
                 .controlSize(.small)
@@ -1129,7 +1129,7 @@ private struct LinuxDoQuoteCard: View {
                     AsyncImage(url: avatarURL) { image in
                         image.resizable().scaledToFill()
                     } placeholder: {
-                        Image(systemName: "quote.bubble")
+                        Image(systemName: AppIcon.Resource.quote)
                             .foregroundStyle(Color.stxMuted)
                     }
                     .frame(width: 18, height: 18)
@@ -1149,7 +1149,7 @@ private struct LinuxDoQuoteCard: View {
                     Button {
                         NSWorkspace.shared.open(url)
                     } label: {
-                        Image(systemName: "arrow.up.right")
+                        Image(systemName: AppIcon.Navigation.openForward)
                             .font(.system(size: 10, weight: .semibold))
                     }
                     .buttonStyle(.plain)
@@ -1185,12 +1185,12 @@ private struct LinuxDoCalloutBlock: View {
 
     private var iconName: String {
         switch callout.style {
-        case .note: "info.circle.fill"
-        case .tip: "lightbulb.fill"
-        case .important: "star.circle.fill"
-        case .warning: "exclamationmark.triangle.fill"
-        case .danger: "bolt.fill"
-        case .generic: "text.bubble.fill"
+        case .note: AppIcon.Status.infoFilled
+        case .tip: AppIcon.Feature.tip
+        case .important: AppIcon.Feature.important
+        case .warning: AppIcon.Status.warningFilled
+        case .danger: AppIcon.Metric.boltFilled
+        case .generic: AppIcon.Resource.textBubbleFilled
         }
     }
 
@@ -1240,7 +1240,7 @@ private struct LinuxDoEventBlock: View {
                 Text(event.name ?? "Event")
                     .font(.sora(14, weight: .semibold))
                 HStack(spacing: 6) {
-                    Image(systemName: "clock.fill")
+                    Image(systemName: AppIcon.Status.clockFilled)
                     Text(eventRangeText)
                 }
                 .font(.sora(11))

@@ -41,7 +41,7 @@ struct ClaudeStatusCard: View {
             Button {
                 Task { await status.refresh(force: true) }
             } label: {
-                Image(systemName: "arrow.clockwise")
+                Image(systemName: AppIcon.Action.refresh)
                     .font(.system(size: 11, weight: .semibold))
             }
             .buttonStyle(.plain)
@@ -49,7 +49,7 @@ struct ClaudeStatusCard: View {
             .help(L10n.string("status.claude.refresh", defaultValue: "Refresh Claude Status"))
             if let onSwitchStatusProvider {
                 Button(action: onSwitchStatusProvider) {
-                    Image(systemName: "switch.2")
+                    Image(systemName: AppIcon.Settings.features)
                         .font(.system(size: 11, weight: .semibold))
                 }
                 .buttonStyle(.plain)
@@ -57,7 +57,7 @@ struct ClaudeStatusCard: View {
                 .help(switchStatusHelp)
             }
             Link(destination: status.statusPageURL) {
-                Image(systemName: "arrow.up.right.square")
+                Image(systemName: AppIcon.Action.openExternal)
                     .font(.system(size: 11, weight: .semibold))
             }
             .buttonStyle(.plain)
@@ -129,7 +129,7 @@ struct ClaudeStatusCard: View {
 
     private func incidentRow(_ incident: ClaudeStatusIncident) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
+            Image(systemName: AppIcon.Status.warningFilled)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(incident.impact.tint)
                 .frame(width: 16)
@@ -150,7 +150,7 @@ struct ClaudeStatusCard: View {
 
     private func cachedStatusRow(_ message: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "wifi.slash")
+            Image(systemName: AppIcon.Status.offline)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(Color.stxMuted)
                 .frame(width: 16)
@@ -273,11 +273,11 @@ private extension ClaudeStatusSeverity {
 
     var symbolName: String {
         switch self {
-        case .operational: "checkmark.circle.fill"
-        case .underMaintenance: "wrench.and.screwdriver.fill"
-        case .degradedPerformance: "exclamationmark.circle.fill"
-        case .partialOutage, .majorOutage: "xmark.octagon.fill"
-        case .unknown: "questionmark.circle.fill"
+        case .operational: AppIcon.Status.successFilled
+        case .underMaintenance: AppIcon.Status.maintenance
+        case .degradedPerformance: AppIcon.Status.errorFilled
+        case .partialOutage, .majorOutage: AppIcon.Status.failureFilled
+        case .unknown: AppIcon.Status.unknown
         }
     }
 }

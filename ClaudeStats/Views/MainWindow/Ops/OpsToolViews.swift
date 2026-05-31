@@ -80,14 +80,14 @@ struct OpsPortsView: View {
                     Button {
                         store.copyToClipboard(port.localhostURL)
                     } label: {
-                        Label("Copy URL", systemImage: "doc.on.doc")
+                        Label("Copy URL", systemImage: AppIcon.Action.copy)
                     }
                     .controlSize(.small)
 
                     Button {
                         store.copyToClipboard("kill -TERM \(port.item.pid)")
                     } label: {
-                        Label("Copy Kill", systemImage: "terminal")
+                        Label("Copy Kill", systemImage: AppIcon.Runtime.terminal)
                     }
                     .controlSize(.small)
 
@@ -96,7 +96,7 @@ struct OpsPortsView: View {
                     Button(role: .destructive) {
                         store.requestTerminate(port.item)
                     } label: {
-                        Label("End", systemImage: "xmark.octagon")
+                        Label("End", systemImage: AppIcon.Status.failure)
                     }
                     .controlSize(.small)
                     .disabled(port.protectionReason != nil || !store.canRunAction)
@@ -155,7 +155,7 @@ struct OpsProcessesView: View {
                 Button {
                     store.refresh(.processes)
                 } label: {
-                    Image(systemName: "arrow.clockwise")
+                    Image(systemName: AppIcon.Action.refresh)
                 }
                 .buttonStyle(.bordered)
                 .help("Refresh")
@@ -207,14 +207,14 @@ struct OpsProcessesView: View {
                     Button {
                         store.copyToClipboard(process.commandLine)
                     } label: {
-                        Label("Copy Command", systemImage: "doc.on.doc")
+                        Label("Copy Command", systemImage: AppIcon.Action.copy)
                     }
                     .controlSize(.small)
 
                     Button {
                         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: process.executablePath)])
                     } label: {
-                        Label("Reveal", systemImage: "folder")
+                        Label("Reveal", systemImage: AppIcon.Resource.folder)
                     }
                     .controlSize(.small)
                     .disabled(!process.canRevealExecutable)
@@ -224,7 +224,7 @@ struct OpsProcessesView: View {
                     Button(role: .destructive) {
                         store.requestTerminate(process.item)
                     } label: {
-                        Label("End", systemImage: "xmark.octagon")
+                        Label("End", systemImage: AppIcon.Status.failure)
                     }
                     .controlSize(.small)
                     .disabled(process.protectionReason != nil || !store.canRunAction)
@@ -248,7 +248,7 @@ struct OpsBrewView: View {
                 Button {
                     store.refresh(.brew)
                 } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
+                    Label("Refresh", systemImage: AppIcon.Action.refresh)
                 }
                 .controlSize(.small)
             }
@@ -266,7 +266,7 @@ struct OpsBrewView: View {
                     Button {
                         store.requestBrewCleanup()
                     } label: {
-                        Label("Cleanup", systemImage: "sparkles")
+                        Label("Cleanup", systemImage: AppIcon.Feature.ai)
                     }
                     .controlSize(.small)
                     .disabled(store.brewSnapshot.brewPath == nil || !store.canRunAction)
@@ -300,7 +300,7 @@ struct OpsBrewView: View {
                         Button {
                             store.requestBrewInstall(installText)
                         } label: {
-                            Label("Install", systemImage: "plus")
+                            Label("Install", systemImage: AppIcon.Action.add)
                         }
                         .controlSize(.small)
                         .disabled(store.brewSnapshot.brewPath == nil || !store.canRunAction || installText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -378,7 +378,7 @@ struct OpsEnvironmentView: View {
                 Button {
                     store.refresh(.environment)
                 } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
+                    Label("Refresh", systemImage: AppIcon.Action.refresh)
                 }
                 .controlSize(.small)
             }
@@ -404,13 +404,13 @@ struct OpsCleanupView: View {
                 Button {
                     store.refresh(.cleanup)
                 } label: {
-                    Label("Scan", systemImage: "arrow.clockwise")
+                    Label("Scan", systemImage: AppIcon.Action.refresh)
                 }
                 .controlSize(.small)
                 Button(role: .destructive) {
                     store.requestCleanupSelected()
                 } label: {
-                    Label("Clean Selected", systemImage: "trash")
+                    Label("Clean Selected", systemImage: AppIcon.Action.delete)
                 }
                 .controlSize(.small)
                 .disabled(store.selectedCleanupKinds.isEmpty || !store.canRunAction)
@@ -448,7 +448,7 @@ struct OpsDiagnosticsView: View {
                 Button {
                     store.refresh(.diagnostics)
                 } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
+                    Label("Refresh", systemImage: AppIcon.Action.refresh)
                 }
                 .controlSize(.small)
             }
@@ -465,7 +465,7 @@ struct OpsDiagnosticsView: View {
                         Button {
                             store.runURLDiagnostics()
                         } label: {
-                            Label("Run", systemImage: "play")
+                            Label("Run", systemImage: AppIcon.Action.play)
                         }
                         .controlSize(.small)
                         .disabled(!store.canRunAction || store.urlInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -547,7 +547,7 @@ private struct OpsTableToolbar: View {
         HStack(spacing: 10) {
             OpsSearchField(text: $searchText, placeholder: placeholder)
             Button(action: refresh) {
-                Label("Refresh", systemImage: "arrow.clockwise")
+                Label("Refresh", systemImage: AppIcon.Action.refresh)
                     .labelStyle(.iconOnly)
             }
             .buttonStyle(.bordered)
@@ -564,7 +564,7 @@ private struct OpsSearchField: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
+            Image(systemName: AppIcon.Action.search)
                 .font(.system(size: 11))
                 .foregroundStyle(Color.stxMuted)
             TextField(placeholder, text: $text)
@@ -574,7 +574,7 @@ private struct OpsSearchField: View {
                 Button {
                     text = ""
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
+                    Image(systemName: AppIcon.Action.clear)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(Color.stxMuted)
                 }
@@ -754,14 +754,14 @@ private struct OpsBrewPackageRow: View {
             .buttonStyle(.plain)
 
             Button(action: upgrade) {
-                Image(systemName: "arrow.up.circle")
+                Image(systemName: AppIcon.Navigation.upCircle)
             }
             .buttonStyle(.plain)
             .disabled(!package.isOutdated || actionsDisabled)
             .help("Upgrade")
 
             Button(role: .destructive, action: uninstall) {
-                Image(systemName: "trash")
+                Image(systemName: AppIcon.Action.delete)
             }
             .buttonStyle(.plain)
             .disabled(actionsDisabled)
@@ -842,9 +842,9 @@ private struct OpsEnvironmentToolCard: View {
 
     private var statusSymbol: String {
         switch tool.status {
-        case .available: "checkmark.circle.fill"
-        case .missing: "minus.circle"
-        case .error: "exclamationmark.triangle.fill"
+        case .available: AppIcon.Status.successFilled
+        case .missing: AppIcon.Action.removeCircle
+        case .error: AppIcon.Status.warningFilled
         }
     }
 
@@ -915,7 +915,7 @@ private struct OpsActionOutputCard: View {
                     Button {
                         clear()
                     } label: {
-                        Image(systemName: "xmark.circle")
+                        Image(systemName: AppIcon.Action.cancel)
                     }
                     .buttonStyle(.plain)
                     .help("Clear")

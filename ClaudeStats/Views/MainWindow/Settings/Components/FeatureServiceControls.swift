@@ -176,7 +176,7 @@ struct LeaderboardProfileSettings: View {
                 Button {
                     Task { await env.leaderboards.randomizeAvatar() }
                 } label: {
-                    Image(systemName: "arrow.triangle.2.circlepath")
+                    Image(systemName: AppIcon.Action.sync)
                         .font(.system(size: 13, weight: .semibold))
                         .frame(width: 28, height: 28)
                 }

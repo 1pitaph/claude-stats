@@ -40,7 +40,7 @@ struct LinuxDoTopicListView: View {
             Button {
                 Task { await store.refreshCurrentFeed() }
             } label: {
-                Image(systemName: "arrow.clockwise")
+                Image(systemName: AppIcon.Action.refresh)
                     .font(.system(size: 12, weight: .medium))
                     .frame(width: 16, height: 16)
             }
@@ -64,7 +64,7 @@ struct LinuxDoTopicListView: View {
             }
         } else if state.topics.isEmpty {
             ContentUnavailableView {
-                Label("No Topics", systemImage: "tray")
+                Label("No Topics", systemImage: AppIcon.Resource.tray)
             } description: {
                 Text(state.error ?? "Nothing to show for this feed yet.")
             }
@@ -220,7 +220,7 @@ struct LinuxDoInlineError: View {
     let message: String
 
     var body: some View {
-        Label(message, systemImage: "exclamationmark.triangle")
+        Label(message, systemImage: AppIcon.Status.warning)
             .font(.sora(11))
             .foregroundStyle(.orange)
             .fixedSize(horizontal: false, vertical: true)

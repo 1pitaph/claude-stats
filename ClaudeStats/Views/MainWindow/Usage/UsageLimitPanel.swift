@@ -47,7 +47,7 @@ struct UsageLimitPanel: View {
                     .controlSize(.mini)
             }
             Button(action: onRefresh) {
-                Image(systemName: "arrow.clockwise")
+                Image(systemName: AppIcon.Action.refresh)
                     .font(.system(size: 11, weight: .semibold))
             }
             .buttonStyle(.plain)
@@ -55,7 +55,7 @@ struct UsageLimitPanel: View {
             .help(L10n.string("usage.limit.refresh", defaultValue: "Refresh usage limits"))
             if provider == .claude, let onReadClaudeDesktop {
                 Button(action: onReadClaudeDesktop) {
-                    Image(systemName: "text.viewfinder")
+                    Image(systemName: AppIcon.Text.viewfinder)
                         .font(.system(size: 11, weight: .semibold))
                 }
                 .buttonStyle(.plain)
@@ -102,7 +102,7 @@ struct UsageLimitPanel: View {
                 waitingContent(report: report)
             case .unavailable:
                 stateContent(
-                    systemImage: "exclamationmark.triangle.fill",
+                    systemImage: AppIcon.Status.warningFilled,
                     title: L10n.string("usage.limit.unavailable_title",
                                        defaultValue: "Usage limits unavailable"),
                     message: report.message,
@@ -110,7 +110,7 @@ struct UsageLimitPanel: View {
                 )
             case .setupRequired:
                 stateContent(
-                    systemImage: "wrench.and.screwdriver.fill",
+                    systemImage: AppIcon.Status.maintenance,
                     title: L10n.string("usage.limit.setup_required_title",
                                        defaultValue: "Setup required"),
                     message: report.message,
@@ -121,7 +121,7 @@ struct UsageLimitPanel: View {
             }
         } else {
             stateContent(
-                systemImage: "clock.arrow.circlepath",
+                systemImage: AppIcon.Status.history,
                 title: isLoading
                     ? L10n.string("usage.limit.checking_title", defaultValue: "Checking usage limits")
                     : L10n.string("usage.limit.not_loaded_title", defaultValue: "Usage limits not loaded"),
@@ -159,7 +159,7 @@ struct UsageLimitPanel: View {
     private func setupRequiredContent(message: String?) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             stateContent(
-                systemImage: "terminal.fill",
+                systemImage: AppIcon.Runtime.terminalFilled,
                 title: L10n.string("usage.limit.connect_usage_sources",
                                    defaultValue: "Connect Claude usage sources"),
                 message: message,
@@ -174,7 +174,7 @@ struct UsageLimitPanel: View {
     private func waitingContent(report: UsageLimitReport) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             stateContent(
-                systemImage: "clock.arrow.circlepath",
+                systemImage: AppIcon.Status.history,
                 title: L10n.format("usage.limit.waiting_for_response",
                                    defaultValue: "Waiting for the next %@ response",
                                    provider.shortName),

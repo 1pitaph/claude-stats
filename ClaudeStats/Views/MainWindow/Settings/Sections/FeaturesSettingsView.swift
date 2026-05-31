@@ -31,7 +31,7 @@ struct FeaturesSettingsView: View {
         @Bindable var prefs = prefs
         return FeatureControlCard(
             title: "AI Activity Analysis",
-            symbol: "waveform.path.ecg",
+            symbol: AppIcon.Settings.tracking,
             description: "Compares coding apps, terminal hosts, and AI-assisted overlap using local Screen Time data.",
             status: prefs.aiActivityAnalysisEnabled ? fullDiskAccessStatus : "Hidden from Stats",
             isOn: $prefs.aiActivityAnalysisEnabled,
@@ -45,7 +45,7 @@ struct FeaturesSettingsView: View {
         @Bindable var prefs = prefs
         return FeatureControlCard(
             title: "Git Tracking",
-            symbol: "arrow.triangle.branch",
+            symbol: AppIcon.Workspace.git,
             description: "Reads local commit history for repos used with Claude and correlates code churn with sessions.",
             status: prefs.gitTrackingEnabled ? gitTrackingStatus(prefs: prefs) : "Hidden from Tools",
             isOn: $prefs.gitTrackingEnabled,
@@ -59,7 +59,7 @@ struct FeaturesSettingsView: View {
         @Bindable var prefs = prefs
         return FeatureControlCard(
             title: "System Monitor",
-            symbol: "cpu",
+            symbol: AppIcon.Workspace.system,
             description: "Shows read-only CPU, memory, disk, network, battery, GPU, and thermal sampling on demand.",
             status: prefs.systemMonitorEnabled ? systemMonitorStatus(prefs: prefs) : "Hidden from Stats",
             isOn: $prefs.systemMonitorEnabled,
@@ -73,7 +73,7 @@ struct FeaturesSettingsView: View {
         @Bindable var prefs = prefs
         return FeatureControlCard(
             title: "GitHub Comparison",
-            symbol: "chevron.left.forwardslash.chevron.right",
+            symbol: AppIcon.Git.code,
             description: "Adds a GitHub heatmap and local-vs-GitHub overlap view to the Dashboard.",
             status: prefs.githubEnabled ? githubStatus : "Dashboard comparison off",
             isOn: $prefs.githubEnabled,
@@ -86,7 +86,7 @@ struct FeaturesSettingsView: View {
     private func leaderboardsCard(prefs: Preferences) -> some View {
         FeatureControlCard(
             title: "CloudKit Leaderboards",
-            symbol: "trophy",
+            symbol: AppIcon.Workspace.leaderboards,
             description: "Publishes privacy-preserving aggregate scores to CloudKit's public database.",
             status: prefs.leaderboardsEnabled ? env.leaderboards.syncStatus.displayText : "Not joined",
             isOn: leaderboardsBinding(prefs: prefs),
@@ -100,7 +100,7 @@ struct FeaturesSettingsView: View {
         @Bindable var prefs = prefs
         return FeatureControlCard(
             title: "Floating Edge Tab",
-            symbol: "rectangle.on.rectangle",
+            symbol: AppIcon.Layout.overlap,
             description: "Keeps Claude Stats reachable from a small screen-edge tab when the menu bar is crowded.",
             status: prefs.floatingTabEnabled ? "Docked on \(prefs.floatingTabEdge.rawValue.capitalized)" : "Off",
             isOn: $prefs.floatingTabEnabled,
@@ -114,7 +114,7 @@ struct FeaturesSettingsView: View {
         @Bindable var prefs = prefs
         return FeatureControlCard(
             title: "Cursor Commands",
-            symbol: "terminal.fill",
+            symbol: AppIcon.Runtime.terminalFilled,
             description: "Shows recent session commands next to the active text cursor, with copy-only command actions.",
             status: cursorCommandOverlayStatus(prefs: prefs),
             isOn: cursorCommandOverlayBinding(prefs: prefs),
@@ -125,7 +125,7 @@ struct FeaturesSettingsView: View {
             VStack(alignment: .leading, spacing: 10) {
                 if !AXIsProcessTrusted() {
                     HStack(alignment: .top, spacing: 10) {
-                        Image(systemName: "accessibility")
+                        Image(systemName: AppIcon.Feature.accessibility)
                             .foregroundStyle(Color.stxAccent)
                             .frame(width: 18, height: 18)
                         Text("Grant Accessibility access so Claude Stats can find the focused text cursor. The overlay will stay hidden until access is available.")
@@ -141,7 +141,7 @@ struct FeaturesSettingsView: View {
                         .controlSize(.small)
                     }
                 } else {
-                    Label("Accessibility access is available.", systemImage: "checkmark.circle")
+                    Label("Accessibility access is available.", systemImage: AppIcon.Status.success)
                         .font(.sora(11))
                         .foregroundStyle(Color.stxMuted)
                 }
@@ -153,7 +153,7 @@ struct FeaturesSettingsView: View {
         @Bindable var prefs = prefs
         return FeatureControlCard(
             title: "Notch Island",
-            symbol: "capsule.portrait.tophalf.filled",
+            symbol: AppIcon.NotchIsland.island,
             description: "Adds an Atoll-backed Dynamic Island surface around the camera notch while keeping existing app entry points.",
             status: prefs.notchIslandEnabled ? notchIslandStatus(prefs: prefs) : "Off",
             isOn: $prefs.notchIslandEnabled,
@@ -233,7 +233,7 @@ private struct ActivityFeaturePreview: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Label("Activity", systemImage: "waveform")
+                Label("Activity", systemImage: AppIcon.Workspace.activity)
                     .font(.sora(12, weight: .semibold))
                 Spacer()
                 Text("Today")
@@ -266,7 +266,7 @@ private struct GitTrackingFeaturePreview: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Label("Repository activity", systemImage: "folder")
+                Label("Repository activity", systemImage: AppIcon.Resource.folder)
                     .font(.sora(12, weight: .semibold))
                 Spacer()
                 Text("+1.8k")
@@ -304,7 +304,7 @@ private struct SystemMonitorFeaturePreview: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Label("System", systemImage: "cpu")
+                Label("System", systemImage: AppIcon.Workspace.system)
                     .font(.sora(12, weight: .semibold))
                 Spacer()
                 Text("3s")
@@ -325,7 +325,7 @@ private struct GitHubFeaturePreview: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Label("Overlap", systemImage: "square.grid.3x3")
+                Label("Overlap", systemImage: AppIcon.Layout.grid3)
                     .font(.sora(12, weight: .semibold))
                 Spacer()
                 Text("90d")
@@ -374,7 +374,7 @@ private struct LeaderboardsFeaturePreview: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Label("Leaderboard", systemImage: "trophy")
+                Label("Leaderboard", systemImage: AppIcon.Workspace.leaderboards)
                     .font(.sora(12, weight: .semibold))
                 Spacer()
                 Text("Daily")
@@ -454,7 +454,7 @@ private struct CursorCommandOverlayFeaturePreview: View {
                             .fill(Color.stxAccent.opacity(0.18))
                             .frame(width: 30, height: 28)
                             .overlay {
-                                Image(systemName: "terminal.fill")
+                                Image(systemName: AppIcon.Runtime.terminalFilled)
                                     .font(.system(size: 10, weight: .semibold))
                                     .foregroundStyle(Color.stxAccent)
                             }
@@ -495,13 +495,13 @@ private struct NotchIslandFeaturePreview: View {
             .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
 
             HStack(spacing: 24) {
-                ForEach(["house.fill", "tray.fill", "timer", "chart.xyaxis.line"], id: \.self) { symbol in
+                ForEach([AppIcon.NotchIsland.previewHome, AppIcon.Resource.trayFilled, AppIcon.NotchIsland.timer, AppIcon.NotchIsland.previewUsage], id: \.self) { symbol in
                     Image(systemName: symbol)
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(symbol == "house.fill" ? Color.primary : Color.stxMuted)
+                        .foregroundStyle(symbol == AppIcon.NotchIsland.previewHome ? Color.primary : Color.stxMuted)
                         .frame(width: 26, height: 26)
                         .background {
-                            if symbol == "house.fill" {
+                            if symbol == AppIcon.NotchIsland.previewHome {
                                 Capsule()
                                     .fill(Color.primary.opacity(0.12))
                             }

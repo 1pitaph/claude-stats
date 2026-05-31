@@ -43,7 +43,7 @@ struct NetworkSidebarColumn: View {
     private var sectionsSidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             SidebarRow(title: "Back to App",
-                       symbol: "chevron.left",
+                       symbol: AppIcon.Navigation.back,
                        isSelected: false,
                        action: onExit)
 
@@ -67,7 +67,7 @@ struct NetworkSidebarColumn: View {
     private var filtersSidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             SidebarRow(title: "Back",
-                       symbol: "chevron.left",
+                       symbol: AppIcon.Navigation.back,
                        isSelected: false) {
                 withAnimation(MainWindowMotion.modeSwitchAnimation) {
                     store.trafficSidebarLayer = .sections
@@ -83,7 +83,7 @@ struct NetworkSidebarColumn: View {
                 Button {
                     store.resetTrafficFilters()
                 } label: {
-                    Label("Clear Filters", systemImage: "xmark.circle")
+                    Label("Clear Filters", systemImage: AppIcon.Action.cancel)
                         .font(.sora(11, weight: .medium))
                         .foregroundStyle(Color.stxMuted)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -99,14 +99,14 @@ struct NetworkSidebarColumn: View {
                     filterGroup(title: "Favorites", isExpanded: $favoritesExpanded) {
                         filterLeaf(
                             title: "Pinned",
-                            symbol: "pin.fill",
+                            symbol: AppIcon.Action.pinFilled,
                             count: store.pinnedTrafficCount,
                             selected: store.trafficFilter.pinnedOnly,
                             action: store.togglePinnedFilter
                         )
                         filterLeaf(
                             title: "Saved",
-                            symbol: "tray.and.arrow.down",
+                            symbol: AppIcon.Action.downloadTray,
                             count: store.savedTrafficCount,
                             selected: store.trafficFilter.savedOnly,
                             action: store.toggleSavedFilter
@@ -156,7 +156,7 @@ struct NetworkSidebarColumn: View {
                         ForEach(NetworkTrafficStatusFilter.allCases) { status in
                             filterLeaf(
                                 title: status.title,
-                                symbol: "number",
+                                symbol: AppIcon.Metric.number,
                                 count: store.statusCount(for: status),
                                 selected: store.trafficFilter.statuses.contains(status)
                             ) {
@@ -169,7 +169,7 @@ struct NetworkSidebarColumn: View {
                         ForEach(NetworkFlowProtocol.allCases) { proto in
                             filterLeaf(
                                 title: proto.rawValue,
-                                symbol: "point.3.connected.trianglepath.dotted",
+                                symbol: AppIcon.Network.webSocket,
                                 count: store.protocolCount(for: proto),
                                 selected: store.trafficFilter.protocols.contains(proto)
                             ) {
@@ -215,7 +215,7 @@ struct NetworkSidebarColumn: View {
                     store.trafficSidebarLayer = .filters
                 }
             } label: {
-                Image(systemName: "chevron.right")
+                Image(systemName: AppIcon.Navigation.disclosure)
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(trafficFiltersHover ? Color.stxAccent : Color.stxMuted)
                     .frame(width: Self.trafficChipHeight, height: Self.trafficChipHeight)
@@ -257,7 +257,7 @@ struct NetworkSidebarColumn: View {
                 Button {
                     store.clearFlows()
                 } label: {
-                    Image(systemName: "trash")
+                    Image(systemName: AppIcon.Action.delete)
                         .font(.system(size: 13, weight: .medium))
                         .frame(maxWidth: .infinity)
                         .frame(height: 28)
@@ -290,7 +290,7 @@ struct NetworkSidebarColumn: View {
 
     private var filterField: some View {
         HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
+            Image(systemName: AppIcon.Action.search)
                 .font(.system(size: 11))
                 .foregroundStyle(Color.stxMuted)
             TextField("Filter", text: $store.searchText)
@@ -300,7 +300,7 @@ struct NetworkSidebarColumn: View {
                 Button {
                     store.searchText = ""
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
+                    Image(systemName: AppIcon.Action.clear)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(Color.stxMuted)
                 }
@@ -323,7 +323,7 @@ struct NetworkSidebarColumn: View {
                 isExpanded.wrappedValue.toggle()
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "chevron.right")
+                    Image(systemName: AppIcon.Navigation.disclosure)
                         .font(.system(size: 9, weight: .semibold))
                         .rotationEffect(.degrees(isExpanded.wrappedValue ? 90 : 0))
                         .foregroundStyle(Color.stxMuted)

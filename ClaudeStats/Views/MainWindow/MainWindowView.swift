@@ -22,14 +22,14 @@ enum MainPage: String, CaseIterable, Identifiable, Sendable {
 
     var symbol: String {
         switch self {
-        case .dashboard: "square.grid.2x2"
-        case .linuxDo: "globe.asia.australia"
-        case .usage: "chart.bar.xaxis"
-        case .leaderboards: "trophy"
-        case .activity: "waveform"
-        case .git: "arrow.triangle.branch"
-        case .system: "cpu"
-        case .terminal: "terminal"
+        case .dashboard: AppIcon.Workspace.dashboard
+        case .linuxDo: AppIcon.Workspace.linuxDo
+        case .usage: AppIcon.Workspace.usage
+        case .leaderboards: AppIcon.Workspace.leaderboards
+        case .activity: AppIcon.Workspace.activity
+        case .git: AppIcon.Workspace.git
+        case .system: AppIcon.Workspace.system
+        case .terminal: AppIcon.Workspace.terminal
         }
     }
 
@@ -324,7 +324,7 @@ struct MainWindowView: View {
         Button {
             withAnimation(.easeInOut(duration: 0.22)) { sidebarVisible.toggle() }
         } label: {
-            Image(systemName: "sidebar.left")
+            Image(systemName: AppIcon.Navigation.sidebarLeft)
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(toggleHovering ? .primary : Color.stxMuted)
                 .frame(width: 24, height: 22)

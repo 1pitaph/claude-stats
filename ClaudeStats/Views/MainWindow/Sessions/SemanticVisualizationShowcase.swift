@@ -22,9 +22,9 @@ private enum SemanticVisualizationMode: String, CaseIterable, Identifiable {
 
     var symbol: String {
         switch self {
-        case .atlas: "point.3.connected.trianglepath.dotted"
-        case .bubbles: "circle.grid.3x3.circle"
-        case .cloud: "textformat"
+        case .atlas: AppIcon.Session.atlas
+        case .bubbles: AppIcon.Session.bubbles
+        case .cloud: AppIcon.Session.cloud
         }
     }
 }
@@ -141,7 +141,7 @@ struct SemanticVisualizationShowcase: View {
 
     private var placeholder: some View {
         VStack(spacing: 8) {
-            Image(systemName: "point.3.connected.trianglepath.dotted")
+            Image(systemName: AppIcon.Network.webSocket)
                 .font(.system(size: 24, weight: .medium))
                 .foregroundStyle(Color.stxMuted.opacity(0.65))
             Text("No semantic terms to visualize yet.")
@@ -194,7 +194,7 @@ private struct SemanticSelectionSummary: View {
 
     private var placeholder: some View {
         HStack(spacing: 9) {
-            Image(systemName: "cursorarrow.motionlines")
+            Image(systemName: AppIcon.Pointer.motion)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(Color.stxMuted)
                 .frame(width: 20, alignment: .leading)

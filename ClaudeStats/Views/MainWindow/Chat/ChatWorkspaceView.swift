@@ -58,7 +58,7 @@ struct ChatWorkspaceView: View {
                     await store.refreshProjects(sessions: env.store.sessions, sourceIDs: env.preferences.gitWorkspaceSourceIDs)
                 }
             } label: {
-                Label("Refresh", systemImage: "arrow.triangle.2.circlepath")
+                Label("Refresh", systemImage: AppIcon.Action.sync)
             }
             .controlSize(.small)
             .disabled(store.isRefreshingProjects)
@@ -66,7 +66,7 @@ struct ChatWorkspaceView: View {
             Button {
                 openLocalAISettings()
             } label: {
-                Label("Local AI", systemImage: "brain")
+                Label("Local AI", systemImage: AppIcon.Workspace.memory)
             }
             .controlSize(.small)
         }
@@ -211,7 +211,7 @@ struct ChatWorkspaceView: View {
             Button {
                 store.newConversation(defaultModelID: env.localAI.modelStore.selectedLLMModel.id)
             } label: {
-                Image(systemName: "plus")
+                Image(systemName: AppIcon.Action.add)
                     .font(.system(size: 17, weight: .medium))
                     .foregroundStyle(Color.stxMuted)
                     .frame(width: 30, height: 30)
@@ -219,7 +219,7 @@ struct ChatWorkspaceView: View {
             .buttonStyle(.plain)
             .help("New Chat")
 
-            ChatComposerToolbarLabel(symbol: "hand.raised", text: String(localized: "Read-only"), showsChevron: false)
+            ChatComposerToolbarLabel(symbol: AppIcon.Action.hand, text: String(localized: "Read-only"), showsChevron: false)
 
             Spacer(minLength: 12)
 
@@ -237,7 +237,7 @@ struct ChatWorkspaceView: View {
                     )
                 }
             } label: {
-                Image(systemName: store.isGenerating ? "stop.fill" : "arrow.up")
+                Image(systemName: store.isGenerating ? AppIcon.Action.stop : AppIcon.Navigation.arrowUp)
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 44, height: 44)
@@ -258,7 +258,7 @@ struct ChatWorkspaceView: View {
                 openLocalAISettings()
             } label: {
                 ChatComposerToolbarLabel(
-                    symbol: "laptopcomputer",
+                    symbol: AppIcon.Device.laptop,
                     text: String(localized: "Local mode"),
                     showsChevron: true,
                     maxTextWidth: 120
@@ -269,7 +269,7 @@ struct ChatWorkspaceView: View {
 
             if let project = store.selectedProject {
                 ChatComposerToolbarLabel(
-                    symbol: "arrow.triangle.branch",
+                    symbol: AppIcon.Workspace.git,
                     text: project.branchLabel,
                     showsChevron: true,
                     maxTextWidth: 160
@@ -318,7 +318,7 @@ struct ChatWorkspaceView: View {
             }
         } label: {
             ChatComposerToolbarLabel(
-                symbol: "folder",
+                symbol: AppIcon.Resource.folder,
                 text: store.selectedProject?.displayName ?? String(localized: "No Project"),
                 showsChevron: true,
                 maxTextWidth: 180
@@ -458,7 +458,7 @@ private struct ChatComposerToolbarLabel: View {
                 .truncationMode(.tail)
                 .frame(maxWidth: maxTextWidth, alignment: .leading)
             if showsChevron {
-                Image(systemName: "chevron.down")
+                Image(systemName: AppIcon.Navigation.down)
                     .font(.system(size: 12, weight: .semibold))
             }
         }

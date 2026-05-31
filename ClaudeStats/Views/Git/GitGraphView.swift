@@ -230,7 +230,7 @@ struct GitGraphView: View {
                         Button { detailHash = commit.hash } label: {
                             BracketBox(spacing: 4) {
                                 Text("MORE").font(.sora(9, weight: .semibold)).tracking(0.8)
-                                Image(systemName: "arrow.up.right").font(.system(size: 9, weight: .bold))
+                                Image(systemName: AppIcon.Navigation.openForward).font(.system(size: 9, weight: .bold))
                             }
                         }
                         .buttonStyle(.plain)

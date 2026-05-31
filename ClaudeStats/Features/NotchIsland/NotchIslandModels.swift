@@ -253,24 +253,24 @@ enum NotchIslandModule: String, CaseIterable, Sendable, Identifiable {
 
     var symbol: String {
         switch self {
-        case .media: "music.note"
-        case .stats: "cpu"
-        case .timer: "timer"
-        case .clipboard: "doc.on.clipboard"
-        case .colorPicker: "eyedropper"
-        case .calendar: "calendar"
-        case .shelf: "tray.and.arrow.down"
-        case .privacy: "web.camera"
-        case .recording: "record.circle"
-        case .focus: "moon"
-        case .battery: "battery.75percent"
-        case .bluetooth: "headphones"
-        case .downloads: "arrow.down.circle"
-        case .osd: "slider.horizontal.3"
-        case .lockScreenWidgets: "lock.display"
-        case .extensionBridge: "puzzlepiece.extension"
-        case .screenAssistant: "sparkles"
-        case .terminal: "terminal"
+        case .media: AppIcon.NotchIsland.media
+        case .stats: AppIcon.NotchIsland.stats
+        case .timer: AppIcon.NotchIsland.timer
+        case .clipboard: AppIcon.NotchIsland.clipboard
+        case .colorPicker: AppIcon.NotchIsland.colorPicker
+        case .calendar: AppIcon.NotchIsland.calendar
+        case .shelf: AppIcon.NotchIsland.shelf
+        case .privacy: AppIcon.NotchIsland.privacy
+        case .recording: AppIcon.NotchIsland.recording
+        case .focus: AppIcon.NotchIsland.focus
+        case .battery: AppIcon.NotchIsland.battery
+        case .bluetooth: AppIcon.NotchIsland.bluetooth
+        case .downloads: AppIcon.NotchIsland.downloads
+        case .osd: AppIcon.Workspace.configs
+        case .lockScreenWidgets: AppIcon.NotchIsland.lockScreenWidgets
+        case .extensionBridge: AppIcon.NotchIsland.extensionBridge
+        case .screenAssistant: AppIcon.NotchIsland.screenAssistant
+        case .terminal: AppIcon.Workspace.terminal
         }
     }
 

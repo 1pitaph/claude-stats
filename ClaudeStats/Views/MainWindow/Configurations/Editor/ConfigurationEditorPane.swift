@@ -156,11 +156,11 @@ private struct ConfigurationEditorToolbar: View {
 
     private func actionButtons(showLabels: Bool) -> some View {
         HStack(spacing: 8) {
-            toolbarButton("Save to Profile", systemImage: "tray.and.arrow.down", showLabels: showLabels, disabled: isWorking || !isDirty, action: saveToProfile)
-            toolbarButton("Save to Disk", systemImage: "externaldrive", showLabels: showLabels, disabled: isWorking, action: saveToDisk)
-            toolbarButton("Revert", systemImage: "arrow.counterclockwise", showLabels: showLabels, disabled: isWorking || !isDirty, action: revert)
-            toolbarButton("Apply Profile", systemImage: "switch.2", showLabels: showLabels, disabled: isWorking || isDirty, action: applyProfile)
-            toolbarButton("Open External", systemImage: "arrow.up.right.square", showLabels: showLabels, disabled: isWorking || path.isEmpty, action: openExternal)
+            toolbarButton("Save to Profile", systemImage: AppIcon.Action.downloadTray, showLabels: showLabels, disabled: isWorking || !isDirty, action: saveToProfile)
+            toolbarButton("Save to Disk", systemImage: AppIcon.Resource.externalDrive, showLabels: showLabels, disabled: isWorking, action: saveToDisk)
+            toolbarButton("Revert", systemImage: AppIcon.Action.reset, showLabels: showLabels, disabled: isWorking || !isDirty, action: revert)
+            toolbarButton("Apply Profile", systemImage: AppIcon.Settings.features, showLabels: showLabels, disabled: isWorking || isDirty, action: applyProfile)
+            toolbarButton("Open External", systemImage: AppIcon.Action.openExternal, showLabels: showLabels, disabled: isWorking || path.isEmpty, action: openExternal)
         }
     }
 
@@ -185,13 +185,13 @@ private struct ConfigurationEditorToolbar: View {
     private var iconName: String {
         switch fileKind {
         case .json:
-            "curlybraces"
+            AppIcon.Code.braces
         case .markdown:
-            "doc.text"
+            AppIcon.Resource.documentText
         case .toml:
-            "slider.horizontal.3"
+            AppIcon.Workspace.configs
         case .text:
-            "doc.plaintext"
+            AppIcon.Resource.documentPlainText
         }
     }
 }
@@ -202,7 +202,7 @@ private struct ConfigurationEditorStatusBar: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Label("Line \(editor.cursorLine), column \(editor.cursorColumn)", systemImage: "text.cursor")
+            Label("Line \(editor.cursorLine), column \(editor.cursorColumn)", systemImage: AppIcon.Text.cursor)
             Text("\(editor.draftCharacterCount) chars")
             if let diagnostic = editor.primaryDiagnostic {
                 Text(diagnostic.severity == .error ? "Error" : diagnostic.severity == .warning ? "Warning" : "Info")
@@ -304,26 +304,26 @@ private struct ConfigurationProfileOverviewPane: View {
             Button {
                 applyProfile()
             } label: {
-                Label("Apply Profile", systemImage: "switch.2")
+                Label("Apply Profile", systemImage: AppIcon.Settings.features)
             }
             .disabled(isWorking)
             Button {
                 duplicateProfile()
             } label: {
-                Label("Duplicate", systemImage: "plus.square.on.square")
+                Label("Duplicate", systemImage: AppIcon.Action.duplicateNew)
             }
             .disabled(isWorking)
             Button(role: .destructive) {
                 deleteProfile()
             } label: {
-                Label("Delete", systemImage: "trash")
+                Label("Delete", systemImage: AppIcon.Action.delete)
             }
             .disabled(isWorking)
             if latestBackupURL != nil {
                 Button {
                     revealBackup()
                 } label: {
-                    Label("Reveal Backup", systemImage: "arrow.uturn.backward.circle")
+                    Label("Reveal Backup", systemImage: AppIcon.Action.undoCircle)
                 }
             }
         }

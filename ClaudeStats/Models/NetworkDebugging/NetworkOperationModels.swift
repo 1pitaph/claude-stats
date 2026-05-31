@@ -21,11 +21,11 @@ enum NetworkTrafficWorkspace: String, CaseIterable, Identifiable, Sendable, Hash
 
     var symbol: String {
         switch self {
-        case .httpTraffic: "list.bullet.rectangle"
-        case .webSocket: "point.3.connected.trianglepath.dotted"
-        case .replay: "arrow.clockwise"
-        case .intercept: "pause.circle"
-        case .automate: "slider.horizontal.below.rectangle"
+        case .httpTraffic: AppIcon.Network.traffic
+        case .webSocket: AppIcon.Network.webSocket
+        case .replay: AppIcon.Network.replay
+        case .intercept: AppIcon.Action.pause
+        case .automate: AppIcon.Network.automate
         }
     }
 }

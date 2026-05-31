@@ -105,7 +105,7 @@ struct AppLLMSettingsView: View {
                     Button {
                         Task { await llm.saveDraft() }
                     } label: {
-                        Label("Save", systemImage: "checkmark")
+                        Label("Save", systemImage: AppIcon.Action.confirm)
                     }
                     .controlSize(.small)
                     .disabled(llm.isLoading)
@@ -131,13 +131,13 @@ struct AppLLMSettingsView: View {
                         Button {
                             localAI.startOpenAICompatibleServer()
                         } label: {
-                            Label("Start", systemImage: "play.fill")
+                            Label("Start", systemImage: AppIcon.Action.start)
                         }
                         .controlSize(.small)
                         Button {
                             localAI.stopOpenAICompatibleServer()
                         } label: {
-                            Label("Stop", systemImage: "stop.fill")
+                            Label("Stop", systemImage: AppIcon.Action.stop)
                         }
                         .controlSize(.small)
                         .disabled(localAI.localAPIEndpoint == nil)
@@ -161,7 +161,7 @@ struct AppLLMSettingsView: View {
                     Button {
                         Task { await llm.useLocalModeAndSave() }
                     } label: {
-                        Label("Save", systemImage: "checkmark")
+                        Label("Save", systemImage: AppIcon.Action.confirm)
                     }
                     .controlSize(.small)
                     .disabled(llm.isLoading)

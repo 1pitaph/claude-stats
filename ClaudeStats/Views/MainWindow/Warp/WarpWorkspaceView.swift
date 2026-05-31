@@ -57,9 +57,9 @@ struct WarpWorkspaceView: View {
                 section: section,
                 availability: store.availability,
                 rows: [
-                    WarpPendingRow(symbol: "sparkles", title: "Agent Panel", detail: "Route Warp ADE agent sessions here once the app bridge exposes them."),
-                    WarpPendingRow(symbol: "bubble.left.and.bubble.right", title: "Conversation State", detail: "Mirror agent status, active prompt, and run progress without launching Warp.app."),
-                    WarpPendingRow(symbol: "terminal", title: "Shell Context", detail: "Bind agent actions to the active embedded Warp session.")
+                    WarpPendingRow(symbol: AppIcon.Feature.ai, title: "Agent Panel", detail: "Route Warp ADE agent sessions here once the app bridge exposes them."),
+                    WarpPendingRow(symbol: AppIcon.Resource.conversation, title: "Conversation State", detail: "Mirror agent status, active prompt, and run progress without launching Warp.app."),
+                    WarpPendingRow(symbol: AppIcon.Workspace.warp, title: "Shell Context", detail: "Bind agent actions to the active embedded Warp session.")
                 ]
             )
         case .files:
@@ -67,9 +67,9 @@ struct WarpWorkspaceView: View {
                 section: section,
                 availability: store.availability,
                 rows: [
-                    WarpPendingRow(symbol: "folder", title: "File Tree", detail: "Host Warp project navigation beside the embedded runtime."),
-                    WarpPendingRow(symbol: "doc.text.magnifyingglass", title: "Diff Review", detail: "Surface code review and change inspection when Warp exposes those views."),
-                    WarpPendingRow(symbol: "arrow.triangle.branch", title: "Workspace Scope", detail: "Keep file actions bound to the Claude Stats workspace.")
+                    WarpPendingRow(symbol: AppIcon.Resource.folder, title: "File Tree", detail: "Host Warp project navigation beside the embedded runtime."),
+                    WarpPendingRow(symbol: AppIcon.Resource.transcriptSearch, title: "Diff Review", detail: "Surface code review and change inspection when Warp exposes those views."),
+                    WarpPendingRow(symbol: AppIcon.Workspace.git, title: "Workspace Scope", detail: "Keep file actions bound to the Claude Stats workspace.")
                 ]
             )
         case .settings:
@@ -77,9 +77,9 @@ struct WarpWorkspaceView: View {
                 section: section,
                 availability: store.availability,
                 rows: [
-                    WarpPendingRow(symbol: "checkmark.seal", title: "Runtime", detail: store.availability.message),
-                    WarpPendingRow(symbol: "paintpalette", title: "Appearance", detail: "Map app terminal chrome, font, and color preferences into Warp-specific controls."),
-                    WarpPendingRow(symbol: "keyboard", title: "Input", detail: "Reserve controls for focus, clipboard, key handling, and shortcut conflicts.")
+                    WarpPendingRow(symbol: AppIcon.Status.verified, title: "Runtime", detail: store.availability.message),
+                    WarpPendingRow(symbol: AppIcon.NotchIsland.appearance, title: "Appearance", detail: "Map app terminal chrome, font, and color preferences into Warp-specific controls."),
+                    WarpPendingRow(symbol: AppIcon.Device.keyboard, title: "Input", detail: "Reserve controls for focus, clipboard, key handling, and shortcut conflicts.")
                 ]
             )
         }
@@ -129,7 +129,7 @@ struct WarpRuntimeSessionView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Image(systemName: "terminal")
+            Image(systemName: AppIcon.Workspace.warp)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(TerminalPalette.accent)
 
@@ -230,7 +230,7 @@ private struct WarpPendingWorkspacePane: View {
 
     private var roadmapCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Next surfaces", systemImage: "rectangle.3.group")
+            Label("Next surfaces", systemImage: AppIcon.Layout.groupedRectangles)
                 .font(.sora(14, weight: .semibold))
 
             ForEach(rows) { row in

@@ -83,7 +83,7 @@ struct AIConfigsMiniStat: View {
 struct AIConfigsEmptyState: View {
     let title: String
     let message: String
-    var symbol: String = "doc.text.magnifyingglass"
+    var symbol: String = AppIcon.Resource.transcriptSearch
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -105,9 +105,9 @@ struct AIConfigsEmptyState: View {
 extension AIConfigProject {
     var configsIconName: String {
         switch kind {
-        case .global: "globe"
-        case .project: "folder"
-        case .unassigned: "tray"
+        case .global: AppIcon.Network.domain
+        case .project: AppIcon.Resource.folder
+        case .unassigned: AppIcon.Resource.tray
         }
     }
 

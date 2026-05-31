@@ -222,7 +222,7 @@ struct CommitDetailView: View {
                 }
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "chevron.right")
+                    Image(systemName: AppIcon.Navigation.disclosure)
                         .font(.system(size: 8, weight: .bold))
                         .foregroundStyle(Color.stxMuted)
                         .frame(width: 10)
@@ -277,7 +277,7 @@ private struct FileRow: View {
                 .font(.sora(10)).foregroundStyle(.primary)
                 .lineLimit(1).truncationMode(.middle)
             Spacer(minLength: 4)
-            Image(systemName: "chevron.left.forwardslash.chevron.right")
+            Image(systemName: AppIcon.Git.code)
                 .font(.system(size: 8, weight: .bold))
                 .foregroundStyle(Color.stxMuted)
         }

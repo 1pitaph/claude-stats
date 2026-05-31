@@ -14,11 +14,11 @@ struct MenuBarSettingsView: View {
                         .init(value: .tokens,
                               title: "Tokens",
                               subtitle: "Total tokens across the chosen period.",
-                              symbol: "number"),
+                              symbol: AppIcon.Metric.number),
                         .init(value: .cost,
                               title: "Cost",
                               subtitle: "Estimated USD across the chosen period.",
-                              symbol: "dollarsign.circle"),
+                              symbol: AppIcon.Metric.cost),
                     ]
                 )
             }

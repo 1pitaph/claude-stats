@@ -421,7 +421,7 @@ struct DashboardView: View {
             if isCTA {
                 Button { openFeaturesSettings() } label: {
                     BracketBox(spacing: 5) {
-                        Label("OPEN FEATURES", systemImage: "switch.2")
+                        Label("OPEN FEATURES", systemImage: AppIcon.Settings.features)
                             .labelStyle(.titleAndIcon)
                             .font(.sora(10))
                             .tracking(0.8)

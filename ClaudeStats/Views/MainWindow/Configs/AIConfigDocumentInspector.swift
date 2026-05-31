@@ -68,25 +68,25 @@ struct AIConfigDocumentInspector: View {
 
     private func actionButtons(_ document: AIConfigDocument, showLabels: Bool) -> some View {
         HStack(spacing: 8) {
-            toolbarButton("Open", systemImage: "arrow.up.right.square", showLabels: showLabels, disabled: !document.exists) {
+            toolbarButton("Open", systemImage: AppIcon.Action.openExternal, showLabels: showLabels, disabled: !document.exists) {
                 NSWorkspace.shared.open(URL(fileURLWithPath: document.path))
             }
-            toolbarButton("Reveal", systemImage: "finder", showLabels: showLabels, disabled: !document.exists) {
+            toolbarButton("Reveal", systemImage: AppIcon.Action.revealInFinder, showLabels: showLabels, disabled: !document.exists) {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: document.path)])
             }
-            toolbarButton("Reveal Parent", systemImage: "folder", showLabels: showLabels, disabled: document.exists) {
+            toolbarButton("Reveal Parent", systemImage: AppIcon.Resource.folder, showLabels: showLabels, disabled: document.exists) {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: document.path).deletingLastPathComponent()])
             }
-            toolbarButton("Copy Template", systemImage: "doc.on.doc", showLabels: showLabels, disabled: document.templateContent == nil) {
+            toolbarButton("Copy Template", systemImage: AppIcon.Action.copy, showLabels: showLabels, disabled: document.templateContent == nil) {
                 if let template = document.templateContent {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(template, forType: .string)
                 }
             }
-            toolbarButton("Create File", systemImage: "plus", showLabels: showLabels, disabled: !document.canCreateFromTemplate) {
+            toolbarButton("Create File", systemImage: AppIcon.Action.add, showLabels: showLabels, disabled: !document.canCreateFromTemplate) {
                 createMissingDocument(document)
             }
-            toolbarButton("Refresh", systemImage: "arrow.clockwise", showLabels: showLabels, disabled: false, action: refresh)
+            toolbarButton("Refresh", systemImage: AppIcon.Action.refresh, showLabels: showLabels, disabled: false, action: refresh)
         }
     }
 
@@ -136,7 +136,7 @@ struct AIConfigDocumentInspector: View {
     private var relatedSkillsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Image(systemName: "sparkles")
+                Image(systemName: AppIcon.Feature.ai)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Color.stxMuted)
                 Text("Related skills")
@@ -150,7 +150,7 @@ struct AIConfigDocumentInspector: View {
             LazyVStack(alignment: .leading, spacing: 6) {
                 ForEach(relatedSkills) { skill in
                     HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "sparkles")
+                        Image(systemName: AppIcon.Feature.ai)
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(Color.stxAccent)
                             .frame(width: 14)

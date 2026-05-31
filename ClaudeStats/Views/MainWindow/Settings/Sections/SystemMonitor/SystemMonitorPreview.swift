@@ -4,7 +4,7 @@ struct SystemMonitorPreview: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .center) {
-                Label("System", systemImage: "cpu")
+                Label("System", systemImage: AppIcon.Workspace.system)
                     .font(.sora(13, weight: .semibold))
                 Spacer()
                 Text("3s")

@@ -40,7 +40,7 @@ struct ReleaseHistoryPanel: View {
             Spacer(minLength: 12)
 
             Button(action: onClose) {
-                Image(systemName: "xmark")
+                Image(systemName: AppIcon.Action.close)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Color.stxMuted)
                     .frame(width: 28, height: 28)

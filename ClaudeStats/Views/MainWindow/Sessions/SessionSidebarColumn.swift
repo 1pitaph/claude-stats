@@ -30,7 +30,7 @@ struct SessionSidebarColumn: View {
 
             SidebarRow(
                 title: "Back to App",
-                symbol: "chevron.left",
+                symbol: AppIcon.Navigation.back,
                 isSelected: false,
                 action: close
             )
@@ -50,7 +50,7 @@ struct SessionSidebarColumn: View {
 
             SidebarRow(
                 title: "Overview",
-                symbol: "chart.bar.xaxis",
+                symbol: AppIcon.Workspace.usage,
                 isSelected: destination == .overview
             ) {
                 showOverview()
@@ -58,7 +58,7 @@ struct SessionSidebarColumn: View {
 
             SidebarRow(
                 title: "Analysis",
-                symbol: "text.magnifyingglass",
+                symbol: AppIcon.Resource.textSearch,
                 isSelected: destination == .analysis
             ) {
                 showAnalysis()
@@ -151,7 +151,7 @@ struct SessionSidebarColumn: View {
                         }
                     }
                 } label: {
-                    Image(systemName: "line.3.horizontal.decrease")
+                    Image(systemName: AppIcon.Filter.filter)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(Color.stxMuted)
                         .frame(width: 24, height: 22)
@@ -172,7 +172,7 @@ struct SessionSidebarColumn: View {
         @Bindable var vm = vm
 
         return HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
+            Image(systemName: AppIcon.Action.search)
                 .font(.system(size: 11))
                 .foregroundStyle(Color.stxMuted)
                 .accessibilityHidden(true)
@@ -184,7 +184,7 @@ struct SessionSidebarColumn: View {
                 Button {
                     vm.searchText = ""
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
+                    Image(systemName: AppIcon.Action.clear)
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(Color.stxMuted)
                 }
@@ -402,12 +402,12 @@ private struct ProjectSidebarRow: View {
     var body: some View {
         Button(action: toggle) {
             HStack(spacing: 8) {
-                Image(systemName: "chevron.right")
+                Image(systemName: AppIcon.Navigation.disclosure)
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(Color.stxMuted)
                     .rotationEffect(.degrees(isExpanded ? 90 : 0))
                     .frame(width: 10)
-                Image(systemName: "folder")
+                Image(systemName: AppIcon.Resource.folder)
                     .font(.system(size: 12))
                     .foregroundStyle(Color.stxMuted)
                     .frame(width: 16)

@@ -65,7 +65,7 @@ struct FloatingProviderStatusView: View {
 
     private func messageView(_ message: String) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: "wifi.exclamationmark")
+            Image(systemName: AppIcon.Status.networkWarning)
                 .font(.system(size: 9, weight: .semibold))
             Text(message)
                 .font(.sora(8, weight: .medium))

@@ -134,7 +134,7 @@ struct LinuxDoReadingNavigator: View {
             Button {
                 onJump(max(1, boundedCurrentFloor - 1))
             } label: {
-                Image(systemName: "chevron.up")
+                Image(systemName: AppIcon.Navigation.up)
                     .frame(width: 30, height: 30)
             }
             .disabled(boundedCurrentFloor <= 1 || isLoading)
@@ -172,7 +172,7 @@ struct LinuxDoReadingNavigator: View {
             Button {
                 onJump(min(totalFloors, boundedCurrentFloor + 1))
             } label: {
-                Image(systemName: "chevron.down")
+                Image(systemName: AppIcon.Navigation.down)
                     .frame(width: 30, height: 30)
             }
             .disabled(boundedCurrentFloor >= totalFloors || isLoading)
@@ -195,7 +195,7 @@ struct LinuxDoReadingNavigator: View {
                 ProgressView()
                     .controlSize(.small)
             } else {
-                Image(systemName: "arrow.up.and.down")
+                Image(systemName: AppIcon.Navigation.verticalResize)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Color.stxMuted)
             }

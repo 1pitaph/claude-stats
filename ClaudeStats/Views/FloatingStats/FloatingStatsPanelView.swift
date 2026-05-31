@@ -205,32 +205,32 @@ struct FloatingStatsPanelView: View {
             }
             .disabled(env.store.isLoading)
 
-            FloatingStatsActionButton(symbol: "macwindow", label: "Open main window") {
+            FloatingStatsActionButton(symbol: AppIcon.Window.main, label: "Open main window") {
                 NotificationCenter.default.post(name: .openMainWindowFromFloatingStats, object: nil)
             }
 
-            FloatingStatsActionButton(symbol: "arrow.triangle.branch", label: "Open Git") {
+            FloatingStatsActionButton(symbol: AppIcon.Workspace.git, label: "Open Git") {
                 NotificationCenter.default.post(
                     name: .openMainWindowDestinationFromFloatingStats,
                     object: FloatingStatsMainWindowDestination.page(.git)
                 )
             }
 
-            FloatingStatsActionButton(symbol: "terminal", label: "Open Warp") {
+            FloatingStatsActionButton(symbol: AppIcon.Workspace.warp, label: "Open Warp") {
                 NotificationCenter.default.post(
                     name: .openMainWindowDestinationFromFloatingStats,
                     object: FloatingStatsMainWindowDestination.warp
                 )
             }
 
-            FloatingStatsActionButton(symbol: "network", label: "Open Network") {
+            FloatingStatsActionButton(symbol: AppIcon.Workspace.network, label: "Open Network") {
                 NotificationCenter.default.post(
                     name: .openMainWindowDestinationFromFloatingStats,
                     object: FloatingStatsMainWindowDestination.network
                 )
             }
 
-            FloatingStatsActionButton(symbol: "gearshape", label: "Open settings") {
+            FloatingStatsActionButton(symbol: AppIcon.Workspace.settings, label: "Open settings") {
                 NotificationCenter.default.post(name: .openSettingsFromFloatingStats, object: nil)
             }
         }
@@ -255,7 +255,7 @@ struct FloatingStatsPanelView: View {
                     .foregroundStyle(Color.stxMuted)
             }
             Spacer(minLength: 8)
-            Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+            Image(systemName: AppIcon.Navigation.move)
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(Color.stxMuted)
                 .accessibilityHidden(true)

@@ -67,13 +67,13 @@ enum SystemMonitorModule: String, CaseIterable, Sendable, Identifiable {
 
     var symbol: String {
         switch self {
-        case .cpu: "cpu"
-        case .memory: "memorychip"
-        case .disk: "internaldrive"
-        case .network: "network"
-        case .battery: "battery.75percent"
-        case .gpu: "display"
-        case .thermal: "thermometer.medium"
+        case .cpu: AppIcon.SystemMonitor.cpu
+        case .memory: AppIcon.SystemMonitor.memory
+        case .disk: AppIcon.SystemMonitor.disk
+        case .network: AppIcon.SystemMonitor.network
+        case .battery: AppIcon.SystemMonitor.battery
+        case .gpu: AppIcon.SystemMonitor.gpu
+        case .thermal: AppIcon.SystemMonitor.thermal
         }
     }
 

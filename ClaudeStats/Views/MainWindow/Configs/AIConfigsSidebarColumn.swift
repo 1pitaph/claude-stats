@@ -15,7 +15,7 @@ struct AIConfigsSidebarColumn: View {
 
             SidebarRow(
                 title: "Back to App",
-                symbol: "chevron.left",
+                symbol: AppIcon.Navigation.back,
                 isSelected: false,
                 action: close
             )
@@ -74,7 +74,7 @@ struct AIConfigsSidebarColumn: View {
                 Button {
                     refresh()
                 } label: {
-                    Image(systemName: "arrow.clockwise")
+                    Image(systemName: AppIcon.Action.refresh)
                         .font(.system(size: 12, weight: .semibold))
                         .frame(width: 24, height: 22)
                 }
@@ -97,7 +97,7 @@ struct AIConfigsSidebarColumn: View {
 
     private var searchField: some View {
         HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
+            Image(systemName: AppIcon.Action.search)
                 .font(.system(size: 11))
                 .foregroundStyle(Color.stxMuted)
                 .accessibilityHidden(true)
@@ -109,7 +109,7 @@ struct AIConfigsSidebarColumn: View {
                 Button {
                     searchText = ""
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
+                    Image(systemName: AppIcon.Action.clear)
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(Color.stxMuted)
                 }

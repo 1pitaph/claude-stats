@@ -109,27 +109,27 @@ struct DictionarySettingsView: View {
                 Button {
                     presentImportPanel()
                 } label: {
-                    Label("Import", systemImage: "square.and.arrow.down")
+                    Label("Import", systemImage: AppIcon.Action.importFile)
                 }
                 .disabled(scope == .project && store.selectedProjectPath == nil)
 
                 Button {
                     presentExportPanel()
                 } label: {
-                    Label("Export", systemImage: "square.and.arrow.up")
+                    Label("Export", systemImage: AppIcon.Action.exportFile)
                 }
                 .disabled(scope == .project && store.selectedProjectPath == nil)
 
                 Button {
                     editor = .new(scope: scope, category: selectedCategory ?? .general)
                 } label: {
-                    Label("Add", systemImage: "plus")
+                    Label("Add", systemImage: AppIcon.Action.add)
                 }
                 .disabled(scope == .project && store.selectedProjectPath == nil)
             }
 
             HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
+                Image(systemName: AppIcon.Action.search)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Color.stxMuted)
                 TextField("Search terms, aliases, categories, kinds, or tags", text: $query)
@@ -173,7 +173,7 @@ struct DictionarySettingsView: View {
 
             if visibleRows.isEmpty {
                 ContentUnavailableView {
-                    Label("No Terms", systemImage: "text.book.closed")
+                    Label("No Terms", systemImage: AppIcon.Resource.dictionary)
                 } description: {
                     Text(query.isEmpty && selectedCategory == nil ? "Add or import dictionary terms for this scope." : "No dictionary terms match the active filters.")
                 }
@@ -347,7 +347,7 @@ private struct DictionaryTermRow: View {
                     Button {
                         onDisable()
                     } label: {
-                        Image(systemName: "nosign")
+                        Image(systemName: AppIcon.Status.disabled)
                     }
                     .help(row.entry.enabled ? "Disable in selected dictionary" : "Already disabled")
                     .disabled(!canWrite || !row.entry.enabled)
@@ -355,7 +355,7 @@ private struct DictionaryTermRow: View {
                     Button {
                         onDuplicate()
                     } label: {
-                        Image(systemName: "doc.on.doc")
+                        Image(systemName: AppIcon.Action.copy)
                     }
                     .help("Duplicate to selected dictionary")
                     .disabled(!canWrite)
@@ -363,14 +363,14 @@ private struct DictionaryTermRow: View {
                     Button {
                         onEdit()
                     } label: {
-                        Image(systemName: "pencil")
+                        Image(systemName: AppIcon.Action.edit)
                     }
                     .help("Edit")
 
                     Button(role: .destructive) {
                         onDelete()
                     } label: {
-                        Image(systemName: "trash")
+                        Image(systemName: AppIcon.Action.delete)
                     }
                     .help("Delete")
                 }

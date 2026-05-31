@@ -65,7 +65,7 @@ struct SessionsAnalysisDetailView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
-                Image(systemName: "text.magnifyingglass")
+                Image(systemName: AppIcon.Resource.textSearch)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(provider.accentColor)
                 Text("ANALYSIS")
@@ -85,7 +85,7 @@ struct SessionsAnalysisDetailView: View {
 
     private var dictionaryRefreshBanner: some View {
         HStack(spacing: 12) {
-            Image(systemName: "text.book.closed")
+            Image(systemName: AppIcon.Resource.dictionary)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(provider.accentColor)
                 .frame(width: 24)
@@ -107,7 +107,7 @@ struct SessionsAnalysisDetailView: View {
                     latestDictionarySignature = await env.technicalTerms.corpusSignature(for: sessions)
                 }
             } label: {
-                Label("Refresh Analysis", systemImage: "arrow.clockwise")
+                Label("Refresh Analysis", systemImage: AppIcon.Action.refresh)
             }
             .buttonStyle(.borderedProminent)
             .disabled(env.transcriptAnalysis.isLoading(for: provider))
@@ -147,7 +147,7 @@ struct SessionsAnalysisDetailView: View {
 
     private var emptyState: some View {
         ContentUnavailableView {
-            Label("No Analysis Yet", systemImage: "text.magnifyingglass")
+            Label("No Analysis Yet", systemImage: AppIcon.Resource.textSearch)
         } description: {
             Text(sessions.isEmpty ? "No sessions are available for \(provider.shortName)." : "Open this page again after transcripts finish scanning.")
         } actions: {
@@ -207,7 +207,7 @@ struct SessionsAnalysisDetailView: View {
             ? "SQLite cache ready"
             : "SQLite cache updated \(Format.relativeDate(snapshot.runSummary.indexUpdatedAt))"
         return HStack(spacing: 12) {
-            Image(systemName: "cpu")
+            Image(systemName: AppIcon.Workspace.system)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(provider.accentColor)
                 .frame(width: 24)
@@ -226,7 +226,7 @@ struct SessionsAnalysisDetailView: View {
                     messageLoader: env.store.transcriptMessageLoader(for: provider)
                 )
             } label: {
-                Label("Refresh", systemImage: "arrow.clockwise")
+                Label("Refresh", systemImage: AppIcon.Action.refresh)
             }
             .buttonStyle(.bordered)
             .disabled(env.transcriptAnalysis.isLoading(for: provider))
@@ -241,7 +241,7 @@ struct SessionsAnalysisDetailView: View {
             snapshot.terms.contains { $0.kind == kind }
         }
         return TermKindFilterFlowLayout(spacing: 8, rowSpacing: 8) {
-            termFilterButton(title: "All", symbol: "tag", isSelected: selectedKind == nil) {
+            termFilterButton(title: "All", symbol: AppIcon.Resource.tag, isSelected: selectedKind == nil) {
                 selectedKind = nil
             }
             ForEach(kinds) { kind in

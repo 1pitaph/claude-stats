@@ -17,9 +17,9 @@ enum DiffViewMode: String, CaseIterable, Identifiable, Sendable {
 
     var systemImage: String {
         switch self {
-        case .fluid: return "rectangle.split.2x1"
-        case .blocks: return "rectangle.grid.1x2"
-        case .unified: return "rectangle"
+        case .fluid: return AppIcon.Layout.sideBySide
+        case .blocks: return AppIcon.Layout.rectangleGrid
+        case .unified: return AppIcon.Layout.rectangle
         }
     }
 }

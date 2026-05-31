@@ -52,7 +52,7 @@ struct MemorySettingsView: View {
                         await env.startCodeMemorySidecarFromCurrentModelSettings()
                     }
                 } label: {
-                    Label("Start", systemImage: "play.fill")
+                    Label("Start", systemImage: AppIcon.Action.start)
                 }
                 .controlSize(.small)
                 .disabled(store.isCodeMemoryLoading)
@@ -60,7 +60,7 @@ struct MemorySettingsView: View {
                 Button {
                     Task { await store.stopCodeMemorySidecar() }
                 } label: {
-                    Label("Stop", systemImage: "stop.fill")
+                    Label("Stop", systemImage: AppIcon.Action.stop)
                 }
                 .controlSize(.small)
                 .disabled(store.isCodeMemoryLoading)
@@ -68,7 +68,7 @@ struct MemorySettingsView: View {
                 Button {
                     Task { await store.refreshCodeMemoryStatus(sessions: env.store.sessions) }
                 } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
+                    Label("Refresh", systemImage: AppIcon.Action.refresh)
                 }
                 .controlSize(.small)
                 .disabled(store.isCodeMemoryLoading)
@@ -145,7 +145,7 @@ struct MemorySettingsView: View {
                 Button {
                     Task { await modelSettings.saveDraft() }
                 } label: {
-                    Label("Save", systemImage: "checkmark")
+                    Label("Save", systemImage: AppIcon.Action.confirm)
                 }
                 .controlSize(.small)
                 .disabled(modelSettings.isLoading)
@@ -156,7 +156,7 @@ struct MemorySettingsView: View {
                         await env.startCodeMemorySidecarFromCurrentModelSettings()
                     }
                 } label: {
-                    Label("Apply & Restart", systemImage: "arrow.clockwise")
+                    Label("Apply & Restart", systemImage: AppIcon.Action.refresh)
                 }
                 .controlSize(.small)
                 .disabled(modelSettings.isLoading || store.isCodeMemoryLoading)
@@ -206,7 +206,7 @@ struct MemorySettingsView: View {
                         await store.drainCodeMemoryProjections()
                     }
                 } label: {
-                    Label("Drain Pending", systemImage: "tray.and.arrow.up")
+                    Label("Drain Pending", systemImage: AppIcon.Action.uploadTray)
                 }
                 .controlSize(.small)
                 .disabled(store.isCodeMemoryLoading || store.codeHealth == nil)
@@ -216,7 +216,7 @@ struct MemorySettingsView: View {
                         await store.drainCodeMemoryProjections(includeFailed: true)
                     }
                 } label: {
-                    Label("Retry Failed", systemImage: "arrow.counterclockwise")
+                    Label("Retry Failed", systemImage: AppIcon.Action.reset)
                 }
                 .controlSize(.small)
                 .disabled(store.isCodeMemoryLoading || store.codeHealth == nil)
@@ -224,7 +224,7 @@ struct MemorySettingsView: View {
                 Button {
                     Task { await store.reindexCodeMemory() }
                 } label: {
-                    Label("Refresh Cache", systemImage: "arrow.triangle.2.circlepath")
+                    Label("Refresh Cache", systemImage: AppIcon.Action.sync)
                 }
                 .controlSize(.small)
                 .disabled(store.isCodeMemoryLoading || store.codeHealth == nil)
@@ -232,7 +232,7 @@ struct MemorySettingsView: View {
                 Button {
                     Task { await store.reinferCodeMemorySources() }
                 } label: {
-                    Label("Recapture Sources", systemImage: "sparkles")
+                    Label("Recapture Sources", systemImage: AppIcon.Feature.ai)
                 }
                 .controlSize(.small)
                 .disabled(store.isCodeMemoryLoading || store.codeHealth == nil)
@@ -316,18 +316,18 @@ struct MemorySettingsView: View {
                 Button {
                     MemoryDiagnosticsLog.openCurrentLog()
                 } label: {
-                    Label("Open Current Log", systemImage: "doc.text.magnifyingglass")
+                    Label("Open Current Log", systemImage: AppIcon.Resource.transcriptSearch)
                 }
                 .controlSize(.small)
 
                 Button {
                     MemoryDiagnosticsLog.revealLogFolder()
                 } label: {
-                    Label("Reveal Log Folder", systemImage: "folder")
+                    Label("Reveal Log Folder", systemImage: AppIcon.Resource.folder)
                 }
                 .controlSize(.small)
 
-                MemoryCopyButton(value: readableLogPath, label: "Copy Log Path", systemImage: "link")
+                MemoryCopyButton(value: readableLogPath, label: "Copy Log Path", systemImage: AppIcon.Resource.link)
             }
 
             if let result = settings.lastDiagnosticsConfigurationResult {
@@ -369,13 +369,13 @@ struct MemorySettingsView: View {
                     Button {
                         store.installShell(shell: shell, helperPath: helperPath)
                     } label: {
-                        Label("Install", systemImage: "square.and.arrow.down")
+                        Label("Install", systemImage: AppIcon.Action.importFile)
                     }
                     .controlSize(.small)
                     Button {
                         store.uninstallShell(shell: shell)
                     } label: {
-                        Label("Uninstall", systemImage: "trash")
+                        Label("Uninstall", systemImage: AppIcon.Action.delete)
                     }
                     .controlSize(.small)
                 }
@@ -395,7 +395,7 @@ struct MemorySettingsView: View {
             Text("Runtime Context")
                 .font(.sora(15, weight: .semibold))
             HStack(spacing: 10) {
-                Image(systemName: "lock.shield")
+                Image(systemName: AppIcon.Status.lockShield)
                     .foregroundStyle(Color.stxAccent)
                 Text("Prompt injection is off")
                     .font(.sora(12, weight: .semibold))

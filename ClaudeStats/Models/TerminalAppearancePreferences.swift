@@ -25,9 +25,9 @@ enum TerminalChromeMode: String, CaseIterable, Identifiable, Sendable {
 
     var symbol: String {
         switch self {
-        case .tabsAndStatus: "rectangle.topthird.inset.filled"
-        case .tabsOnly: "rectangle.topthird.inset.filled"
-        case .statusOnly: "rectangle.bottomthird.inset.filled"
+        case .tabsAndStatus: AppIcon.Terminal.topChrome
+        case .tabsOnly: AppIcon.Terminal.topChrome
+        case .statusOnly: AppIcon.Terminal.bottomChrome
         }
     }
 
@@ -62,8 +62,8 @@ enum TerminalBackgroundStyle: String, CaseIterable, Identifiable, Sendable {
 
     var symbol: String {
         switch self {
-        case .fluidGradient: "swirl.circle.righthalf.filled"
-        case .solid: "rectangle.fill"
+        case .fluidGradient: AppIcon.Terminal.fluidGradient
+        case .solid: AppIcon.Terminal.solidBackground
         }
     }
 }

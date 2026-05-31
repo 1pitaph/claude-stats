@@ -28,10 +28,10 @@ enum NetworkSection: String, CaseIterable, Identifiable, Sendable, Hashable {
 
     var symbol: String {
         switch self {
-        case .traffic: "list.bullet.rectangle"
-        case .proxy: "network"
-        case .certificates: "checkmark.shield"
-        case .rules: "slider.horizontal.3"
+        case .traffic: AppIcon.Network.traffic
+        case .proxy: AppIcon.Network.proxy
+        case .certificates: AppIcon.Network.certificates
+        case .rules: AppIcon.Network.rules
         }
     }
 }
@@ -75,9 +75,9 @@ enum NetworkTrafficLayoutMode: String, CaseIterable, Identifiable, Sendable {
 
     var symbol: String {
         switch self {
-        case .automatic: "square.grid.2x2"
-        case .stacked: "rectangle.split.1x2"
-        case .sideBySide: "rectangle.split.2x1"
+        case .automatic: AppIcon.Workspace.dashboard
+        case .stacked: AppIcon.Layout.stacked
+        case .sideBySide: AppIcon.Layout.sideBySide
         }
     }
 

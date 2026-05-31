@@ -123,7 +123,7 @@ struct LeaderboardListColumn: View {
 
     private var disabledPanel: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Image(systemName: "trophy")
+            Image(systemName: AppIcon.Workspace.leaderboards)
                 .font(.system(size: 22, weight: .medium))
                 .foregroundStyle(Color.stxAccent)
             Text("Leaderboards are off")
@@ -134,7 +134,7 @@ struct LeaderboardListColumn: View {
                 .fixedSize(horizontal: false, vertical: true)
             Button(action: onOpenSettings) {
                 BracketBox(spacing: 5) {
-                    Label("OPEN FEATURES", systemImage: "switch.2")
+                    Label("OPEN FEATURES", systemImage: AppIcon.Settings.features)
                         .labelStyle(.titleAndIcon)
                         .font(.sora(10, weight: .medium))
                         .tracking(0.8)

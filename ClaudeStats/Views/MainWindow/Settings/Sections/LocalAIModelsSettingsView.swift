@@ -32,7 +32,7 @@ struct LocalAIModelsSettingsView: View {
                         Button {
                             env.localAI.deleteEmbeddingCache()
                         } label: {
-                            Label("Delete Cache", systemImage: "trash")
+                            Label("Delete Cache", systemImage: AppIcon.Action.delete)
                         }
                         .controlSize(.small)
                     }
@@ -96,7 +96,7 @@ struct LocalAIModelsSettingsView: View {
                                 )
                                 hfToken = ""
                             } label: {
-                                Label("Download", systemImage: "arrow.down.circle")
+                                Label("Download", systemImage: AppIcon.Action.download)
                             }
                             .controlSize(.small)
                             .disabled(hfRepo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !hfFile.hasSuffix(".gguf"))
@@ -105,7 +105,7 @@ struct LocalAIModelsSettingsView: View {
                     .settingCard()
                     .padding(.top, 10)
                 } label: {
-                    Label("Hugging Face GGUF", systemImage: "shippingbox")
+                    Label("Hugging Face GGUF", systemImage: AppIcon.Resource.package)
                         .font(.sora(13, weight: .medium))
                 }
             }
@@ -153,13 +153,13 @@ struct LocalAIModelsSettingsView: View {
                         Button {
                             startCompleteLocalMode(localAI: localAI)
                         } label: {
-                            Label("Start", systemImage: "play.fill")
+                            Label("Start", systemImage: AppIcon.Action.start)
                         }
                         .controlSize(.small)
                         Button {
                             localAI.stopOpenAICompatibleServer()
                         } label: {
-                            Label("Stop", systemImage: "stop.fill")
+                            Label("Stop", systemImage: AppIcon.Action.stop)
                         }
                         .controlSize(.small)
                         .disabled(localAI.localAPIEndpoint == nil)
@@ -174,7 +174,7 @@ struct LocalAIModelsSettingsView: View {
                         Button {
                             startCompleteLocalMode(localAI: localAI)
                         } label: {
-                            Label("Start", systemImage: "play.fill")
+                            Label("Start", systemImage: AppIcon.Action.start)
                         }
                         .controlSize(.small)
                     }
@@ -331,7 +331,7 @@ private struct LocalAIModelInstallCard: View {
             switch state.phase {
             case .installed:
                 Button(role: .destructive, action: onDelete) {
-                    Label("Delete", systemImage: "trash")
+                    Label("Delete", systemImage: AppIcon.Action.delete)
                 }
                 .controlSize(.small)
             case .downloading:
@@ -340,7 +340,7 @@ private struct LocalAIModelInstallCard: View {
                     .scaleEffect(0.78)
             case .notInstalled, .failed:
                 Button(action: onDownload) {
-                    Label(state.phase == .failed ? "Retry" : "Download", systemImage: "arrow.down.circle")
+                    Label(state.phase == .failed ? "Retry" : "Download", systemImage: AppIcon.Action.download)
                 }
                 .controlSize(.small)
             }
@@ -375,9 +375,9 @@ private struct LocalAIModelInstallCard: View {
     private var iconName: String {
         switch model.kind {
         case .embedding:
-            model.isExperimental ? "flask" : "brain"
+            model.isExperimental ? AppIcon.LocalAI.experimentalEmbedding : AppIcon.LocalAI.embedding
         case .llm:
-            "cpu"
+            AppIcon.LocalAI.model
         }
     }
 

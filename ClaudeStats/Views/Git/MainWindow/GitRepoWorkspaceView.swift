@@ -134,7 +134,7 @@ struct GitRepoWorkspaceView: View {
                     Button {
                         vm.loadMore()
                     } label: {
-                        Label("More", systemImage: "plus")
+                        Label("More", systemImage: AppIcon.Action.add)
                             .font(.sora(10, weight: .semibold))
                     }
                     .buttonStyle(.plain)
@@ -447,7 +447,7 @@ private struct GitCommitInspector: View {
     private func workingTreeSummary(_ summary: GitWorkingTreeSummary) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 9) {
-                Image(systemName: "square.and.pencil")
+                Image(systemName: AppIcon.Action.compose)
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(GitPalette.head)
                     .frame(width: 28, height: 28)

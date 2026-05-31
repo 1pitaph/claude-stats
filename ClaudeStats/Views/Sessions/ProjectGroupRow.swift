@@ -10,7 +10,7 @@ struct ProjectGroupRow: View {
     var body: some View {
         Button(action: toggle) {
             HStack(spacing: 10) {
-                Image(systemName: "folder")
+                Image(systemName: AppIcon.Resource.folder)
                     .foregroundStyle(Color.stxMuted)
                     .frame(width: 18)
 
@@ -24,7 +24,7 @@ struct ProjectGroupRow: View {
                 Text("\(group.count)")
                     .font(.sora(9).monospacedDigit())
                     .foregroundStyle(Color.stxMuted)
-                Image(systemName: "chevron.right")
+                Image(systemName: AppIcon.Navigation.disclosure)
                     .font(.sora(9, weight: .semibold))
                     .foregroundStyle(Color.stxMuted)
                     .rotationEffect(.degrees(isExpanded ? 90 : 0))

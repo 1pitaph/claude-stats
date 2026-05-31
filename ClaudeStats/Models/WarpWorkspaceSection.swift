@@ -23,10 +23,10 @@ enum WarpWorkspaceSection: String, CaseIterable, Identifiable, Sendable, Hashabl
 
     var symbol: String {
         switch self {
-        case .sessions: "terminal"
-        case .agents: "sparkles"
-        case .files: "folder"
-        case .settings: "gearshape"
+        case .sessions: AppIcon.Workspace.warp
+        case .agents: AppIcon.Feature.ai
+        case .files: AppIcon.Resource.folder
+        case .settings: AppIcon.Workspace.settings
         }
     }
 

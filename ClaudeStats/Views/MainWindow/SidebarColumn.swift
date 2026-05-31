@@ -46,7 +46,7 @@ struct SidebarColumn: View {
             }
             SidebarRow(
                 title: "Sessions",
-                symbol: "doc.text.magnifyingglass",
+                symbol: AppIcon.Resource.transcriptSearch,
                 isSelected: isSessionsActive,
                 trailingSymbol: "chevron.right",
                 showsTrailingOnHover: true
@@ -64,7 +64,7 @@ struct SidebarColumn: View {
             sectionHeader("TOOLS")
             SidebarRow(
                 title: "Warp",
-                symbol: "terminal",
+                symbol: AppIcon.Workspace.warp,
                 isSelected: isWarpActive,
                 trailingSymbol: "chevron.right",
                 showsTrailingOnHover: true
@@ -74,7 +74,7 @@ struct SidebarColumn: View {
             }
             SidebarRow(
                 title: "Memory",
-                symbol: "brain",
+                symbol: AppIcon.Workspace.memory,
                 isSelected: isMemoryActive,
                 trailingSymbol: "chevron.right",
                 showsTrailingOnHover: true
@@ -84,7 +84,7 @@ struct SidebarColumn: View {
             }
             SidebarRow(
                 title: "Config",
-                symbol: "slider.horizontal.3",
+                symbol: AppIcon.Workspace.configs,
                 isSelected: isConfigsActive,
                 trailingSymbol: "chevron.right",
                 showsTrailingOnHover: true
@@ -95,7 +95,7 @@ struct SidebarColumn: View {
             if env.preferences.gitTrackingEnabled { navRow(.git) }
             SidebarRow(
                 title: "Ops",
-                symbol: "wrench.and.screwdriver",
+                symbol: AppIcon.Workspace.ops,
                 isSelected: false,
                 trailingSymbol: "chevron.right",
                 showsTrailingOnHover: true
@@ -105,7 +105,7 @@ struct SidebarColumn: View {
             }
             SidebarRow(
                 title: "Network",
-                symbol: "network",
+                symbol: AppIcon.Workspace.network,
                 isSelected: false,
                 trailingSymbol: "chevron.right",
                 showsTrailingOnHover: true
@@ -116,7 +116,7 @@ struct SidebarColumn: View {
 
             Spacer(minLength: 0)
 
-            SidebarRow(title: "Settings", symbol: "gearshape", isSelected: false) {
+            SidebarRow(title: "Settings", symbol: AppIcon.Workspace.settings, isSelected: false) {
                 clearTextFocus()
                 onOpenSettings()
             }

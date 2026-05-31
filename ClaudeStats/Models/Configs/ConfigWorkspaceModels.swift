@@ -21,11 +21,11 @@ enum ConfigWorkspaceSection: String, CaseIterable, Identifiable, Sendable, Hasha
 
     var symbol: String {
         switch self {
-        case .overview: "square.grid.2x2"
-        case .files: "folder"
-        case .providers: "slider.horizontal.3"
-        case .profiles: "archivebox"
-        case .diagnostics: "exclamationmark.triangle"
+        case .overview: AppIcon.Workspace.dashboard
+        case .files: AppIcon.Resource.folder
+        case .providers: AppIcon.Workspace.configs
+        case .profiles: AppIcon.Resource.archive
+        case .diagnostics: AppIcon.Status.warning
         }
     }
 
@@ -79,7 +79,7 @@ enum ConfigFilesSection: String, CaseIterable, Identifiable, Sendable, Hashable 
     }
 
     var symbol: String {
-        if self == .skillFiles { return "sparkles" }
+        if self == .skillFiles { return AppIcon.AIConfig.skillFiles }
         return aiConfigSection.symbol
     }
 
@@ -153,9 +153,9 @@ enum ConfigDiagnosticSeverity: String, CaseIterable, Identifiable, Sendable, Has
 
     var symbol: String {
         switch self {
-        case .info: "info.circle"
-        case .warning: "exclamationmark.triangle"
-        case .error: "exclamationmark.triangle.fill"
+        case .info: AppIcon.Status.info
+        case .warning: AppIcon.Status.warning
+        case .error: AppIcon.Status.warningFilled
         }
     }
 

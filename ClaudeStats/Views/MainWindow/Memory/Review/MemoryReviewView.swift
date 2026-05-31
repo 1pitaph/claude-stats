@@ -7,13 +7,13 @@ struct MemoryReviewView: View {
         AppScrollView {
             LazyVStack(alignment: .leading, spacing: 14) {
                 summary
-                reviewSection(title: "Proposed", symbol: "checklist", items: store.review.proposals) { memory in
+                reviewSection(title: "Proposed", symbol: AppIcon.AIConfig.plan, items: store.review.proposals) { memory in
                     proposalActions(memory)
                 }
-                reviewSection(title: "Conflicts", symbol: "exclamationmark.triangle", items: store.review.conflicts) { memory in
+                reviewSection(title: "Conflicts", symbol: AppIcon.Status.warning, items: store.review.conflicts) { memory in
                     conflictActions(memory)
                 }
-                reviewSection(title: "Low Confidence", symbol: "gauge.with.dots.needle.33percent", items: store.review.lowConfidence) { memory in
+                reviewSection(title: "Low Confidence", symbol: AppIcon.Metric.gauge, items: store.review.lowConfidence) { memory in
                     lowConfidenceActions(memory)
                 }
                 graphFactSection
@@ -32,7 +32,7 @@ struct MemoryReviewView: View {
             Button {
                 Task { await store.loadCodeProposals() }
             } label: {
-                Label("Refresh", systemImage: "arrow.clockwise")
+                Label("Refresh", systemImage: AppIcon.Action.refresh)
             }
             .controlSize(.small)
             .disabled(store.review.isLoading)
@@ -62,7 +62,7 @@ struct MemoryReviewView: View {
     }
 
     private var graphFactSection: some View {
-        MemorySection(title: "Promoted Graph Facts", count: store.review.graphFacts.count, symbol: "point.3.connected.trianglepath.dotted") {
+        MemorySection(title: "Promoted Graph Facts", count: store.review.graphFacts.count, symbol: AppIcon.Network.webSocket) {
             if store.review.graphFacts.isEmpty {
                 MemoryMutedLine(text: "None")
                     .padding(.vertical, 8)
@@ -81,7 +81,7 @@ struct MemoryReviewView: View {
             Button {
                 Task { await store.acceptProposal(memory) }
             } label: {
-                Label("Accept", systemImage: "checkmark")
+                Label("Accept", systemImage: AppIcon.Action.confirm)
             }
             .controlSize(.small)
             .disabled(store.review.isLoading)
@@ -89,7 +89,7 @@ struct MemoryReviewView: View {
             Button {
                 Task { await store.rejectProposal(memory) }
             } label: {
-                Label("Reject", systemImage: "xmark")
+                Label("Reject", systemImage: AppIcon.Action.close)
             }
             .controlSize(.small)
             .disabled(store.review.isLoading)
@@ -101,7 +101,7 @@ struct MemoryReviewView: View {
             Button {
                 Task { await store.acceptProposal(memory) }
             } label: {
-                Label("Accept", systemImage: "checkmark")
+                Label("Accept", systemImage: AppIcon.Action.confirm)
             }
             .controlSize(.small)
             .disabled(store.review.isLoading)
@@ -109,7 +109,7 @@ struct MemoryReviewView: View {
             Button {
                 Task { await store.deprecateMemory(memory) }
             } label: {
-                Label("Deprecate", systemImage: "archivebox")
+                Label("Deprecate", systemImage: AppIcon.Resource.archive)
             }
             .controlSize(.small)
             .disabled(store.review.isLoading)
@@ -121,7 +121,7 @@ struct MemoryReviewView: View {
             Button {
                 Task { await store.acceptProposal(memory) }
             } label: {
-                Label("Keep", systemImage: "checkmark.seal")
+                Label("Keep", systemImage: AppIcon.Status.verified)
             }
             .controlSize(.small)
             .disabled(store.review.isLoading)
@@ -129,7 +129,7 @@ struct MemoryReviewView: View {
             Button {
                 Task { await store.deprecateMemory(memory) }
             } label: {
-                Label("Deprecate", systemImage: "archivebox")
+                Label("Deprecate", systemImage: AppIcon.Resource.archive)
             }
             .controlSize(.small)
             .disabled(store.review.isLoading)

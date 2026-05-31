@@ -122,7 +122,7 @@ struct AIConfigsWorkspaceView: View {
             Button {
                 refresh()
             } label: {
-                Label("Refresh", systemImage: "arrow.clockwise")
+                Label("Refresh", systemImage: AppIcon.Action.refresh)
             }
             .controlSize(.small)
             .disabled(env.aiConfigs.isLoading)
@@ -164,7 +164,7 @@ private struct AIConfigsBrowserPane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            paneHeader("Scopes", symbol: "folder")
+            paneHeader("Scopes", symbol: AppIcon.Resource.folder)
             StxRule()
             projectList
                 .frame(minHeight: 120, maxHeight: 230)
@@ -183,7 +183,7 @@ private struct AIConfigsBrowserPane: View {
                     AIConfigsEmptyState(
                         title: "No matching scopes",
                         message: "Refresh or adjust the search query to inspect configs.",
-                        symbol: "folder.badge.questionmark"
+                        symbol: AppIcon.Resource.unknownFolder
                     )
                     .frame(minHeight: 120)
                 } else {
@@ -207,7 +207,7 @@ private struct AIConfigsBrowserPane: View {
                     AIConfigsEmptyState(
                         title: "No files",
                         message: "This scope has no files for the selected Config section.",
-                        symbol: "doc"
+                        symbol: AppIcon.Resource.document
                     )
                     .frame(minHeight: 220)
                 } else {

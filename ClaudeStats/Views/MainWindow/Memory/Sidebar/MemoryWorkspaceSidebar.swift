@@ -12,7 +12,7 @@ struct MemoryWorkspaceSidebar: View {
 
             SidebarRow(
                 title: "Back to App",
-                symbol: "chevron.left",
+                symbol: AppIcon.Navigation.back,
                 isSelected: false,
                 action: close
             )
@@ -64,7 +64,7 @@ struct MemoryWorkspaceSidebar: View {
                 Button {
                     Task { await store.refreshCodeMemoryStatus(sessions: env.store.sessions) }
                 } label: {
-                    Image(systemName: "arrow.triangle.2.circlepath")
+                    Image(systemName: AppIcon.Action.sync)
                         .font(.system(size: 12, weight: .semibold))
                         .frame(width: 24, height: 22)
                 }
@@ -101,12 +101,12 @@ struct MemoryWorkspaceSidebar: View {
 
     private func symbol(for section: MemoryWorkspaceSection) -> String {
         switch section {
-        case .search: "magnifyingglass"
-        case .memories: "folder"
-        case .gantt: "calendar"
-        case .graph: "point.3.connected.trianglepath.dotted"
-        case .review: "checklist"
-        case .settings: "gearshape"
+        case .search: AppIcon.Action.search
+        case .memories: AppIcon.Resource.folder
+        case .gantt: AppIcon.Leaderboard.week
+        case .graph: AppIcon.Network.webSocket
+        case .review: AppIcon.AIConfig.plan
+        case .settings: AppIcon.Workspace.settings
         }
     }
 

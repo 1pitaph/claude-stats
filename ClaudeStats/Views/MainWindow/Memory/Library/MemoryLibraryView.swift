@@ -144,7 +144,7 @@ struct MemoryLibraryView: View {
                         }
                     }
                 } label: {
-                    Label(store.library.statusFilter.capitalized, systemImage: "line.3.horizontal.decrease.circle")
+                    Label(store.library.statusFilter.capitalized, systemImage: AppIcon.Filter.filterCircle)
                 }
                 .menuStyle(.button)
                 .controlSize(.small)
@@ -154,7 +154,7 @@ struct MemoryLibraryView: View {
                 Button {
                     Task { await store.refreshCodeMemoryStatus(sessions: env.store.sessions) }
                 } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
+                    Label("Refresh", systemImage: AppIcon.Action.refresh)
                 }
                 .controlSize(.small)
                 .disabled(store.isCodeMemoryLoading)
@@ -176,7 +176,7 @@ struct MemoryLibraryView: View {
                     MemoryEmptyState(
                         title: store.codeHealth == nil ? "Sidecar offline" : "No memories",
                         message: store.library.statusFilter,
-                        symbol: "text.badge.checkmark"
+                        symbol: AppIcon.Git.commitCheck
                     )
                     .frame(maxWidth: .infinity)
                     .frame(minHeight: 320)
@@ -349,9 +349,9 @@ private enum MemoryLibrarySidebarScope: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .projects:
-            "folder"
+            AppIcon.Resource.folder
         case .modules:
-            "square.stack.3d.up"
+            AppIcon.Settings.platforms
         }
     }
 

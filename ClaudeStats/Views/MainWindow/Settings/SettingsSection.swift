@@ -43,21 +43,21 @@ enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
 
     var symbol: String {
         switch self {
-        case .general:   "gearshape"
-        case .features:  "switch.2"
-        case .menuBar:   "menubar.rectangle"
-        case .notchIsland: "capsule.portrait.tophalf.filled"
-        case .platforms: "square.stack.3d.up"
-        case .tracking:  "waveform.path.ecg"
-        case .dictionary: "text.book.closed"
-        case .llm: "brain.head.profile"
-        case .localAI: "brain"
-        case .leaderboards: "trophy"
-        case .github:    "chevron.left.forwardslash.chevron.right"
-        case .linuxDo:   "globe.asia.australia"
-        case .systemMonitor: "cpu"
-        case .terminal:  "terminal"
-        case .about:     "info.circle"
+        case .general:   AppIcon.Settings.general
+        case .features:  AppIcon.Settings.features
+        case .menuBar:   AppIcon.Settings.menuBar
+        case .notchIsland: AppIcon.Settings.notchIsland
+        case .platforms: AppIcon.Settings.platforms
+        case .tracking:  AppIcon.Settings.tracking
+        case .dictionary: AppIcon.Resource.dictionary
+        case .llm: AppIcon.Settings.llm
+        case .localAI: AppIcon.Workspace.memory
+        case .leaderboards: AppIcon.Workspace.leaderboards
+        case .github:    AppIcon.Git.code
+        case .linuxDo:   AppIcon.Workspace.linuxDo
+        case .systemMonitor: AppIcon.Workspace.system
+        case .terminal:  AppIcon.Workspace.terminal
+        case .about:     AppIcon.Settings.about
         }
     }
 

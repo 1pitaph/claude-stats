@@ -54,7 +54,7 @@ struct SessionDetailView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
-                Image(systemName: "folder")
+                Image(systemName: AppIcon.Resource.folder)
                     .font(.system(size: 13))
                     .foregroundStyle(Color.stxMuted)
                 Text(session.projectDisplayName)
@@ -326,7 +326,7 @@ struct SessionDetailView: View {
             Button {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: session.filePath)])
             } label: {
-                Label("Reveal Transcript", systemImage: "doc.text.magnifyingglass")
+                Label("Reveal Transcript", systemImage: AppIcon.Resource.transcriptSearch)
             }
             .buttonStyle(.bordered)
 
@@ -334,7 +334,7 @@ struct SessionDetailView: View {
                 Button {
                     NSWorkspace.shared.open(URL(fileURLWithPath: cwd))
                 } label: {
-                    Label("Open Project Folder", systemImage: "folder")
+                    Label("Open Project Folder", systemImage: AppIcon.Resource.folder)
                 }
                 .buttonStyle(.bordered)
             }
@@ -413,7 +413,7 @@ private struct TranscriptMessageRow: View {
                 Button {
                     copyToPasteboard(message.text)
                 } label: {
-                    Image(systemName: "doc.on.doc")
+                    Image(systemName: AppIcon.Action.copy)
                 }
                 .controlSize(.small)
                 .help("Copy text")
@@ -440,10 +440,10 @@ private func copyToPasteboard(_ value: String) {
 private extension SessionTranscriptMessage.Role {
     var symbol: String {
         switch self {
-        case .user: "person"
-        case .assistant: "sparkles"
-        case .tool: "wrench.and.screwdriver"
-        case .system: "gearshape"
+        case .user: AppIcon.Session.roleUser
+        case .assistant: AppIcon.Session.roleAssistant
+        case .tool: AppIcon.Session.roleTool
+        case .system: AppIcon.Session.roleSystem
         }
     }
 

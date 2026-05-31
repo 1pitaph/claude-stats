@@ -102,7 +102,7 @@ struct GitChangedFileRow: View {
     }
 
     private var disclosureIcon: some View {
-        Image(systemName: "chevron.right")
+        Image(systemName: AppIcon.Navigation.disclosure)
             .font(.system(size: 8, weight: .bold))
             .foregroundStyle(Color.stxMuted)
             .frame(width: 22, height: 22)

@@ -149,9 +149,9 @@ enum LeaderboardDailyDateNavigator {
 extension LeaderboardMetric {
     var symbolName: String {
         switch self {
-        case .tokensWithCache: "bolt.circle"
-        case .tokensWithoutCacheRead: "bolt.slash.circle"
-        case .activityMinutes: "figure.walk.circle"
+        case .tokensWithCache: AppIcon.Leaderboard.tokensWithCache
+        case .tokensWithoutCacheRead: AppIcon.Leaderboard.tokensWithoutCacheRead
+        case .activityMinutes: AppIcon.Leaderboard.activityMinutes
         }
     }
 }
@@ -168,10 +168,10 @@ extension LeaderboardPeriod {
 
     var symbolName: String {
         switch self {
-        case .day: "sun.max"
-        case .week: "calendar"
-        case .month: "calendar.badge.clock"
-        case .allTime: "infinity"
+        case .day: AppIcon.Leaderboard.day
+        case .week: AppIcon.Leaderboard.week
+        case .month: AppIcon.Leaderboard.month
+        case .allTime: AppIcon.Leaderboard.allTime
         }
     }
 }

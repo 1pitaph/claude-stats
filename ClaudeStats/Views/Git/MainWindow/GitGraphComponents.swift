@@ -280,7 +280,7 @@ struct GitBackButton: View {
                 Text("[")
                     .foregroundStyle(Color.stxBracket)
                     .offset(y: -1)
-                Image(systemName: "chevron.left")
+                Image(systemName: AppIcon.Navigation.back)
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(hovering ? Color.primary : Color.stxMuted)
                 Text("]")

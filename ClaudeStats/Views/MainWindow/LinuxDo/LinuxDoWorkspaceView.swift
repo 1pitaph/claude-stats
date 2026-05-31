@@ -135,7 +135,7 @@ private struct LinuxDoHeader: View {
                 Button {
                     store.presentNewTopicComposer()
                 } label: {
-                    Label("New Topic", systemImage: "square.and.pencil")
+                    Label("New Topic", systemImage: AppIcon.Action.compose)
                 }
                 .controlSize(.small)
                 .help(store.canWriteForum ? "Create a LinuxDo topic" : "Sign in with a browser session to create topics")
@@ -282,7 +282,7 @@ private struct LinuxDoNewTopicSheet: View {
                     if store.newTopicComposer.isSubmitting {
                         ProgressView().controlSize(.small)
                     } else {
-                        Label("Create Topic", systemImage: "paperplane")
+                        Label("Create Topic", systemImage: AppIcon.Action.send)
                     }
                 }
                 .controlSize(.small)
@@ -335,17 +335,17 @@ private extension LinuxDoTopPeriod {
     var symbolName: String {
         switch self {
         case .daily:
-            "sun.max"
+            AppIcon.Leaderboard.day
         case .weekly:
-            "calendar"
+            AppIcon.Leaderboard.week
         case .monthly:
-            "calendar.badge.clock"
+            AppIcon.Leaderboard.month
         case .quarterly:
-            "chart.bar.xaxis"
+            AppIcon.Workspace.usage
         case .yearly:
-            "calendar.circle"
+            AppIcon.Leaderboard.year
         case .all:
-            "infinity"
+            AppIcon.Leaderboard.allTime
         }
     }
 }

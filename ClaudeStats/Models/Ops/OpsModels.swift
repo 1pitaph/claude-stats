@@ -27,12 +27,12 @@ enum OpsSection: String, CaseIterable, Identifiable, Sendable, Hashable {
 
     var symbol: String {
         switch self {
-        case .ports: "point.3.connected.trianglepath.dotted"
-        case .processes: "cpu"
-        case .brew: "shippingbox"
-        case .environment: "terminal"
-        case .cleanup: "sparkles"
-        case .diagnostics: "waveform.path.ecg"
+        case .ports: AppIcon.Ops.ports
+        case .processes: AppIcon.Ops.processes
+        case .brew: AppIcon.Ops.brew
+        case .environment: AppIcon.Ops.environment
+        case .cleanup: AppIcon.Ops.cleanup
+        case .diagnostics: AppIcon.Ops.diagnostics
         }
     }
 
@@ -264,13 +264,13 @@ enum OpsCleanupKind: String, CaseIterable, Identifiable, Sendable, Hashable {
 
     var symbol: String {
         switch self {
-        case .xcodeDerivedData: "hammer"
-        case .swiftPackageCache: "swift"
-        case .npmCache: "shippingbox"
-        case .pnpmStore: "square.stack.3d.up"
-        case .yarnCache: "tray"
-        case .homebrewCache: "mug"
-        case .dockerSystem: "externaldrive"
+        case .xcodeDerivedData: AppIcon.Ops.xcode
+        case .swiftPackageCache: AppIcon.Ops.swiftPackage
+        case .npmCache: AppIcon.Ops.npm
+        case .pnpmStore: AppIcon.Ops.pnpm
+        case .yarnCache: AppIcon.Ops.yarn
+        case .homebrewCache: AppIcon.Ops.homebrew
+        case .dockerSystem: AppIcon.Ops.docker
         }
     }
 }

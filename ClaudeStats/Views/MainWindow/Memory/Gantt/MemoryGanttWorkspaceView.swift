@@ -27,7 +27,7 @@ struct MemoryGanttWorkspaceView: View {
     private var projectColumn: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
-                Image(systemName: "folder")
+                Image(systemName: AppIcon.Resource.folder)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Color.stxAccent)
                 Text("Project")
@@ -101,7 +101,7 @@ struct MemoryGanttWorkspaceView: View {
             Button {
                 Task { await store.gantt.refresh(projectID: store.codeSelectedProjectID) }
             } label: {
-                Label("Refresh", systemImage: "arrow.clockwise")
+                Label("Refresh", systemImage: AppIcon.Action.refresh)
             }
             .controlSize(.small)
             .disabled(store.gantt.isLoading || store.codeSelectedProjectID == nil)
@@ -119,7 +119,7 @@ struct MemoryGanttWorkspaceView: View {
             MemoryEmptyState(
                 title: emptyTitle,
                 message: emptyMessage,
-                symbol: "calendar.badge.clock"
+                symbol: AppIcon.Leaderboard.month
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(18)

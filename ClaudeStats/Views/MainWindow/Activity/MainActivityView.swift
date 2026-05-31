@@ -132,7 +132,7 @@ struct MainActivityView: View {
                     .font(.sora(13, weight: .semibold))
                     .tracking(1.0)
                 Spacer()
-                Image(systemName: "lock.shield")
+                Image(systemName: AppIcon.Status.lockShield)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Color.stxMuted)
                     .accessibilityHidden(true)

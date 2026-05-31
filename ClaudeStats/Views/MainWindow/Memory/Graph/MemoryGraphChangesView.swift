@@ -48,7 +48,7 @@ private struct MemoryChangeTimelineView: View {
                         MemoryEmptyState(
                             title: "No changes",
                             message: store.graph.changeLastError ?? "No memory events match this filter.",
-                            symbol: "clock.arrow.circlepath"
+                            symbol: AppIcon.Status.history
                         )
                         .frame(maxWidth: .infinity, minHeight: 240)
                     } else {
@@ -103,7 +103,7 @@ private struct MemoryChangeTimelineRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 HStack(spacing: 8) {
-                    Label(actorLabel, systemImage: "person.crop.circle")
+                    Label(actorLabel, systemImage: AppIcon.People.profile)
                         .lineLimit(1)
                     Text(MemoryFormat.timestamp(event.timestamp))
                         .lineLimit(1)
@@ -242,7 +242,7 @@ private struct MemoryChangeGraphCanvasView: View {
             MemoryEmptyState(
                 title: graphStore.isLoadingChanges ? "Loading changes" : "No changes loaded",
                 message: graphStore.changeLastError ?? "Select a project.",
-                symbol: "arrow.triangle.2.circlepath"
+                symbol: AppIcon.Action.sync
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -421,7 +421,7 @@ private struct MemoryGraphChangeInspectorView: View {
         } else if let edge = store.graph.selectedChangeEdge {
             edgeInspector(edge)
         } else {
-            MemoryEmptyState(title: "No selection", message: "Select an event, memory, or edge.", symbol: "cursorarrow.click")
+            MemoryEmptyState(title: "No selection", message: "Select an event, memory, or edge.", symbol: AppIcon.Pointer.click)
                 .frame(minHeight: 220)
         }
     }
@@ -453,7 +453,7 @@ private struct MemoryGraphChangeInspectorView: View {
                 MemorySourceRefsView(sourceRefs: event.sourceRefs)
             }
             HStack(spacing: 8) {
-                MemoryCopyButton(value: event.eventID, label: "Copy Event", systemImage: "link")
+                MemoryCopyButton(value: event.eventID, label: "Copy Event", systemImage: AppIcon.Resource.link)
                 if let memoryID = event.memoryID {
                     MemoryCopyButton(value: memoryID, label: "Copy Memory")
                 }

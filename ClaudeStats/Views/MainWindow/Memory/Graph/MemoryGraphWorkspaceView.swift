@@ -28,7 +28,7 @@ struct MemoryGraphWorkspaceView: View {
                 }
             } label: {
                 let projectID = store.codeSelectedProjectID ?? store.codeProjects.first?.projectID
-                Label(projectID?.memoryAbbreviatingHomeDirectory ?? "Project", systemImage: "folder")
+                Label(projectID?.memoryAbbreviatingHomeDirectory ?? "Project", systemImage: AppIcon.Resource.folder)
             }
             .menuStyle(.button)
             .controlSize(.small)
@@ -38,7 +38,7 @@ struct MemoryGraphWorkspaceView: View {
             Button {
                 store.graph.zoom = max(0.45, store.graph.zoom - 0.1)
             } label: {
-                Image(systemName: "minus.magnifyingglass")
+                Image(systemName: AppIcon.Action.zoomOut)
             }
             .controlSize(.small)
             .help("Zoom Out")
@@ -52,7 +52,7 @@ struct MemoryGraphWorkspaceView: View {
             Button {
                 store.graph.zoom = min(2.2, store.graph.zoom + 0.1)
             } label: {
-                Image(systemName: "plus.magnifyingglass")
+                Image(systemName: AppIcon.Action.zoomIn)
             }
             .controlSize(.small)
             .help("Zoom In")
@@ -60,7 +60,7 @@ struct MemoryGraphWorkspaceView: View {
             Button {
                 store.graph.resetViewport()
             } label: {
-                Image(systemName: "viewfinder")
+                Image(systemName: AppIcon.Action.viewfinder)
             }
             .controlSize(.small)
             .help("Reset View")
@@ -68,7 +68,7 @@ struct MemoryGraphWorkspaceView: View {
             Button {
                 Task { await store.graph.loadChanges(projectID: store.codeSelectedProjectID ?? store.codeProjects.first?.projectID) }
             } label: {
-                Label("Refresh", systemImage: "arrow.clockwise")
+                Label("Refresh", systemImage: AppIcon.Action.refresh)
             }
             .controlSize(.small)
             .disabled((store.codeSelectedProjectID ?? store.codeProjects.first?.projectID) == nil || store.graph.isLoadingChanges)
@@ -108,7 +108,7 @@ struct MemoryGraphWorkspaceView: View {
 
     private var searchField: some View {
         HStack(spacing: 7) {
-            Image(systemName: "magnifyingglass")
+            Image(systemName: AppIcon.Action.search)
                 .font(.system(size: 12))
                 .foregroundStyle(Color.stxMuted)
             TextField("Event, field, source, or memory", text: Binding(
@@ -121,7 +121,7 @@ struct MemoryGraphWorkspaceView: View {
                 Button {
                     store.graph.changeSearchText = ""
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
+                    Image(systemName: AppIcon.Action.clear)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Color.stxMuted)

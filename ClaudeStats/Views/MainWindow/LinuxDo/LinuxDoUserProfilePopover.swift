@@ -37,7 +37,7 @@ struct LinuxDoUserProfilePopover: View {
             AsyncImage(url: state.profile?.avatarURL ?? fallbackAvatarURL) { image in
                 image.resizable().scaledToFill()
             } placeholder: {
-                Image(systemName: "person.crop.circle.fill")
+                Image(systemName: AppIcon.People.profileFilled)
                     .font(.system(size: 54))
                     .foregroundStyle(Color.stxMuted)
             }
@@ -84,13 +84,13 @@ struct LinuxDoUserProfilePopover: View {
            profile.isAdmin || profile.isModerator || profile.trustLevel != nil {
             HStack(spacing: 6) {
                 if profile.isAdmin {
-                    LinuxDoUserProfileChip(title: "Admin", systemImage: "crown.fill", isProminent: true)
+                    LinuxDoUserProfileChip(title: "Admin", systemImage: AppIcon.Leaderboard.crown, isProminent: true)
                 }
                 if profile.isModerator {
-                    LinuxDoUserProfileChip(title: "Moderator", systemImage: "shield.fill", isProminent: true)
+                    LinuxDoUserProfileChip(title: "Moderator", systemImage: AppIcon.Status.shieldFilled, isProminent: true)
                 }
                 if let trustLevel = profile.trustLevel {
-                    LinuxDoUserProfileChip(title: "\(String(localized: "Trust Level")) \(trustLevel)", systemImage: "checkmark.seal.fill")
+                    LinuxDoUserProfileChip(title: "\(String(localized: "Trust Level")) \(trustLevel)", systemImage: AppIcon.Status.verifiedFilled)
                 }
             }
         }
@@ -122,15 +122,15 @@ struct LinuxDoUserProfilePopover: View {
             LinuxDoUserProfileStatsGrid(items: statItems(for: profile))
 
             if !profile.groups.isEmpty {
-                chipSection(title: "Groups", systemImage: "person.3.fill") {
+                chipSection(title: "Groups", systemImage: AppIcon.People.teamFilled) {
                     ForEach(profile.groups.prefix(12)) { group in
-                        LinuxDoUserProfileChip(title: group.fullName ?? group.name, systemImage: "person.2")
+                        LinuxDoUserProfileChip(title: group.fullName ?? group.name, systemImage: AppIcon.People.group)
                     }
                 }
             }
 
             if !profile.badges.isEmpty {
-                chipSection(title: "Badges", systemImage: "seal.fill") {
+                chipSection(title: "Badges", systemImage: AppIcon.Status.badgeFilled) {
                     ForEach(profile.badges.prefix(16)) { badge in
                         LinuxDoUserBadgeChip(badge: badge)
                     }
@@ -139,7 +139,7 @@ struct LinuxDoUserProfilePopover: View {
 
             if let profileURL = profile.profileURL {
                 Link(destination: profileURL) {
-                    Label("Open Profile", systemImage: "safari")
+                    Label("Open Profile", systemImage: AppIcon.App.safari)
                         .frame(maxWidth: .infinity)
                 }
                 .controlSize(.small)
@@ -150,42 +150,42 @@ struct LinuxDoUserProfilePopover: View {
     private func metadataRows(_ profile: LinuxDoUserProfile) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             if let location = profile.location, !location.isEmpty {
-                LinuxDoUserProfileInfoRow(systemImage: "location.fill", title: "Location", value: location)
+                LinuxDoUserProfileInfoRow(systemImage: AppIcon.Location.active, title: "Location", value: location)
             }
             if let website = profile.website, let url = websiteURL(from: website) {
                 Link(destination: url) {
-                    Label(websiteDisplayText(website), systemImage: "link")
+                    Label(websiteDisplayText(website), systemImage: AppIcon.Resource.link)
                         .font(.sora(11))
                         .foregroundStyle(Color.stxAccent)
                         .lineLimit(1)
                 }
             }
             if let createdAt = profile.createdAt {
-                LinuxDoUserProfileInfoRow(systemImage: "calendar", title: "Joined", value: Format.shortDate(createdAt))
+                LinuxDoUserProfileInfoRow(systemImage: AppIcon.Leaderboard.week, title: "Joined", value: Format.shortDate(createdAt))
             }
             if let lastSeenAt = profile.lastSeenAt {
-                LinuxDoUserProfileInfoRow(systemImage: "clock", title: "Last Seen", value: Format.relativeDate(lastSeenAt))
+                LinuxDoUserProfileInfoRow(systemImage: AppIcon.Status.clock, title: "Last Seen", value: Format.relativeDate(lastSeenAt))
             }
             if let primaryGroup = profile.primaryGroupName, !primaryGroup.isEmpty {
-                LinuxDoUserProfileInfoRow(systemImage: "person.2.fill", title: "Primary Group", value: primaryGroup)
+                LinuxDoUserProfileInfoRow(systemImage: AppIcon.People.groupFilled, title: "Primary Group", value: primaryGroup)
             }
             if let flairName = profile.flairName, !flairName.isEmpty {
-                LinuxDoUserProfileInfoRow(systemImage: "sparkles", title: "Flair", value: flairName)
+                LinuxDoUserProfileInfoRow(systemImage: AppIcon.Feature.ai, title: "Flair", value: flairName)
             }
         }
     }
 
     private func statItems(for profile: LinuxDoUserProfile) -> [LinuxDoUserProfileStatItem] {
         var items = [
-            LinuxDoUserProfileStatItem(title: "Posts in Topic", value: formatCount(postsInTopic), systemImage: "number"),
+            LinuxDoUserProfileStatItem(title: "Posts in Topic", value: formatCount(postsInTopic), systemImage: AppIcon.Metric.number),
         ]
-        appendCount(profile.stats.postCount, title: "Posts", systemImage: "text.bubble", to: &items)
-        appendCount(profile.stats.topicCount, title: "Topics", systemImage: "rectangle.stack", to: &items)
-        appendCount(profile.stats.likesReceived, title: "Likes", systemImage: "heart", to: &items)
-        appendCount(profile.stats.solutionsCount, title: "Solutions", systemImage: "checkmark.square", to: &items)
-        appendCount(profile.stats.profileViewCount, title: "Profile Views", systemImage: "eye", to: &items)
+        appendCount(profile.stats.postCount, title: "Posts", systemImage: AppIcon.Resource.textBubble, to: &items)
+        appendCount(profile.stats.topicCount, title: "Topics", systemImage: AppIcon.Resource.stack, to: &items)
+        appendCount(profile.stats.likesReceived, title: "Likes", systemImage: AppIcon.LinuxDo.like, to: &items)
+        appendCount(profile.stats.solutionsCount, title: "Solutions", systemImage: AppIcon.Status.checkedTask, to: &items)
+        appendCount(profile.stats.profileViewCount, title: "Profile Views", systemImage: AppIcon.Status.visible, to: &items)
         if let readTime = profile.stats.readTimeSeconds, readTime > 0 {
-            items.append(LinuxDoUserProfileStatItem(title: "Read Time", value: Format.duration(TimeInterval(readTime)), systemImage: "clock"))
+            items.append(LinuxDoUserProfileStatItem(title: "Read Time", value: Format.duration(TimeInterval(readTime)), systemImage: AppIcon.Status.clock))
         }
         return items
     }
@@ -243,12 +243,12 @@ private struct LinuxDoUserProfileErrorView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label(message, systemImage: "exclamationmark.triangle")
+            Label(message, systemImage: AppIcon.Status.warning)
                 .font(.sora(11))
                 .foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)
             Button(action: onRetry) {
-                Label("Retry", systemImage: "arrow.clockwise")
+                Label("Retry", systemImage: AppIcon.Action.refresh)
             }
             .controlSize(.small)
         }
@@ -344,11 +344,11 @@ private struct LinuxDoUserBadgeChip: View {
                 AsyncImage(url: imageURL) { image in
                     image.resizable().scaledToFit()
                 } placeholder: {
-                    Image(systemName: "seal")
+                    Image(systemName: AppIcon.Status.badge)
                 }
                 .frame(width: 14, height: 14)
             } else {
-                Image(systemName: "seal")
+                Image(systemName: AppIcon.Status.badge)
                     .font(.system(size: 10, weight: .semibold))
             }
             Text(badge.name)

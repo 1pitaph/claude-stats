@@ -12,7 +12,7 @@ struct ChatWorkspaceSidebar: View {
 
             SidebarRow(
                 title: "Back to App",
-                symbol: "chevron.left",
+                symbol: AppIcon.Navigation.back,
                 isSelected: false,
                 action: close
             )
@@ -31,7 +31,7 @@ struct ChatWorkspaceSidebar: View {
                 Button {
                     store.newConversation(defaultModelID: defaultModelID)
                 } label: {
-                    Image(systemName: "plus")
+                    Image(systemName: AppIcon.Action.add)
                         .font(.system(size: 12, weight: .semibold))
                         .frame(width: 24, height: 22)
                 }
@@ -87,7 +87,7 @@ struct ChatWorkspaceSidebar: View {
             }
 
             HStack(spacing: 8) {
-                Image(systemName: store.isGenerating ? "sparkles" : "checkmark.circle")
+                Image(systemName: store.isGenerating ? AppIcon.Feature.ai : AppIcon.Status.success)
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(store.isGenerating ? Color.stxAccent : Color.stxMuted)
                 Text(store.isGenerating ? String(localized: "generating") : String(localized: "ready"))
@@ -127,7 +127,7 @@ private struct ChatConversationSidebarRow: View {
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: 8) {
-                Image(systemName: "bubble.left.and.bubble.right")
+                Image(systemName: AppIcon.Resource.conversation)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(isSelected ? Color.stxAccent : Color.stxMuted)
                     .frame(width: 18)
@@ -147,7 +147,7 @@ private struct ChatConversationSidebarRow: View {
 
                 if hovering {
                     Button(action: onDelete) {
-                        Image(systemName: "trash")
+                        Image(systemName: AppIcon.Action.delete)
                             .font(.system(size: 10, weight: .semibold))
                             .frame(width: 20, height: 20)
                     }

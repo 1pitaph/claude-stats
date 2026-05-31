@@ -13,7 +13,7 @@ struct SettingsSidebarColumn: View {
             Color.clear.frame(height: 44)
 
             SidebarRow(title: "Back to App",
-                       symbol: "chevron.left",
+                       symbol: AppIcon.Navigation.back,
                        isSelected: false,
                        action: onExit)
 

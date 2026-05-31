@@ -12,7 +12,7 @@ struct WarpSidebarColumn: View {
 
             SidebarRow(
                 title: "Back to App",
-                symbol: "chevron.left",
+                symbol: AppIcon.Navigation.back,
                 isSelected: false,
                 action: onExit
             )

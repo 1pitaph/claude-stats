@@ -77,7 +77,7 @@ struct MemoryFactRow: View {
                 }
                 Spacer(minLength: 8)
                 MemoryCopyButton(value: memory.body, label: "Copy Text")
-                MemoryCopyButton(value: memory.id, label: "Copy ID", systemImage: "link")
+                MemoryCopyButton(value: memory.id, label: "Copy ID", systemImage: AppIcon.Resource.link)
             }
 
             if !memory.sourceRefs.isEmpty {
@@ -255,7 +255,7 @@ struct MemoryFactCard: View, Equatable {
             HStack(spacing: 8) {
                 Spacer(minLength: 0)
                 MemoryCopyIconButton(value: model.body, label: "Copy Text")
-                MemoryCopyIconButton(value: model.id, label: "Copy ID", systemImage: "link")
+                MemoryCopyIconButton(value: model.id, label: "Copy ID", systemImage: AppIcon.Resource.link)
             }
 
             if !model.sourceRefs.isEmpty {
@@ -400,7 +400,7 @@ private struct MemorySourceRefCompactPill: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            Image(systemName: "link")
+            Image(systemName: AppIcon.Resource.link)
                 .font(.system(size: 9, weight: .semibold))
             Text(sourceRef.label)
                 .font(.sora(10).monospaced())
@@ -443,7 +443,7 @@ struct MemoryGraphFactRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Image(systemName: "point.3.connected.trianglepath.dotted")
+                Image(systemName: AppIcon.Network.webSocket)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Color.stxAccent)
                     .frame(width: 18)
@@ -454,7 +454,7 @@ struct MemoryGraphFactRow: View {
                 Spacer(minLength: 8)
                 if let promote {
                     Button(action: promote) {
-                        Label("Promote", systemImage: "checkmark.seal")
+                        Label("Promote", systemImage: AppIcon.Status.verified)
                     }
                     .controlSize(.small)
                 }
@@ -478,7 +478,7 @@ struct MemoryGraphFactRow: View {
                 }
                 Spacer(minLength: 8)
                 MemoryCopyButton(value: fact.fact, label: "Copy Fact")
-                MemoryCopyButton(value: fact.id, label: "Copy ID", systemImage: "link")
+                MemoryCopyButton(value: fact.id, label: "Copy ID", systemImage: AppIcon.Resource.link)
             }
 
             if !fact.sourceRefs.isEmpty {
@@ -509,7 +509,7 @@ struct MemoryEpisodeRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Image(systemName: "doc.text.magnifyingglass")
+                Image(systemName: AppIcon.Resource.transcriptSearch)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Color.stxAccent)
                     .frame(width: 18)
@@ -519,7 +519,7 @@ struct MemoryEpisodeRow: View {
                 AIConfigsBadge(text: episode.kind, color: Color.stxMuted)
                 Spacer(minLength: 8)
                 if let uri = episode.uri {
-                    MemoryCopyButton(value: uri, label: "Copy URI", systemImage: "link")
+                    MemoryCopyButton(value: uri, label: "Copy URI", systemImage: AppIcon.Resource.link)
                 }
             }
             if let excerpt = episode.excerpt, !excerpt.isEmpty {
@@ -566,7 +566,7 @@ struct MemorySourceRefsView: View {
             HStack(spacing: 6) {
                 ForEach(sourceRefs) { ref in
                     HStack(spacing: 5) {
-                        Image(systemName: "link")
+                        Image(systemName: AppIcon.Resource.link)
                             .font(.system(size: 9, weight: .semibold))
                         Text(ref.label)
                             .font(.sora(10).monospaced())
@@ -586,7 +586,7 @@ struct MemorySourceRefsView: View {
 struct MemoryCopyButton: View {
     let value: String
     var label: String = "Copy"
-    var systemImage: String = "doc.on.doc"
+    var systemImage: String = AppIcon.Action.copy
 
     var body: some View {
         Button {
@@ -603,7 +603,7 @@ struct MemoryCopyButton: View {
 struct MemoryCopyIconButton: View {
     let value: String
     var label: String = "Copy"
-    var systemImage: String = "doc.on.doc"
+    var systemImage: String = AppIcon.Action.copy
 
     var body: some View {
         Button {

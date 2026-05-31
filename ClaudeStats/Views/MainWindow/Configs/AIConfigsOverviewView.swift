@@ -25,13 +25,13 @@ struct AIConfigsOverviewView: View {
     private var summaryGrid: some View {
         let summary = env.aiConfigs.snapshot.summary
         return LazyVGrid(columns: metricColumns, spacing: 12) {
-            AIConfigsMetricCard(title: "Files", value: "\(summary.existingDocumentCount)", symbol: "doc.text")
-            AIConfigsMetricCard(title: "Projects", value: "\(summary.projectCount)", symbol: "folder")
-            AIConfigsMetricCard(title: "Plans", value: "\(summary.planStats.total)", symbol: "checklist")
+            AIConfigsMetricCard(title: "Files", value: "\(summary.existingDocumentCount)", symbol: AppIcon.Resource.documentText)
+            AIConfigsMetricCard(title: "Projects", value: "\(summary.projectCount)", symbol: AppIcon.Resource.folder)
+            AIConfigsMetricCard(title: "Plans", value: "\(summary.planStats.total)", symbol: AppIcon.AIConfig.plan)
             AIConfigsMetricCard(
                 title: "Diagnostics",
                 value: "\(summary.diagnosticCount)",
-                symbol: "exclamationmark.triangle",
+                symbol: AppIcon.Status.warning,
                 tint: summary.diagnosticCount > 0 ? Color(red: 0.92, green: 0.58, blue: 0.16) : Color.stxAccent
             )
         }
@@ -40,12 +40,12 @@ struct AIConfigsOverviewView: View {
     private var planSummary: some View {
         let stats = env.aiConfigs.snapshot.summary.planStats
         return VStack(alignment: .leading, spacing: 14) {
-            sectionTitle("Plan Ownership", symbol: "checklist")
+            sectionTitle("Plan Ownership", symbol: AppIcon.AIConfig.plan)
             LazyVGrid(columns: metricColumns, spacing: 12) {
-                AIConfigsMetricCard(title: "Assigned", value: "\(stats.assigned)", symbol: "folder.badge.gearshape")
-                AIConfigsMetricCard(title: "Unassigned", value: "\(stats.unassigned)", symbol: "tray")
-                AIConfigsMetricCard(title: "Open Tasks", value: "\(stats.uncheckedTasks)", symbol: "square")
-                AIConfigsMetricCard(title: "Done Tasks", value: "\(stats.checkedTasks)", symbol: "checkmark.square")
+                AIConfigsMetricCard(title: "Assigned", value: "\(stats.assigned)", symbol: AppIcon.Resource.configuredFolder)
+                AIConfigsMetricCard(title: "Unassigned", value: "\(stats.unassigned)", symbol: AppIcon.Resource.tray)
+                AIConfigsMetricCard(title: "Open Tasks", value: "\(stats.uncheckedTasks)", symbol: AppIcon.Status.uncheckedTask)
+                AIConfigsMetricCard(title: "Done Tasks", value: "\(stats.checkedTasks)", symbol: AppIcon.Status.checkedTask)
             }
         }
         .mainWindowPanel()
@@ -54,7 +54,7 @@ struct AIConfigsOverviewView: View {
     private var coverageSummary: some View {
         let summary = env.aiConfigs.snapshot.summary
         return VStack(alignment: .leading, spacing: 14) {
-            sectionTitle("Coverage", symbol: "scope")
+            sectionTitle("Coverage", symbol: AppIcon.AIConfig.scope)
             HStack(spacing: 12) {
                 coverageRow(title: "Existing", count: summary.existingDocumentCount, tint: Color.stxAccent)
                 coverageRow(title: "Missing Expected", count: summary.missingExpectedCount, tint: Color.stxMuted)
@@ -68,7 +68,7 @@ struct AIConfigsOverviewView: View {
         let diagnosticsProjects = env.aiConfigs.filteredProjects(section: .diagnostics, query: searchText)
         let documents = diagnosticsProjects.flatMap(\.documents)
         return VStack(alignment: .leading, spacing: 12) {
-            sectionTitle("Diagnostics", symbol: "exclamationmark.triangle")
+            sectionTitle("Diagnostics", symbol: AppIcon.Status.warning)
             if documents.isEmpty {
                 Text(searchText.isEmpty ? "No config diagnostics." : "No diagnostics match the current search.")
                     .font(.sora(11))
@@ -111,7 +111,7 @@ struct AIConfigsOverviewView: View {
             }
 
         return VStack(alignment: .leading, spacing: 12) {
-            sectionTitle("Scopes", symbol: "folder")
+            sectionTitle("Scopes", symbol: AppIcon.Resource.folder)
             if projects.isEmpty {
                 Text(searchText.isEmpty ? "No config scopes discovered yet." : "No scopes match the current search.")
                     .font(.sora(11))

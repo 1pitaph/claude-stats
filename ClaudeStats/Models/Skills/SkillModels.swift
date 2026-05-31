@@ -17,9 +17,9 @@ enum SkillsWorkspaceTab: String, CaseIterable, Identifiable, Sendable, Hashable 
 
     var symbol: String {
         switch self {
-        case .installed: "externaldrive"
-        case .discover: "magnifyingglass"
-        case .curated: "sparkles"
+        case .installed: AppIcon.Skill.installed
+        case .discover: AppIcon.Skill.discover
+        case .curated: AppIcon.Skill.curated
         }
     }
 }
@@ -118,7 +118,7 @@ struct SkillProviderDefinition: Identifiable, Sendable, Hashable {
     let displayName: String
     let symbol: String
 
-    init(id: String, displayName: String, symbol: String = "sparkles") {
+    init(id: String, displayName: String, symbol: String = AppIcon.Skill.curated) {
         self.id = id
         self.displayName = displayName
         self.symbol = symbol

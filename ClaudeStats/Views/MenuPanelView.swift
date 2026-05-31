@@ -163,7 +163,7 @@ struct StatsPanelBody: View {
                     openWindow(id: GitActivityView.windowID)
                 } label: {
                     BracketBox(spacing: 4) {
-                        Image(systemName: "arrow.triangle.branch").font(.system(size: 10, weight: .bold))
+                        Image(systemName: AppIcon.Workspace.git).font(.system(size: 10, weight: .bold))
                     }
                 }
                 .buttonStyle(.plain)
@@ -178,7 +178,7 @@ struct StatsPanelBody: View {
                         if env.store.isLoading {
                             ProgressView().controlSize(.mini)
                         } else {
-                            Image(systemName: "arrow.clockwise").font(.system(size: 10, weight: .bold))
+                            Image(systemName: AppIcon.Action.refresh).font(.system(size: 10, weight: .bold))
                         }
                     }
                 }
@@ -192,7 +192,7 @@ struct StatsPanelBody: View {
                     openWindow(id: MainWindowView.windowID)
                 } label: {
                     BracketBox(spacing: 4) {
-                        Image(systemName: "macwindow").font(.system(size: 10, weight: .bold))
+                        Image(systemName: AppIcon.Window.main).font(.system(size: 10, weight: .bold))
                     }
                 }
                 .buttonStyle(.plain)
@@ -245,7 +245,7 @@ struct MenuPanelView: View {
                 NotificationCenter.default.post(name: .openSettingsInMainWindow, object: nil)
             } label: {
                 BracketBox(spacing: 5) {
-                    Label("SETTINGS", systemImage: "gearshape")
+                    Label("SETTINGS", systemImage: AppIcon.Workspace.settings)
                         .labelStyle(.titleAndIcon)
                         .font(.sora(10))
                         .tracking(0.8)
@@ -261,7 +261,7 @@ struct MenuPanelView: View {
                 openWindow(id: ShareExportView.windowID)
             } label: {
                 BracketBox(spacing: 5) {
-                    Label("SHARE", systemImage: "square.and.arrow.up")
+                    Label("SHARE", systemImage: AppIcon.Action.exportFile)
                         .labelStyle(.titleAndIcon)
                         .font(.sora(10))
                         .tracking(0.8)
@@ -278,7 +278,7 @@ struct MenuPanelView: View {
                 }
             } label: {
                 BracketBox(spacing: 5) {
-                    Label("QUIT", systemImage: "power")
+                    Label("QUIT", systemImage: AppIcon.Action.quit)
                         .labelStyle(.titleAndIcon)
                         .font(.sora(10))
                         .tracking(0.8)
@@ -297,7 +297,7 @@ struct MenuPanelView: View {
             env.updater.checkForUpdates()
         } label: {
             HStack(spacing: 5) {
-                Image(systemName: "arrow.down.circle.fill")
+                Image(systemName: AppIcon.Action.downloadFilled)
                     .font(.system(size: 10, weight: .bold))
                 Text("UPDATE")
                     .font(.sora(10, weight: .semibold))

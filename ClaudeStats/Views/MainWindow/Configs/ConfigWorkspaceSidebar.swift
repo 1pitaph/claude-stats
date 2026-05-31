@@ -14,7 +14,7 @@ struct ConfigWorkspaceSidebar: View {
 
             SidebarRow(
                 title: "Back to App",
-                symbol: "chevron.left",
+                symbol: AppIcon.Navigation.back,
                 isSelected: false,
                 action: close
             )
@@ -138,7 +138,7 @@ struct ConfigWorkspaceSidebar: View {
                 Button {
                     refresh()
                 } label: {
-                    Image(systemName: "arrow.clockwise")
+                    Image(systemName: AppIcon.Action.refresh)
                         .font(.system(size: 12, weight: .semibold))
                         .frame(width: 24, height: 22)
                 }
@@ -169,7 +169,7 @@ struct ConfigWorkspaceSidebar: View {
         )
 
         return HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
+            Image(systemName: AppIcon.Action.search)
                 .font(.system(size: 11))
                 .foregroundStyle(Color.stxMuted)
                 .accessibilityHidden(true)
@@ -181,7 +181,7 @@ struct ConfigWorkspaceSidebar: View {
                 Button {
                     store.activeSearchText = ""
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
+                    Image(systemName: AppIcon.Action.clear)
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(Color.stxMuted)
                 }

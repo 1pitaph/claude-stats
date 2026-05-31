@@ -191,7 +191,7 @@ struct AppSelect<Value: Hashable>: View {
                     .controlSize(.mini)
                     .frame(width: 14, height: 14)
             } else {
-                Image(systemName: "chevron.down")
+                Image(systemName: AppIcon.Navigation.down)
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(Color.stxMuted)
                     .rotationEffect(.degrees(isPresented ? 180 : 0))
@@ -388,7 +388,7 @@ private struct AppSelectPanelContent<Value: Hashable>: View {
 
                 Spacer(minLength: 10)
 
-                Image(systemName: "checkmark")
+                Image(systemName: AppIcon.Action.confirm)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(isSelected ? Color.primary.opacity(0.78) : Color.clear)
                     .frame(width: 16)

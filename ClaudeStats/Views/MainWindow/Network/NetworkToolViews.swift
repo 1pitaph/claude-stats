@@ -33,7 +33,7 @@ struct NetworkProxyView: View {
     private var localProxyCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
-                Label("Local Proxy", systemImage: "network")
+                Label("Local Proxy", systemImage: AppIcon.Workspace.network)
                     .font(.sora(14, weight: .semibold))
                 NetworkStatusBadge(
                     text: store.statusMessage,
@@ -44,31 +44,31 @@ struct NetworkProxyView: View {
             }
 
             NetworkInfoGrid(items: [
-                NetworkInfoItem(title: "Listen", value: endpoint, symbol: "point.3.connected.trianglepath.dotted"),
-                NetworkInfoItem(title: "Captured", value: "\(store.flows.count)", symbol: "list.bullet.rectangle"),
-                NetworkInfoItem(title: "Visible", value: "\(store.visibleTrafficCount)", symbol: "line.3.horizontal.decrease.circle"),
-                NetworkInfoItem(title: "Selected", value: store.selectedFlow?.domainDisplay ?? "None", symbol: "scope"),
+                NetworkInfoItem(title: "Listen", value: endpoint, symbol: AppIcon.Network.webSocket),
+                NetworkInfoItem(title: "Captured", value: "\(store.flows.count)", symbol: AppIcon.Network.traffic),
+                NetworkInfoItem(title: "Visible", value: "\(store.visibleTrafficCount)", symbol: AppIcon.Filter.filterCircle),
+                NetworkInfoItem(title: "Selected", value: store.selectedFlow?.domainDisplay ?? "None", symbol: AppIcon.AIConfig.scope),
             ])
 
             HStack(spacing: 10) {
                 Button {
                     store.startCapture()
                 } label: {
-                    Label("Start Capture", systemImage: "play.fill")
+                    Label("Start Capture", systemImage: AppIcon.Action.start)
                 }
                 .disabled(store.captureStatus.isListening)
 
                 Button {
                     store.stopCapture()
                 } label: {
-                    Label("Stop", systemImage: "stop.fill")
+                    Label("Stop", systemImage: AppIcon.Action.stop)
                 }
                 .disabled(!store.captureStatus.isListening)
 
                 Button {
                     store.clearFlows()
                 } label: {
-                    Label("Clear", systemImage: "trash")
+                    Label("Clear", systemImage: AppIcon.Action.delete)
                 }
                 .disabled(store.flows.isEmpty)
 
@@ -82,7 +82,7 @@ struct NetworkProxyView: View {
     private var systemProxyCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
-                Label("System Proxy", systemImage: "switch.2")
+                Label("System Proxy", systemImage: AppIcon.Settings.features)
                     .font(.sora(14, weight: .semibold))
                 NetworkStatusBadge(
                     text: store.systemProxyStatus.isEnabled ? "Enabled" : "Idle",
@@ -94,7 +94,7 @@ struct NetworkProxyView: View {
 
             HStack(alignment: .center, spacing: 12) {
                 Toggle(isOn: $store.autoEnableSystemProxyOnStart) {
-                    Label("Auto-enable on start", systemImage: "bolt.horizontal")
+                    Label("Auto-enable on start", systemImage: AppIcon.SystemMonitor.power)
                         .font(.sora(11, weight: .medium))
                 }
                 .toggleStyle(.checkbox)
@@ -104,27 +104,27 @@ struct NetworkProxyView: View {
                 Button {
                     store.enableSystemProxy()
                 } label: {
-                    Label("Enable", systemImage: "switch.2")
+                    Label("Enable", systemImage: AppIcon.Settings.features)
                 }
                 .disabled(!store.captureStatus.isListening || store.systemProxyStatus.isEnabled || store.isSystemProxyWorking)
 
                 Button {
                     store.disableSystemProxy()
                 } label: {
-                    Label("Restore", systemImage: "arrow.uturn.backward")
+                    Label("Restore", systemImage: AppIcon.Action.undo)
                 }
                 .disabled(!store.systemProxyStatus.isEnabled || store.isSystemProxyWorking)
             }
             .font(.sora(11, weight: .medium))
 
             NetworkInfoGrid(items: [
-                NetworkInfoItem(title: "Managed", value: managedServicesText, symbol: "network"),
-                NetworkInfoItem(title: "Upstream", value: store.systemProxyStatus.upstreamProxySummary ?? "Direct", symbol: "arrow.triangle.branch"),
-                NetworkInfoItem(title: "Restore Scope", value: store.systemProxyStatus.isEnabled ? "This session" : "None", symbol: "arrow.uturn.backward.circle"),
+                NetworkInfoItem(title: "Managed", value: managedServicesText, symbol: AppIcon.Workspace.network),
+                NetworkInfoItem(title: "Upstream", value: store.systemProxyStatus.upstreamProxySummary ?? "Direct", symbol: AppIcon.Workspace.git),
+                NetworkInfoItem(title: "Restore Scope", value: store.systemProxyStatus.isEnabled ? "This session" : "None", symbol: AppIcon.Action.undoCircle),
             ])
 
             if let error = store.systemProxyStatus.lastError, !error.isEmpty {
-                NetworkInlineMessage(text: error, tint: .red, symbol: "exclamationmark.triangle")
+                NetworkInlineMessage(text: error, tint: .red, symbol: AppIcon.Status.warning)
             }
         }
         .mainWindowPanel()
@@ -132,7 +132,7 @@ struct NetworkProxyView: View {
 
     private var commandsCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("Manual Setup", systemImage: "terminal")
+            Label("Manual Setup", systemImage: AppIcon.Runtime.terminal)
                 .font(.sora(14, weight: .semibold))
 
             Text("Use these commands when system proxy cannot be changed automatically.")
@@ -174,7 +174,7 @@ struct NetworkUpstreamView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
-                Label("Upstream Proxy", systemImage: "arrow.triangle.branch")
+                Label("Upstream Proxy", systemImage: AppIcon.Workspace.git)
                     .font(.sora(14, weight: .semibold))
                 NetworkStatusBadge(
                     text: upstreamBadgeText,
@@ -195,12 +195,12 @@ struct NetworkUpstreamView: View {
             }
 
             NetworkInfoGrid(items: [
-                NetworkInfoItem(title: "Mode", value: store.upstreamProxyMode.title, symbol: "point.3.connected.trianglepath.dotted"),
-                NetworkInfoItem(title: "Route", value: routeSummary, symbol: "arrow.triangle.branch"),
-                NetworkInfoItem(title: "Environment", value: store.selectedUpstreamEnvironment.name, symbol: "rectangle.3.group"),
-                NetworkInfoItem(title: "Profile", value: store.selectedUpstreamProfile?.name ?? "Direct", symbol: "person.crop.rectangle.stack"),
-                NetworkInfoItem(title: "Localhost", value: localhostBypassText, symbol: "location.slash"),
-                NetworkInfoItem(title: "SOCKS DNS", value: socksDNSText, symbol: "network.badge.shield.half.filled"),
+                NetworkInfoItem(title: "Mode", value: store.upstreamProxyMode.title, symbol: AppIcon.Network.webSocket),
+                NetworkInfoItem(title: "Route", value: routeSummary, symbol: AppIcon.Workspace.git),
+                NetworkInfoItem(title: "Environment", value: store.selectedUpstreamEnvironment.name, symbol: AppIcon.Layout.groupedRectangles),
+                NetworkInfoItem(title: "Profile", value: store.selectedUpstreamProfile?.name ?? "Direct", symbol: AppIcon.People.profileStack),
+                NetworkInfoItem(title: "Localhost", value: localhostBypassText, symbol: AppIcon.Location.inactive),
+                NetworkInfoItem(title: "SOCKS DNS", value: socksDNSText, symbol: AppIcon.Network.secureNetwork),
             ])
 
             environmentControls
@@ -224,14 +224,14 @@ struct NetworkUpstreamView: View {
                 Button {
                     store.applyCurrentUpstreamProxy()
                 } label: {
-                    Label("Apply Route", systemImage: "arrow.triangle.2.circlepath")
+                    Label("Apply Route", systemImage: AppIcon.Action.sync)
                 }
                 .disabled(store.isUpstreamProxyWorking)
 
                 Button {
                     store.testUpstreamProxy()
                 } label: {
-                    Label("Test", systemImage: "checkmark.circle")
+                    Label("Test", systemImage: AppIcon.Status.success)
                 }
                 .disabled(store.isUpstreamProxyWorking)
             }
@@ -289,12 +289,12 @@ struct NetworkUpstreamView: View {
                 Button {
                     store.createUpstreamEnvironment()
                 } label: {
-                    Label("New Env", systemImage: "plus")
+                    Label("New Env", systemImage: AppIcon.Action.add)
                 }
                 Button {
                     store.duplicateSelectedUpstreamEnvironment()
                 } label: {
-                    Label("Duplicate", systemImage: "doc.on.doc")
+                    Label("Duplicate", systemImage: AppIcon.Action.copy)
                 }
             }
 
@@ -317,18 +317,18 @@ struct NetworkUpstreamView: View {
                 Button {
                     store.createManualUpstreamProfileFromCurrentFields()
                 } label: {
-                    Label("Save Manual as Profile", systemImage: "square.and.arrow.down")
+                    Label("Save Manual as Profile", systemImage: AppIcon.Action.importFile)
                 }
                 Button {
                     store.saveDetectedSystemProxyAsProfile()
                 } label: {
-                    Label("Save Detected System Proxy", systemImage: "wand.and.stars")
+                    Label("Save Detected System Proxy", systemImage: AppIcon.Feature.magic)
                 }
                 Spacer()
                 Button {
                     store.saveUpstreamEnvironments()
                 } label: {
-                    Label("Save Environments", systemImage: "checkmark.circle")
+                    Label("Save Environments", systemImage: AppIcon.Status.success)
                 }
             }
             .font(.sora(11, weight: .medium))
@@ -360,12 +360,12 @@ struct NetworkUpstreamView: View {
                         }
                         Spacer()
                         if profile.credentialRef?.hasSecretReference == true {
-                            Image(systemName: "key.fill")
+                            Image(systemName: AppIcon.Resource.keyFilled)
                                 .font(.system(size: 10))
                                 .foregroundStyle(Color.stxMuted)
                         }
                         if profile.isAutoDetected {
-                            Image(systemName: "wand.and.stars")
+                            Image(systemName: AppIcon.Feature.magic)
                                 .font(.system(size: 10))
                                 .foregroundStyle(Color.stxMuted)
                         }
@@ -397,27 +397,27 @@ struct NetworkUpstreamView: View {
                 Button {
                     store.moveSelectedUpstreamRouteRule(offset: -1)
                 } label: {
-                    Image(systemName: "chevron.up")
+                    Image(systemName: AppIcon.Navigation.up)
                 }
                 .buttonStyle(.plain)
                 .disabled(store.selectedUpstreamRouteRule == nil)
                 Button {
                     store.moveSelectedUpstreamRouteRule(offset: 1)
                 } label: {
-                    Image(systemName: "chevron.down")
+                    Image(systemName: AppIcon.Navigation.down)
                 }
                 .buttonStyle(.plain)
                 .disabled(store.selectedUpstreamRouteRule == nil)
                 Button {
                     store.createUpstreamRouteRule()
                 } label: {
-                    Image(systemName: "plus")
+                    Image(systemName: AppIcon.Action.add)
                 }
                 .buttonStyle(.plain)
                 Button {
                     store.deleteSelectedUpstreamRouteRule()
                 } label: {
-                    Image(systemName: "trash")
+                    Image(systemName: AppIcon.Action.delete)
                 }
                 .buttonStyle(.plain)
                 .disabled(store.selectedUpstreamRouteRule == nil)
@@ -533,14 +533,14 @@ struct NetworkUpstreamView: View {
         switch store.upstreamProxyMode {
         case .automatic:
             Toggle(isOn: $store.askBeforeChainingExistingSystemProxy) {
-                Label("Ask before chaining existing system proxy", systemImage: "questionmark.bubble")
+                Label("Ask before chaining existing system proxy", systemImage: AppIcon.Status.helpBubble)
                     .font(.sora(11, weight: .medium))
             }
             .toggleStyle(.checkbox)
         case .manual:
             EmptyView()
         case .off:
-            NetworkInlineMessage(text: "Direct outbound route selected.", tint: Color.stxMuted, symbol: "arrow.forward")
+            NetworkInlineMessage(text: "Direct outbound route selected.", tint: Color.stxMuted, symbol: AppIcon.Navigation.arrowForward)
         }
     }
 
@@ -654,11 +654,11 @@ struct NetworkUpstreamView: View {
 
     private func probeStepSymbol(_ status: NetworkRouteProbeStepStatus) -> String {
         switch status {
-        case .pending: "clock"
-        case .success: "checkmark.circle.fill"
-        case .warning: "exclamationmark.circle.fill"
-        case .failure: "xmark.circle.fill"
-        case .skipped: "minus.circle"
+        case .pending: AppIcon.Status.clock
+        case .success: AppIcon.Status.successFilled
+        case .warning: AppIcon.Status.errorFilled
+        case .failure: AppIcon.Status.failureCircle
+        case .skipped: AppIcon.Action.removeCircle
         }
     }
 
@@ -679,9 +679,9 @@ struct NetworkUpstreamView: View {
     }
 
     private var upstreamBadgeSymbol: String {
-        if store.upstreamProxyTestResult?.isReachable == false { return "exclamationmark.triangle.fill" }
-        if store.upstreamProxyMode == .off { return "arrow.forward.circle" }
-        return "arrow.triangle.branch"
+        if store.upstreamProxyTestResult?.isReachable == false { return AppIcon.Status.warningFilled }
+        if store.upstreamProxyMode == .off { return AppIcon.Network.direct }
+        return AppIcon.Workspace.git
     }
 
     private var upstreamBadgeTint: Color {
@@ -729,7 +729,7 @@ struct NetworkHelperView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
-                Label("Privileged Helper", systemImage: "wrench.and.screwdriver")
+                Label("Privileged Helper", systemImage: AppIcon.Workspace.ops)
                     .font(.sora(14, weight: .semibold))
                 NetworkStatusBadge(
                     text: helperBadgeText,
@@ -740,7 +740,7 @@ struct NetworkHelperView: View {
                 Button {
                     store.refreshHelperStatus()
                 } label: {
-                    Label("Check", systemImage: "arrow.clockwise")
+                    Label("Check", systemImage: AppIcon.Action.refresh)
                 }
                 .font(.sora(10, weight: .medium))
                 .disabled(store.isHelperWorking)
@@ -749,7 +749,7 @@ struct NetworkHelperView: View {
             NetworkInfoGrid(items: helperInfoItems)
 
             if let detail = store.helperState.detailMessage, !detail.isEmpty {
-                NetworkInlineMessage(text: detail, tint: .red, symbol: "exclamationmark.triangle")
+                NetworkInlineMessage(text: detail, tint: .red, symbol: AppIcon.Status.warning)
             }
 
             helperActions
@@ -773,14 +773,14 @@ struct NetworkHelperView: View {
             Button {
                 store.performHelperAction(.reinstall)
             } label: {
-                Label("Reinstall", systemImage: "arrow.clockwise.circle")
+                Label("Reinstall", systemImage: AppIcon.Action.refreshCircle)
             }
             .disabled(!canRunPrivilegedHelperAction || store.helperState.installedVersion == nil || store.isHelperWorking)
 
             Button {
                 store.performHelperAction(.openSettings)
             } label: {
-                Label("Open Settings", systemImage: "gear")
+                Label("Open Settings", systemImage: AppIcon.Settings.general)
             }
             .disabled(!canRunPrivilegedHelperAction || store.isHelperWorking)
         }
@@ -789,12 +789,12 @@ struct NetworkHelperView: View {
 
     private var helperInfoItems: [NetworkInfoItem] {
         [
-            NetworkInfoItem(title: "Status", value: store.helperState.statusMessage, symbol: "checklist"),
-            NetworkInfoItem(title: "Registration", value: store.helperState.registrationStatus, symbol: "list.bullet.clipboard"),
-            NetworkInfoItem(title: "Reachable", value: store.helperState.isReachable ? "Yes" : "No", symbol: "antenna.radiowaves.left.and.right"),
-            NetworkInfoItem(title: "Bundled", value: bundledHelperText, symbol: "shippingbox"),
-            NetworkInfoItem(title: "Installed", value: installedHelperText, symbol: "externaldrive.badge.checkmark"),
-            NetworkInfoItem(title: "Protocol", value: helperProtocolText, symbol: "point.3.connected.trianglepath.dotted"),
+            NetworkInfoItem(title: "Status", value: store.helperState.statusMessage, symbol: AppIcon.AIConfig.plan),
+            NetworkInfoItem(title: "Registration", value: store.helperState.registrationStatus, symbol: AppIcon.Resource.clipboardList),
+            NetworkInfoItem(title: "Reachable", value: store.helperState.isReachable ? "Yes" : "No", symbol: AppIcon.Network.radio),
+            NetworkInfoItem(title: "Bundled", value: bundledHelperText, symbol: AppIcon.Resource.package),
+            NetworkInfoItem(title: "Installed", value: installedHelperText, symbol: AppIcon.Resource.externalDriveReady),
+            NetworkInfoItem(title: "Protocol", value: helperProtocolText, symbol: AppIcon.Network.webSocket),
         ]
     }
 
@@ -827,12 +827,12 @@ struct NetworkHelperView: View {
 
     private func helperActionSymbol(_ action: NetworkHelperAction) -> String {
         switch action {
-        case .install: "square.and.arrow.down"
-        case .check: "arrow.clockwise"
-        case .update: "arrow.down.circle"
-        case .retry: "arrow.clockwise.circle"
-        case .reinstall: "arrow.triangle.2.circlepath"
-        case .openSettings: "gear"
+        case .install: AppIcon.Action.importFile
+        case .check: AppIcon.Action.refresh
+        case .update: AppIcon.Action.download
+        case .retry: AppIcon.Action.refreshCircle
+        case .reinstall: AppIcon.Action.sync
+        case .openSettings: AppIcon.Settings.systemSettings
         }
     }
 }
@@ -917,7 +917,7 @@ struct NetworkCertificatesView: View {
     private var caCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Label("Root CA", systemImage: "checkmark.shield")
+                Label("Root CA", systemImage: AppIcon.Status.secure)
                     .font(.sora(14, weight: .semibold))
                 Spacer()
                 Text(store.certificateState.isTrusted ? "Trusted" : "Not trusted")
@@ -940,14 +940,14 @@ struct NetworkCertificatesView: View {
                 Button {
                     store.generateRootCA()
                 } label: {
-                    Label("Generate Root CA", systemImage: "plus")
+                    Label("Generate Root CA", systemImage: AppIcon.Action.add)
                 }
                 .disabled(store.isCertificateWorking)
 
                 Button {
                     store.trustRootCA()
                 } label: {
-                    Label("Trust in Keychain", systemImage: "key")
+                    Label("Trust in Keychain", systemImage: AppIcon.Resource.key)
                 }
                 .disabled(store.certificateState.rootCAPath == nil || store.isCertificateWorking)
             }
@@ -965,7 +965,7 @@ struct NetworkCertificatesView: View {
     private var mitmCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Label("HTTPS MITM", systemImage: "lock.open")
+                Label("HTTPS MITM", systemImage: AppIcon.Status.lockOpen)
                     .font(.sora(14, weight: .semibold))
                 Spacer()
                 Toggle("", isOn: $store.certificateState.isMITMEnabled)
@@ -983,7 +983,7 @@ struct NetworkCertificatesView: View {
                     store.addSSLHost(newHost)
                     newHost = ""
                 } label: {
-                    Image(systemName: "plus")
+                    Image(systemName: AppIcon.Action.add)
                 }
                 .help("Add host")
             }
@@ -1001,7 +1001,7 @@ struct NetworkCertificatesView: View {
                             Button {
                                 store.removeSSLHost(host)
                             } label: {
-                                Image(systemName: "xmark")
+                                Image(systemName: AppIcon.Action.close)
                                     .font(.system(size: 9, weight: .bold))
                             }
                             .buttonStyle(.plain)
@@ -1041,7 +1041,7 @@ struct NetworkRulesView: View {
     private var rulesList: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label("Rules", systemImage: "slider.horizontal.3")
+                Label("Rules", systemImage: AppIcon.Workspace.configs)
                     .font(.sora(14, weight: .semibold))
                 Spacer()
                 Menu {
@@ -1049,7 +1049,7 @@ struct NetworkRulesView: View {
                         Button(kind.title) { store.createRule(kind: kind) }
                     }
                 } label: {
-                    Image(systemName: "plus")
+                    Image(systemName: AppIcon.Action.add)
                 }
                 .menuStyle(.borderlessButton)
             }
@@ -1064,12 +1064,12 @@ struct NetworkRulesView: View {
                 Button {
                     store.exportRulesToPasteboard()
                 } label: {
-                    Label("Export", systemImage: "square.and.arrow.up")
+                    Label("Export", systemImage: AppIcon.Action.exportFile)
                 }
                 Button {
                     store.importRulesFromPasteboard()
                 } label: {
-                    Label("Import", systemImage: "square.and.arrow.down")
+                    Label("Import", systemImage: AppIcon.Action.importFile)
                 }
             }
             .font(.sora(10, weight: .medium))
@@ -1233,7 +1233,7 @@ struct NetworkRulesView: View {
                 Button {
                     chooseLocalPath()
                 } label: {
-                    Label("Choose", systemImage: "folder")
+                    Label("Choose", systemImage: AppIcon.Resource.folder)
                 }
             }
             HStack {
@@ -1296,7 +1296,7 @@ struct NetworkRulesView: View {
                     Button {
                         removeHeaderOperation(operation.id)
                     } label: {
-                        Image(systemName: "minus.circle")
+                        Image(systemName: AppIcon.Action.removeCircle)
                     }
                     .buttonStyle(.plain)
                 }
@@ -1304,7 +1304,7 @@ struct NetworkRulesView: View {
             Button {
                 addHeaderOperation()
             } label: {
-                Label("Add Header Operation", systemImage: "plus.circle")
+                Label("Add Header Operation", systemImage: AppIcon.Action.addCircle)
             }
             .buttonStyle(.borderless)
         }
@@ -1340,20 +1340,20 @@ struct NetworkRulesView: View {
             Button {
                 store.saveSelectedRule()
             } label: {
-                Label("Save", systemImage: "checkmark")
+                Label("Save", systemImage: AppIcon.Action.confirm)
             }
             .keyboardShortcut("s", modifiers: [.command])
 
             Button {
                 store.duplicateSelectedRule()
             } label: {
-                Label("Duplicate", systemImage: "plus.square.on.square")
+                Label("Duplicate", systemImage: AppIcon.Action.add)
             }
 
             Button(role: .destructive) {
                 store.deleteSelectedRule()
             } label: {
-                Label("Delete", systemImage: "trash")
+                Label("Delete", systemImage: AppIcon.Action.delete)
             }
 
             Spacer()
@@ -1361,17 +1361,17 @@ struct NetworkRulesView: View {
             Button {
                 store.moveSelectedRuleUp()
             } label: {
-                Image(systemName: "arrow.up")
+                Image(systemName: AppIcon.Navigation.arrowUp)
             }
             Button {
                 store.moveSelectedRuleDown()
             } label: {
-                Image(systemName: "arrow.down")
+                Image(systemName: AppIcon.Navigation.arrowDown)
             }
             Button {
                 store.testSelectedRuleAgainstSelectedFlow()
             } label: {
-                Label("Test", systemImage: "checkmark.circle")
+                Label("Test", systemImage: AppIcon.Status.success)
             }
         }
         .font(.sora(10, weight: .medium))
@@ -1388,18 +1388,18 @@ struct NetworkRulesView: View {
     private var pluginsPanel: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label("Plugins", systemImage: "puzzlepiece.extension")
+                Label("Plugins", systemImage: AppIcon.Resource.plugin)
                     .font(.sora(14, weight: .semibold))
                 Spacer()
                 Button {
                     installPlugin()
                 } label: {
-                    Label("Install", systemImage: "square.and.arrow.down")
+                    Label("Install", systemImage: AppIcon.Action.importFile)
                 }
                 Button {
                     store.refreshPlugins()
                 } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
+                    Label("Refresh", systemImage: AppIcon.Action.refresh)
                 }
             }
             .font(.sora(10, weight: .medium))
@@ -1429,13 +1429,13 @@ struct NetworkRulesView: View {
     private var breakpointsPanel: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label("Breakpoints", systemImage: "pause.circle")
+                Label("Breakpoints", systemImage: AppIcon.Action.pause)
                     .font(.sora(14, weight: .semibold))
                 Spacer()
                 Button {
                     store.refreshBreakpoints()
                 } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
+                    Label("Refresh", systemImage: AppIcon.Action.refresh)
                 }
             }
             .font(.sora(10, weight: .medium))
@@ -1493,17 +1493,17 @@ struct NetworkRulesView: View {
                 Button {
                     store.resolveBreakpoint(item, decision: .execute)
                 } label: {
-                    Label("Continue", systemImage: "play.fill")
+                    Label("Continue", systemImage: AppIcon.Action.start)
                 }
                 Button(role: .destructive) {
                     store.resolveBreakpoint(item, decision: .abort)
                 } label: {
-                    Label("Drop", systemImage: "xmark")
+                    Label("Drop", systemImage: AppIcon.Action.close)
                 }
                 Button {
                     store.resolveBreakpoint(item, decision: .cancel)
                 } label: {
-                    Label("Cancel", systemImage: "arrow.uturn.backward")
+                    Label("Cancel", systemImage: AppIcon.Action.undo)
                 }
                 Spacer()
             }
@@ -1535,13 +1535,13 @@ struct NetworkRulesView: View {
             Button {
                 store.reloadPlugin(plugin)
             } label: {
-                Image(systemName: "arrow.clockwise")
+                Image(systemName: AppIcon.Action.refresh)
             }
             .buttonStyle(.plain)
             Button(role: .destructive) {
                 store.deletePlugin(plugin)
             } label: {
-                Image(systemName: "trash")
+                Image(systemName: AppIcon.Action.delete)
             }
             .buttonStyle(.plain)
         }

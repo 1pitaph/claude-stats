@@ -10,7 +10,7 @@ struct MenuBarLabel: View {
         let summary = env.store.summary(for: prefs.menuBarPeriod, provider: prefs.selectedProvider)
         let value = valueText(summary: summary, metric: prefs.menuBarMetric)
         HStack(spacing: 4) {
-            Image(systemName: "chart.bar.xaxis")
+            Image(systemName: AppIcon.Workspace.usage)
             Text(value)
                 .monospacedDigit()
                 .stxNumericValueTransition(value: value)

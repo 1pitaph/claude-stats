@@ -52,7 +52,7 @@ struct ConfigWorkspaceView: View {
                 Button {
                     refreshActiveSection()
                 } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
+                    Label("Refresh", systemImage: AppIcon.Action.refresh)
                 }
                 .controlSize(.small)
                 .disabled(store.isLoadingActiveSection)
@@ -228,7 +228,7 @@ private struct ConfigOverviewView: View {
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
+                Image(systemName: AppIcon.Navigation.disclosure)
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(Color.stxMuted)
             }
@@ -281,7 +281,7 @@ private struct ConfigOverviewView: View {
                 Button {
                     store.select(.diagnostics)
                 } label: {
-                    Label("Open", systemImage: "arrow.right")
+                    Label("Open", systemImage: AppIcon.Navigation.forward)
                 }
                 .controlSize(.small)
             }
@@ -291,7 +291,7 @@ private struct ConfigOverviewView: View {
                 AIConfigsEmptyState(
                     title: "No diagnostics",
                     message: "Files, providers, skills, and CLI environment checks are clean.",
-                    symbol: "checkmark.circle"
+                    symbol: AppIcon.Status.success
                 )
                 .frame(minHeight: 140)
                 .appSurface(.compactCard(radius: 8, fillOpacity: 0.55, cornerStyle: .circular, maxWidth: nil), padding: nil)
@@ -321,13 +321,13 @@ private struct ConfigSkillFilesView: View {
                     AIConfigsEmptyState(
                         title: store.filesSearchText.isEmpty ? "No skill files" : "No matching skill files",
                         message: "Installed SKILL.md files will appear here as configuration inputs.",
-                        symbol: "sparkles"
+                        symbol: AppIcon.Feature.ai
                     )
                     .frame(minHeight: 320)
                 } else {
                     ForEach(store.filteredSkillFiles) { skill in
                         HStack(alignment: .top, spacing: 10) {
-                            Image(systemName: "sparkles")
+                            Image(systemName: AppIcon.Feature.ai)
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundStyle(Color.stxAccent)
                                 .frame(width: 20)
@@ -354,7 +354,7 @@ private struct ConfigSkillFilesView: View {
                             Button {
                                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: skill.skillMarkdownPath)])
                             } label: {
-                                Image(systemName: "finder")
+                                Image(systemName: AppIcon.Action.revealInFinder)
                             }
                             .controlSize(.small)
                             .help("Reveal SKILL.md")
@@ -386,7 +386,7 @@ private struct ConfigProfilesBackupsView: View {
                 await profiles.reloadBackups()
             }
         } else {
-            AIConfigsEmptyState(title: "Profiles unavailable", message: "Configuration profile services are not attached.", symbol: "archivebox")
+            AIConfigsEmptyState(title: "Profiles unavailable", message: "Configuration profile services are not attached.", symbol: AppIcon.Resource.archive)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
@@ -404,7 +404,7 @@ private struct ConfigProfilesBackupsView: View {
                 Button {
                     Task { await profiles.reload() }
                 } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
+                    Label("Refresh", systemImage: AppIcon.Action.refresh)
                 }
                 .controlSize(.small)
             }
@@ -413,7 +413,7 @@ private struct ConfigProfilesBackupsView: View {
                 AIConfigsEmptyState(
                     title: "No profiles",
                     message: "Capture provider configuration profiles from the Providers page.",
-                    symbol: "archivebox"
+                    symbol: AppIcon.Resource.archive
                 )
                 .frame(minHeight: 180)
             } else {
@@ -437,7 +437,7 @@ private struct ConfigProfilesBackupsView: View {
                 AIConfigsEmptyState(
                     title: "No backups",
                     message: "Backups are created automatically before profile apply or direct file saves.",
-                    symbol: "clock.arrow.circlepath"
+                    symbol: AppIcon.Status.history
                 )
                 .frame(minHeight: 180)
             } else {
@@ -489,7 +489,7 @@ private struct ConfigProfileRow: View {
             }
             Spacer(minLength: 8)
             Button(action: apply) {
-                Label("Apply", systemImage: "arrow.down.doc")
+                Label("Apply", systemImage: AppIcon.Action.downloadDocument)
             }
             .controlSize(.small)
         }
@@ -508,7 +508,7 @@ private struct ConfigBackupRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                Image(systemName: "clock.arrow.circlepath")
+                Image(systemName: AppIcon.Status.history)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Color.stxAccent)
                     .frame(width: 20)
@@ -521,15 +521,15 @@ private struct ConfigBackupRow: View {
                 }
                 Spacer(minLength: 8)
                 Button(action: loadDiff) {
-                    Label("Diff", systemImage: "doc.text.magnifyingglass")
+                    Label("Diff", systemImage: AppIcon.Resource.transcriptSearch)
                 }
                 .controlSize(.small)
                 Button(action: restore) {
-                    Label("Restore", systemImage: "arrow.uturn.backward.circle")
+                    Label("Restore", systemImage: AppIcon.Action.undoCircle)
                 }
                 .controlSize(.small)
                 Button(action: reveal) {
-                    Image(systemName: "finder")
+                    Image(systemName: AppIcon.Action.revealInFinder)
                 }
                 .controlSize(.small)
                 .help("Reveal backup")
@@ -625,7 +625,7 @@ private struct ConfigDiagnosticRow: View {
             Button {
                 openTarget()
             } label: {
-                Image(systemName: "arrow.right")
+                Image(systemName: AppIcon.Navigation.forward)
                     .frame(width: 22, height: 18)
             }
             .controlSize(.small)

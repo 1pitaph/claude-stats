@@ -19,7 +19,7 @@ struct SessionListView: View {
         } else {
             VStack(spacing: 0) {
                 HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(Color.stxMuted)
+                    Image(systemName: AppIcon.Action.search).foregroundStyle(Color.stxMuted)
                     TextField(L10n.string("sessions.search.placeholder", defaultValue: "Search project or title"),
                               text: $vm.searchText)
                         .textFieldStyle(.plain)
@@ -79,7 +79,7 @@ struct SessionListView: View {
                                      defaultValue: "No %@ Data",
                                      provider.shortName))
                 } icon: {
-                    Image(systemName: "tray")
+                    Image(systemName: AppIcon.Resource.tray)
                 }
             } description: {
                 if let path = store.dataDirectoryPath(for: provider) {
