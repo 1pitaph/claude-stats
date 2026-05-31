@@ -147,12 +147,14 @@ class MemoryStore:
 
     def _health_counts(self) -> dict[str, int]:
         conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
         try:
+            memory_rows = conn.execute(
+                "SELECT * FROM memories WHERE extracted_by = 'mem0'"
+            ).fetchall()
+            canonical_memories = _dedupe_memories([dict(row) for row in memory_rows])
             queries = {
                 "event_count": ("SELECT COUNT(*) FROM memory_events", ()),
-                "memory_count": ("SELECT COUNT(*) FROM memories WHERE status = 'active' AND extracted_by = 'mem0'", ()),
-                "total_memory_count": ("SELECT COUNT(*) FROM memories WHERE extracted_by = 'mem0'", ()),
-                "proposal_count": ("SELECT COUNT(*) FROM memories WHERE status = 'proposed' AND extracted_by = 'mem0'", ()),
                 "module_count": ("SELECT COUNT(*) FROM modules", ()),
                 "capture_pending": ("SELECT COUNT(*) FROM source_captures WHERE status = 'pending' AND capture_version = ?", (MEM0_CAPTURE_VERSION,)),
                 "capture_failed": ("SELECT COUNT(*) FROM source_captures WHERE status = 'failed' AND capture_version = ?", (MEM0_CAPTURE_VERSION,)),
@@ -161,7 +163,11 @@ class MemoryStore:
                 "migration_pending": ("SELECT COUNT(*) FROM legacy_memory_migrations WHERE status = 'pending'", ()),
                 "migration_failed": ("SELECT COUNT(*) FROM legacy_memory_migrations WHERE status = 'failed'", ()),
             }
-            return {key: int(conn.execute(sql, params).fetchone()[0]) for key, (sql, params) in queries.items()}
+            counts = {key: int(conn.execute(sql, params).fetchone()[0]) for key, (sql, params) in queries.items()}
+            counts["memory_count"] = sum(1 for memory in canonical_memories if memory.get("status") == "active")
+            counts["total_memory_count"] = len(canonical_memories)
+            counts["proposal_count"] = sum(1 for memory in canonical_memories if memory.get("status") == "proposed")
+            return counts
         finally:
             conn.close()
 
@@ -366,6 +372,7 @@ class MemoryStore:
         if callable(list_memories):
             memories = list_memories(project_id=project_id, status="proposed", memory_type=None, limit=max(1, min(limit, 500)))
             memories = [memory for memory in memories if _canonical_memory_rejection_reason(memory) is None]
+            memories = _dedupe_memories(memories)
             if memories:
                 for memory in memories:
                     self._cache_mem0_memory(memory)
@@ -385,7 +392,7 @@ class MemoryStore:
             """,
             params,
         ).fetchall()
-        memories = [self._memory_row(row) for row in rows]
+        memories = _dedupe_memories([self._memory_row(row) for row in rows])
         return {"memories": [memory for memory in memories if _canonical_memory_rejection_reason(memory) is None]}
 
     def events(self, *, project_id: str | None = None, after_seq: int | None = None, limit: int = 100) -> dict[str, Any]:
@@ -440,23 +447,47 @@ class MemoryStore:
             where.append("m.project_id = ?")
             params.append(project_id)
         sql_where = f"WHERE {' AND '.join(where)}" if where else ""
-        rows = self.conn.execute(
+        module_rows = self.conn.execute(
             f"""
-            SELECT
-                m.*,
-                COUNT(CASE WHEN mem.status = 'active' AND mem.extracted_by = 'mem0' THEN ms.memory_id END) AS memory_count,
-                COUNT(ms.memory_id) AS total_memory_count,
-                MAX(CASE WHEN mem.status = 'active' AND mem.extracted_by = 'mem0' THEN mem.updated_at END) AS updated_at
+            SELECT m.*
             FROM modules m
-            LEFT JOIN memory_scopes ms ON ms.scope_id = m.scope_id
-            LEFT JOIN memories mem ON mem.id = ms.memory_id AND mem.extracted_by = 'mem0'
             {sql_where}
-            GROUP BY m.id
-            ORDER BY memory_count DESC, m.title ASC
+            ORDER BY m.title ASC
             """,
             params,
         ).fetchall()
-        return {"modules": [dict(row) for row in rows]}
+        modules_by_id = {str(row["id"]): dict(row) | {"memory_count": 0, "total_memory_count": 0, "updated_at": None} for row in module_rows}
+
+        memory_params: list[Any] = []
+        memory_where = ["extracted_by = 'mem0'"]
+        if project_id:
+            memory_where.append("project_id = ?")
+            memory_params.append(project_id)
+        memory_rows = self.conn.execute(
+            f"SELECT * FROM memories WHERE {' AND '.join(memory_where)}",
+            memory_params,
+        ).fetchall()
+        for memory in _dedupe_memories([self._memory_row(row) for row in memory_rows]):
+            scope_ids = {
+                str(scope.get("id") or "")
+                for scope in _memory_scopes(memory)
+                if isinstance(scope, dict)
+            }
+            for scope_id in scope_ids:
+                module = modules_by_id.get(scope_id)
+                if module is None:
+                    continue
+                module["total_memory_count"] = int(module.get("total_memory_count") or 0) + 1
+                if memory.get("status") == "active":
+                    module["memory_count"] = int(module.get("memory_count") or 0) + 1
+                    module["updated_at"] = max(
+                        float(module.get("updated_at") or 0),
+                        _memory_number(memory.get("updated_at"), 0),
+                    )
+
+        modules = list(modules_by_id.values())
+        modules.sort(key=lambda item: (-int(item.get("memory_count") or 0), str(item.get("title") or "")))
+        return {"modules": modules}
 
     def memories(
         self,
@@ -485,6 +516,7 @@ class MemoryStore:
                     if any(scope.get("id") == module_id for scope in memory.get("scopes", []) if isinstance(scope, dict))
                 ]
             adapter_memories = [memory for memory in adapter_memories if _canonical_memory_rejection_reason(memory) is None]
+            adapter_memories = _dedupe_memories(adapter_memories)
             if adapter_memories:
                 for memory in adapter_memories:
                     self._cache_mem0_memory(memory)
@@ -518,7 +550,7 @@ class MemoryStore:
             """,
             params,
         ).fetchall()
-        memories = [self._memory_row(row) for row in rows]
+        memories = _dedupe_memories([self._memory_row(row) for row in rows])
         return {"memories": [memory for memory in memories if _canonical_memory_rejection_reason(memory) is None]}
 
     def ingest_source(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -972,21 +1004,31 @@ class MemoryStore:
         }
 
     def projects(self) -> list[dict[str, Any]]:
-        rows = self.conn.execute(
-            """
-            SELECT
+        memory_rows = self.conn.execute("SELECT * FROM memories WHERE extracted_by = 'mem0'").fetchall()
+        projects: dict[str, dict[str, Any]] = {}
+        for memory in _dedupe_memories([self._memory_row(row) for row in memory_rows]):
+            project_id = str(memory.get("project_id") or "")
+            if not project_id:
+                continue
+            project = projects.setdefault(
                 project_id,
-                COUNT(CASE WHEN status = 'active' THEN 1 END) AS memory_count,
-                COUNT(*) AS total_memory_count,
-                SUM(CASE WHEN status = 'proposed' THEN 1 ELSE 0 END) AS proposal_count,
-                MAX(CASE WHEN status = 'active' THEN updated_at END) AS updated_at
-            FROM memories
-            WHERE extracted_by = 'mem0'
-            GROUP BY project_id
-            ORDER BY updated_at DESC
-            """
-        ).fetchall()
-        projects = {str(row["project_id"]): dict(row) for row in rows}
+                {
+                    "project_id": project_id,
+                    "memory_count": 0,
+                    "total_memory_count": 0,
+                    "proposal_count": 0,
+                    "updated_at": None,
+                },
+            )
+            project["total_memory_count"] = int(project.get("total_memory_count") or 0) + 1
+            if memory.get("status") == "active":
+                project["memory_count"] = int(project.get("memory_count") or 0) + 1
+                project["updated_at"] = max(
+                    float(project.get("updated_at") or 0),
+                    _memory_number(memory.get("updated_at"), 0),
+                )
+            if memory.get("status") == "proposed":
+                project["proposal_count"] = int(project.get("proposal_count") or 0) + 1
         for row in self.conn.execute("SELECT project_id, MAX(updated_at) AS updated_at FROM sources GROUP BY project_id"):
             project_id = str(row["project_id"])
             projects.setdefault(
@@ -1191,7 +1233,7 @@ class MemoryStore:
     def review_items(self, *, project_id: str | None = None, limit: int = 100) -> dict[str, Any]:
         proposals = self.proposals(project_id=project_id, limit=limit)["memories"]
         conflicted = self.memories(project_id=project_id, status="conflicted", limit=limit)["memories"]
-        low_confidence = [
+        low_confidence = _dedupe_memories([
             self._memory_row(row)
             for row in self.conn.execute(
                 """
@@ -1205,7 +1247,7 @@ class MemoryStore:
                 """,
                 (project_id, project_id, max(1, min(limit, 100))),
             )
-        ]
+        ])
         return {
             "proposals": proposals,
             "conflicts": conflicted,
@@ -3242,6 +3284,120 @@ def _canonical_memory_rejection_reason(memory: dict[str, Any]) -> str | None:
     return None
 
 
+def _dedupe_memories(memories: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    ordered_keys: list[str] = []
+    by_key: dict[str, dict[str, Any]] = {}
+    for memory in memories:
+        if not isinstance(memory, dict):
+            continue
+        if _canonical_memory_rejection_reason(memory) is not None:
+            continue
+        key = _canonical_memory_key(memory)
+        if key in by_key:
+            by_key[key] = _merge_canonical_memory(by_key[key], memory)
+        else:
+            ordered_keys.append(key)
+            by_key[key] = dict(memory)
+    return [by_key[key] for key in ordered_keys if key in by_key]
+
+
+def _canonical_memory_key(memory: dict[str, Any]) -> str:
+    metadata = _memory_metadata(memory)
+    project_id = _normalized_memory_token(str(memory.get("project_id") or metadata.get("project_id") or ""))
+    memory_type = _normalized_memory_token(str(memory.get("type") or metadata.get("type") or "fact"))
+    claim = str(memory.get("normalized_claim") or metadata.get("normalized_claim") or "").strip()
+    if not claim:
+        claim = str(memory.get("body") or memory.get("memory") or memory.get("text") or "").strip()
+    return "|".join([project_id, memory_type, _normalized_memory_token(claim)])
+
+
+def _normalized_memory_token(value: str) -> str:
+    return re.sub(r"\s+", " ", value.strip().lower())
+
+
+def _merge_canonical_memory(lhs: dict[str, Any], rhs: dict[str, Any]) -> dict[str, Any]:
+    base, other = (rhs, lhs) if _memory_is_better(rhs, lhs) else (lhs, rhs)
+    merged = dict(base)
+    merged["source_refs"] = _merged_source_refs(_memory_source_refs(base), _memory_source_refs(other))
+    merged["scopes"] = _merged_scopes(_memory_scopes(base), _memory_scopes(other))
+    merged["metadata"] = _merged_memory_metadata(base, other)
+    return merged
+
+
+def _memory_is_better(candidate: dict[str, Any], current: dict[str, Any]) -> bool:
+    candidate_rank = (
+        _memory_number(candidate.get("importance"), 0),
+        _memory_number(candidate.get("confidence"), 0),
+        _memory_number(candidate.get("updated_at") or candidate.get("updatedAt"), 0),
+    )
+    current_rank = (
+        _memory_number(current.get("importance"), 0),
+        _memory_number(current.get("confidence"), 0),
+        _memory_number(current.get("updated_at") or current.get("updatedAt"), 0),
+    )
+    return candidate_rank > current_rank
+
+
+def _memory_number(value: Any, default: float = 0) -> float:
+    parsed = _float_or_none(value)
+    return parsed if parsed is not None else default
+
+
+def _merged_source_refs(lhs: list[dict[str, Any]], rhs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    merged: list[dict[str, Any]] = []
+    for ref in lhs + rhs:
+        key = canonical_json(ref)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(ref)
+    return merged
+
+
+def _merged_scopes(lhs: list[dict[str, Any]], rhs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    merged: list[dict[str, Any]] = []
+    for scope in lhs + rhs:
+        key = str(scope.get("id") or canonical_json(scope))
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(scope)
+    return merged
+
+
+def _merged_memory_metadata(base: dict[str, Any], other: dict[str, Any]) -> dict[str, Any]:
+    metadata = dict(_memory_metadata(other))
+    metadata.update(_memory_metadata(base))
+    canonical_id = str(base.get("id") or "")
+    aliases: set[str] = set()
+    for value in [
+        other.get("id"),
+        _memory_metadata(other).get("mem0_id"),
+        _memory_metadata(other).get("legacy_memory_id"),
+        _memory_metadata(base).get("canonical_alias_ids"),
+        _memory_metadata(other).get("canonical_alias_ids"),
+    ]:
+        if not value:
+            continue
+        aliases.update(part.strip() for part in str(value).split(",") if part.strip())
+    aliases.discard(canonical_id)
+    if aliases:
+        metadata["canonical_alias_ids"] = ",".join(sorted(aliases))
+    return metadata
+
+
+def _memory_scopes(memory: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_scopes = memory.get("scopes")
+    if isinstance(raw_scopes, list):
+        return [scope for scope in raw_scopes if isinstance(scope, dict)]
+    raw_scope = memory.get("scope")
+    if isinstance(raw_scope, dict):
+        return [raw_scope]
+    return _json_dict_list(_memory_metadata(memory).get("scopes_json"))
+
+
 def _source_only_config_memory(memory: dict[str, Any]) -> bool:
     refs = _memory_source_refs(memory)
     if any(str(ref.get("kind") or "") in CONFIG_SOURCE_ONLY_KINDS for ref in refs if isinstance(ref, dict)):
@@ -3274,6 +3430,7 @@ def _memory_source_refs(memory: dict[str, Any]) -> list[dict[str, Any]]:
     raw_refs = memory.get("source_refs")
     if isinstance(raw_refs, list):
         refs.extend(ref for ref in raw_refs if isinstance(ref, dict))
+    refs.extend(_json_dict_list(memory.get("source_refs_json")))
     metadata_refs = _json_dict_list(_memory_metadata(memory).get("source_refs_json"))
     refs.extend(metadata_refs)
     return refs
@@ -3281,7 +3438,16 @@ def _memory_source_refs(memory: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _memory_metadata(memory: dict[str, Any]) -> dict[str, Any]:
     metadata = memory.get("metadata")
-    return metadata if isinstance(metadata, dict) else {}
+    if isinstance(metadata, dict):
+        return metadata
+    metadata_json = memory.get("metadata_json")
+    if isinstance(metadata_json, str) and metadata_json.strip():
+        try:
+            decoded = json.loads(metadata_json)
+        except json.JSONDecodeError:
+            return {}
+        return decoded if isinstance(decoded, dict) else {}
+    return {}
 
 
 def _json_dict_list(value: Any) -> list[dict[str, Any]]:

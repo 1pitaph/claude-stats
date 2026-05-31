@@ -6,6 +6,7 @@ struct MemoryLibraryView: View {
 
     private let sidebarWidth: CGFloat = 290
     @State private var sidebarScope: MemoryLibrarySidebarScope = .projects
+    @State private var selectedMemory: CodeMemoryMemory?
 
     var body: some View {
         HStack(spacing: 0) {
@@ -16,6 +17,9 @@ struct MemoryLibraryView: View {
                 .frame(width: 1)
             memoryList
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .sheet(item: $selectedMemory) { memory in
+            MemoryDetailSheet(memory: memory)
         }
     }
 
@@ -75,7 +79,7 @@ struct MemoryLibraryView: View {
                     .padding(.vertical, 8)
             } else {
                 ForEach(store.sortedCodeProjects) { project in
-                    ProjectButton(
+                    MemoryProjectButton(
                         project: project,
                         isSelected: store.codeSelectedProjectID == project.projectID
                     ) {
@@ -178,7 +182,13 @@ struct MemoryLibraryView: View {
                     .frame(minHeight: 320)
                     .padding(18)
                 } else {
-                    MemoryMasonryColumnsView(memories: store.codeMemories, minimumColumnWidth: 260, spacing: 12)
+                    MemoryMasonryColumnsView(
+                        memories: store.codeMemories,
+                        minimumColumnWidth: 260,
+                        spacing: 12
+                    ) { memory in
+                        selectedMemory = memory
+                    }
                         .frame(maxWidth: .infinity, alignment: .topLeading)
                         .padding(18)
                 }
@@ -201,24 +211,32 @@ struct MemoryLibraryView: View {
 }
 
 private struct MemoryMasonryColumnsView: View {
-    let models: [MemoryFactCardModel]
+    let items: [MemoryMasonryItem]
     let minimumColumnWidth: CGFloat
     let spacing: CGFloat
+    let onOpen: (CodeMemoryMemory) -> Void
     @State private var columnCount = 1
 
-    init(memories: [CodeMemoryMemory], minimumColumnWidth: CGFloat, spacing: CGFloat) {
-        self.models = memories.map(MemoryFactCardModel.init(memory:))
+    init(
+        memories: [CodeMemoryMemory],
+        minimumColumnWidth: CGFloat,
+        spacing: CGFloat,
+        onOpen: @escaping (CodeMemoryMemory) -> Void
+    ) {
+        self.items = memories.map(MemoryMasonryItem.init(memory:))
         self.minimumColumnWidth = minimumColumnWidth
         self.spacing = spacing
+        self.onOpen = onOpen
     }
 
     var body: some View {
         HStack(alignment: .top, spacing: resolvedSpacing) {
             ForEach(columns) { column in
                 LazyVStack(alignment: .leading, spacing: resolvedSpacing) {
-                    ForEach(column.models) { model in
-                        MemoryFactCard(model: model)
-                            .equatable()
+                    ForEach(column.items) { item in
+                        MemoryFactCard(model: item.model) {
+                            onOpen(item.memory)
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -243,22 +261,22 @@ private struct MemoryMasonryColumnsView: View {
     }
 
     private var columns: [MemoryMasonryColumn] {
-        Self.columns(for: models, columnCount: columnCount)
+        Self.columns(for: items, columnCount: columnCount)
     }
 
-    nonisolated private static func columns(for models: [MemoryFactCardModel], columnCount: Int) -> [MemoryMasonryColumn] {
+    nonisolated private static func columns(for items: [MemoryMasonryItem], columnCount: Int) -> [MemoryMasonryColumn] {
         let count = max(1, columnCount)
-        var columnModels = Array(repeating: [MemoryFactCardModel](), count: count)
+        var columnItems = Array(repeating: [MemoryMasonryItem](), count: count)
         var columnWeights = Array(repeating: 0, count: count)
 
-        for model in models {
+        for item in items {
             let columnIndex = shortestColumnIndex(in: columnWeights)
-            columnModels[columnIndex].append(model)
-            columnWeights[columnIndex] += model.estimatedWeight
+            columnItems[columnIndex].append(item)
+            columnWeights[columnIndex] += item.model.estimatedWeight
         }
 
-        return columnModels.indices.map { index in
-            MemoryMasonryColumn(id: index, models: columnModels[index])
+        return columnItems.indices.map { index in
+            MemoryMasonryColumn(id: index, items: columnItems[index])
         }
     }
 
@@ -296,9 +314,21 @@ private struct MemoryMasonryColumnsView: View {
     }
 }
 
+private struct MemoryMasonryItem: Identifiable, Equatable, Sendable {
+    let memory: CodeMemoryMemory
+    let model: MemoryFactCardModel
+
+    var id: String { memory.id }
+
+    init(memory: CodeMemoryMemory) {
+        self.memory = memory
+        self.model = MemoryFactCardModel(memory: memory)
+    }
+}
+
 private struct MemoryMasonryColumn: Identifiable {
     let id: Int
-    let models: [MemoryFactCardModel]
+    let items: [MemoryMasonryItem]
 }
 
 private enum MemoryLibrarySidebarScope: String, CaseIterable, Identifiable {
@@ -332,42 +362,6 @@ private enum MemoryLibrarySidebarScope: String, CaseIterable, Identifiable {
         case .modules:
             "Show memory modules"
         }
-    }
-}
-
-private struct ProjectButton: View {
-    let project: CodeMemoryProject
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: isSelected ? "folder.fill" : "folder")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(isSelected ? Color.stxAccent : Color.stxMuted)
-                    .frame(width: 18)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(project.folderDisplayName)
-                        .font(.sora(12, weight: .semibold))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    Text("\(project.memoryCount) active · \(project.totalMemoryCount ?? project.memoryCount) total")
-                        .font(.sora(10).monospaced())
-                        .foregroundStyle(Color.stxMuted)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 6)
-                if let proposalCount = project.proposalCount, proposalCount > 0 {
-                    AIConfigsBadge(text: "\(proposalCount)", color: Color(red: 0.92, green: 0.58, blue: 0.16))
-                }
-            }
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.primary.opacity(isSelected ? 0.095 : 0.045), in: RoundedRectangle(cornerRadius: 7))
-            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Color.stxStroke.opacity(isSelected ? 0.75 : 0.35), lineWidth: 1))
-        }
-        .buttonStyle(.plain)
     }
 }
 

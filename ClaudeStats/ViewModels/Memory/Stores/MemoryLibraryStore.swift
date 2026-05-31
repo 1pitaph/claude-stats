@@ -54,7 +54,7 @@ final class MemoryLibraryStore {
             projects = try await backend.projects()
             let resolvedProjectID = projectID ?? projects.first?.projectID
             modules = try await backend.modules(projectID: resolvedProjectID)
-            memories = try await backend.memories(
+            memories = MemoryCanonicalDeduper.deduplicate(try await backend.memories(
                 filter: CodeMemoryQueryFilter(
                     projectID: resolvedProjectID,
                     moduleID: selectedModuleID,
@@ -62,7 +62,7 @@ final class MemoryLibraryStore {
                     includeGraphFacts: false,
                     limit: 250
                 )
-            )
+            ))
             lastError = nil
         } catch {
             projects = []
@@ -87,7 +87,7 @@ final class MemoryLibraryStore {
     func loadProjectContent(projectID: String?) async {
         do {
             modules = try await backend.modules(projectID: projectID)
-            memories = try await backend.memories(
+            memories = MemoryCanonicalDeduper.deduplicate(try await backend.memories(
                 filter: CodeMemoryQueryFilter(
                     projectID: projectID,
                     moduleID: selectedModuleID,
@@ -95,7 +95,7 @@ final class MemoryLibraryStore {
                     includeGraphFacts: false,
                     limit: 250
                 )
-            )
+            ))
             lastError = nil
         } catch {
             modules = []
@@ -129,7 +129,7 @@ final class MemoryLibraryStore {
 
     func loadMemories(projectID: String?) async {
         do {
-            memories = try await backend.memories(
+            memories = MemoryCanonicalDeduper.deduplicate(try await backend.memories(
                 filter: CodeMemoryQueryFilter(
                     projectID: projectID,
                     moduleID: selectedModuleID,
@@ -137,7 +137,7 @@ final class MemoryLibraryStore {
                     includeGraphFacts: false,
                     limit: 250
                 )
-            )
+            ))
             lastError = nil
         } catch {
             memories = []

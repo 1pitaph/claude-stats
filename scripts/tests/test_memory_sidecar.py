@@ -570,6 +570,174 @@ class MemorySidecarTests(unittest.TestCase):
             self.assertEqual(module["memory_count"], 1)
             self.assertEqual(module["total_memory_count"], 2)
 
+    def test_sqlite_memories_deduplicate_by_canonical_claim_and_count_modules(self):
+        from memoryd.store import MemoryStore
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = MemoryStore(Path(tmp))
+            store.append_event(
+                {
+                    "project_id": "p",
+                    "event_type": "memory.observed",
+                    "after": {
+                        "title": "Canvas resize",
+                        "body": "Resize the WebGL canvas after the sidebar collapses.",
+                        "normalized_claim": "resize canvas after sidebar collapse",
+                        "type": "fact",
+                        "status": "active",
+                        "confidence": 0.80,
+                        "importance": 0.70,
+                        "extracted_by": "mem0",
+                        "scope": {"kind": "module", "key": "p:Core", "title": "Core"},
+                    },
+                    "source_refs": [{"kind": "manual", "uri": "one"}],
+                }
+            )
+            second = store.append_event(
+                {
+                    "project_id": "p",
+                    "event_type": "memory.observed",
+                    "after": {
+                        "title": "Canvas resize",
+                        "body": "Resize the WebGL canvas after the sidebar collapses.",
+                        "normalized_claim": "resize canvas after sidebar collapse",
+                        "type": "fact",
+                        "status": "active",
+                        "confidence": 0.95,
+                        "importance": 0.90,
+                        "extracted_by": "mem0",
+                        "scope": {"kind": "module", "key": "p:UI", "title": "UI"},
+                    },
+                    "source_refs": [{"kind": "manual", "uri": "two"}],
+                }
+            )
+
+            memories = store.memories(project_id="p")["memories"]
+
+            self.assertEqual(len(memories), 1)
+            self.assertEqual(memories[0]["id"], second["memory"]["id"])
+            self.assertEqual({ref["uri"] for ref in memories[0]["source_refs"]}, {"one", "two"})
+            self.assertEqual({scope["title"] for scope in memories[0]["scopes"]}, {"Core", "UI"})
+            self.assertEqual(store.health()["memory_count"], 1)
+            self.assertEqual(store.health()["total_memory_count"], 1)
+            project = store.projects()[0]
+            self.assertEqual(project["memory_count"], 1)
+            self.assertEqual(project["total_memory_count"], 1)
+            module_counts = {module["title"]: module["memory_count"] for module in store.modules(project_id="p")["modules"]}
+            self.assertEqual(module_counts["Core"], 1)
+            self.assertEqual(module_counts["UI"], 1)
+
+    def test_memories_deduplicate_adapter_records_by_canonical_claim(self):
+        from memoryd.store import MemoryStore
+
+        with tempfile.TemporaryDirectory() as tmp:
+            adapters = FakeMem0Adapters()
+            adapters.memories["mem0:a"] = {
+                "id": "mem0:a",
+                "project_id": "p",
+                "type": "fact",
+                "status": "active",
+                "title": "Sidebar canvas resize",
+                "body": "Resize the WebGL canvas after the sidebar collapses.",
+                "normalized_claim": "resize canvas after sidebar collapse",
+                "confidence": 0.90,
+                "importance": 0.70,
+                "scopes": [{"id": "p:Editor", "kind": "module", "key": "p:Editor", "title": "Editor"}],
+                "source_refs": [{"kind": "manual", "uri": "one"}],
+                "metadata": {"adapter": "mem0"},
+                "created_at": 1,
+                "updated_at": 1,
+                "extracted_by": "mem0",
+            }
+            adapters.memories["mem0:b"] = {
+                **adapters.memories["mem0:a"],
+                "id": "mem0:b",
+                "confidence": 0.95,
+                "importance": 0.90,
+                "source_refs": [{"kind": "manual", "uri": "two"}],
+                "updated_at": 2,
+            }
+            store = MemoryStore(Path(tmp), adapters=adapters)
+
+            memories = store.memories(project_id="p")["memories"]
+
+            self.assertEqual(len(memories), 1)
+            self.assertEqual(memories[0]["id"], "mem0:b")
+            self.assertEqual({ref["uri"] for ref in memories[0]["source_refs"]}, {"one", "two"})
+            self.assertEqual(memories[0]["metadata"]["canonical_alias_ids"], "mem0:a")
+            self.assertEqual(store.health()["memory_count"], 1)
+            self.assertEqual(store.projects()[0]["memory_count"], 1)
+            self.assertEqual(store.modules(project_id="p")["modules"][0]["memory_count"], 1)
+
+    def test_memories_deduplicate_same_id_adapter_records(self):
+        from memoryd.store import MemoryStore
+
+        class DuplicateListAdapters(FakeMem0Adapters):
+            def list_memories(self, *, project_id, status, memory_type, limit):
+                memory = {
+                    "id": "mem0:dupe",
+                    "project_id": "p",
+                    "type": "fact",
+                    "status": "active",
+                    "title": "Duplicate",
+                    "body": "Only one card should render.",
+                    "normalized_claim": "only one card should render",
+                    "confidence": 0.80,
+                    "importance": 0.60,
+                    "scopes": [],
+                    "source_refs": [{"kind": "manual", "uri": "one"}],
+                    "metadata": {"adapter": "mem0"},
+                    "created_at": 1,
+                    "updated_at": 1,
+                    "extracted_by": "mem0",
+                }
+                return [memory, dict(memory)]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = MemoryStore(Path(tmp), adapters=DuplicateListAdapters())
+
+            memories = store.memories(project_id="p")["memories"]
+
+            self.assertEqual(len(memories), 1)
+            self.assertEqual(memories[0]["id"], "mem0:dupe")
+
+    def test_proposals_and_review_items_deduplicate_memories(self):
+        from memoryd.store import MemoryStore
+
+        with tempfile.TemporaryDirectory() as tmp:
+            adapters = FakeMem0Adapters()
+            adapters.memories["mem0:p1"] = {
+                "id": "mem0:p1",
+                "project_id": "p",
+                "type": "fact",
+                "status": "proposed",
+                "title": "Proposal",
+                "body": "The same proposed memory.",
+                "normalized_claim": "the same proposed memory",
+                "confidence": 0.70,
+                "importance": 0.60,
+                "scopes": [],
+                "source_refs": [{"kind": "manual", "uri": "one"}],
+                "metadata": {"adapter": "mem0"},
+                "created_at": 1,
+                "updated_at": 1,
+                "extracted_by": "mem0",
+            }
+            adapters.memories["mem0:p2"] = {
+                **adapters.memories["mem0:p1"],
+                "id": "mem0:p2",
+                "source_refs": [{"kind": "manual", "uri": "two"}],
+                "updated_at": 2,
+            }
+            store = MemoryStore(Path(tmp), adapters=adapters)
+
+            proposals = store.proposals(project_id="p")["memories"]
+            review = store.review_items(project_id="p")
+
+            self.assertEqual(len(proposals), 1)
+            self.assertEqual({ref["uri"] for ref in proposals[0]["source_refs"]}, {"one", "two"})
+            self.assertEqual(len(review["proposals"]), 1)
+
     def test_accept_marks_proposed_memory_active(self):
         from memoryd.store import MemoryStore
 

@@ -1,15 +1,9 @@
 import AppKit
 import SwiftUI
 
-struct MemoryStatusBadge: View {
-    let text: String
-
-    var body: some View {
-        AIConfigsBadge(text: text, color: color)
-    }
-
-    private var color: Color {
-        switch text {
+enum MemoryStatusStyle {
+    static func color(for status: String) -> Color {
+        switch status {
         case "active":
             Color.stxAccent
         case "proposed":
@@ -19,6 +13,14 @@ struct MemoryStatusBadge: View {
         default:
             Color.stxMuted
         }
+    }
+}
+
+struct MemoryStatusBadge: View {
+    let text: String
+
+    var body: some View {
+        AIConfigsBadge(text: text, color: MemoryStatusStyle.color(for: text))
     }
 }
 
@@ -224,13 +226,16 @@ struct MemorySourceRefPillModel: Identifiable, Equatable, Sendable {
 
 struct MemoryFactCard: View, Equatable {
     let model: MemoryFactCardModel
+    var onOpen: (() -> Void)?
 
-    init(model: MemoryFactCardModel) {
+    init(model: MemoryFactCardModel, onOpen: (() -> Void)? = nil) {
         self.model = model
+        self.onOpen = onOpen
     }
 
-    init(memory: CodeMemoryMemory) {
+    init(memory: CodeMemoryMemory, onOpen: (() -> Void)? = nil) {
         self.model = MemoryFactCardModel(memory: memory)
+        self.onOpen = onOpen
     }
 
     nonisolated static func == (lhs: MemoryFactCard, rhs: MemoryFactCard) -> Bool {
@@ -238,6 +243,35 @@ struct MemoryFactCard: View, Equatable {
     }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            openContent
+
+            MemoryCompactFactsView(facts: model.facts)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    onOpen?()
+                }
+
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                MemoryCopyIconButton(value: model.body, label: "Copy Text")
+                MemoryCopyIconButton(value: model.id, label: "Copy ID", systemImage: "link")
+            }
+
+            if !model.sourceRefs.isEmpty {
+                MemorySourceRefsCompactView(sourceRefs: model.sourceRefs)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        onOpen?()
+                    }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 176, alignment: .topLeading)
+        .appSurface(.compactCard(radius: 8, fillOpacity: 0.62, cornerStyle: .circular, maxWidth: nil), padding: nil)
+    }
+
+    private var openContent: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 9) {
                 Image(systemName: model.icon)
@@ -262,22 +296,12 @@ struct MemoryFactCard: View, Equatable {
                 .font(.sora(11))
                 .foregroundStyle(Color.stxMuted)
                 .fixedSize(horizontal: false, vertical: true)
-
-            MemoryCompactFactsView(facts: model.facts)
-
-            HStack(spacing: 8) {
-                Spacer(minLength: 0)
-                MemoryCopyIconButton(value: model.body, label: "Copy Text")
-                MemoryCopyIconButton(value: model.id, label: "Copy ID", systemImage: "link")
-            }
-
-            if !model.sourceRefs.isEmpty {
-                MemorySourceRefsCompactView(sourceRefs: model.sourceRefs)
-            }
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, minHeight: 176, alignment: .topLeading)
-        .appSurface(.compactCard(radius: 8, fillOpacity: 0.62, cornerStyle: .circular, maxWidth: nil), padding: nil)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onOpen?()
+        }
     }
 }
 
