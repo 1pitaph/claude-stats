@@ -95,6 +95,18 @@ struct GitAnalyzer: Sendable {
         return Self.parseLog(output, repoID: repo.id)
     }
 
+    func latestCommitDate(in repo: GitRepo, authorEmail: String?) -> Date? {
+        guard isAvailable else { return nil }
+        var args = ["-C", repo.rootPath, "log", "-1", "--format=%ct"]
+        if let authorEmail, !authorEmail.isEmpty {
+            args.append("--author=\(authorEmail)")
+        }
+        guard let output = runGit(args, timeout: 10)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              let timestamp = Double(output) else { return nil }
+        return Date(timeIntervalSince1970: timestamp)
+    }
+
     /// Files tracked by git at `HEAD` / the index. Untracked and ignored files
     /// are intentionally excluded so repository code stats remain reproducible.
     func trackedFiles(in repo: GitRepo) -> [String] {

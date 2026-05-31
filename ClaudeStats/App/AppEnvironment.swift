@@ -177,7 +177,8 @@ final class AppEnvironment {
         )
         await memory.startCodeMemorySidecar(
             localAIEnvironment: launch.legacyLocalAIEnvironment,
-            modelRuntimeConfig: launch.runtimeConfig
+            modelRuntimeConfig: launch.runtimeConfig,
+            sessions: store.sessions
         )
     }
 

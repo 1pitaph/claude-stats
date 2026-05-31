@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct MemoryLibraryView: View {
+    @Environment(AppEnvironment.self) private var env
     @Bindable var store: MemoryStore
 
     private let sidebarWidth: CGFloat = 290
@@ -73,7 +74,7 @@ struct MemoryLibraryView: View {
                 MemoryMutedLine(text: store.codeHealth == nil ? "sidecar offline" : "No projects")
                     .padding(.vertical, 8)
             } else {
-                ForEach(store.codeProjects) { project in
+                ForEach(store.sortedCodeProjects) { project in
                     ProjectButton(
                         project: project,
                         isSelected: store.codeSelectedProjectID == project.projectID
@@ -147,12 +148,20 @@ struct MemoryLibraryView: View {
                 Spacer(minLength: 8)
 
                 Button {
-                    Task { await store.library.loadMemories(projectID: store.codeSelectedProjectID) }
+                    Task { await store.refreshCodeMemoryStatus(sessions: env.store.sessions) }
                 } label: {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
                 .controlSize(.small)
-                .disabled(store.library.isLoading)
+                .disabled(store.isCodeMemoryLoading)
+
+                if store.library.isLoadingProjectSortMetadata {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .frame(width: 16)
+                }
+
+                projectSortPicker
             }
             .padding(14)
 
@@ -169,114 +178,127 @@ struct MemoryLibraryView: View {
                     .frame(minHeight: 320)
                     .padding(18)
                 } else {
-                    MemoryMasonryLayout(minimumColumnWidth: 260, spacing: 12) {
-                        ForEach(store.codeMemories) { memory in
-                            MemoryFactCard(memory: memory)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-                    .padding(18)
+                    MemoryMasonryColumnsView(memories: store.codeMemories, minimumColumnWidth: 260, spacing: 12)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                        .padding(18)
                 }
             }
         }
     }
+
+    private var projectSortPicker: some View {
+        @Bindable var library = store.library
+        return PillSegmentedBar(
+            MemoryProjectSortMode.allCases,
+            selection: $library.projectSortMode,
+            style: .standard,
+            help: { $0.help },
+            accessibilityLabel: { "Sort projects by \($0.title)" }
+        ) { mode, _ in
+            Text(mode.title)
+        }
+    }
 }
 
-private struct MemoryMasonryLayout: Layout {
-    var minimumColumnWidth: CGFloat
-    var spacing: CGFloat
+private struct MemoryMasonryColumnsView: View {
+    let models: [MemoryFactCardModel]
+    let minimumColumnWidth: CGFloat
+    let spacing: CGFloat
+    @State private var columnCount = 1
 
-    private var resolvedMinimumColumnWidth: CGFloat {
-        guard minimumColumnWidth.isFinite, minimumColumnWidth > 0 else { return 260 }
-        return minimumColumnWidth
+    init(memories: [CodeMemoryMemory], minimumColumnWidth: CGFloat, spacing: CGFloat) {
+        self.models = memories.map(MemoryFactCardModel.init(memory:))
+        self.minimumColumnWidth = minimumColumnWidth
+        self.spacing = spacing
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: resolvedSpacing) {
+            ForEach(columns) { column in
+                LazyVStack(alignment: .leading, spacing: resolvedSpacing) {
+                    ForEach(column.models) { model in
+                        MemoryFactCard(model: model)
+                            .equatable()
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .onGeometryChange(for: Int.self) { proxy in
+            Self.resolvedColumnCount(
+                for: proxy.size.width,
+                minimumColumnWidth: minimumColumnWidth,
+                spacing: spacing
+            )
+        } action: { newColumnCount in
+            if columnCount != newColumnCount {
+                columnCount = newColumnCount
+            }
+        }
     }
 
     private var resolvedSpacing: CGFloat {
-        guard spacing.isFinite, spacing > 0 else { return 0 }
-        return spacing
+        Self.resolvedSpacing(spacing)
     }
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache _: inout ()) -> CGSize {
-        let width = resolvedWidth(proposal.width)
-        let layout = masonryLayout(width: width, subviews: subviews)
-        return CGSize(width: width, height: layout.height)
+    private var columns: [MemoryMasonryColumn] {
+        Self.columns(for: models, columnCount: columnCount)
     }
 
-    func placeSubviews(in bounds: CGRect, proposal _: ProposedViewSize, subviews: Subviews, cache _: inout ()) {
-        let layout = masonryLayout(width: resolvedWidth(bounds.width), subviews: subviews)
-        for index in subviews.indices {
-            guard index < layout.positions.count else { continue }
-            subviews[index].place(
-                at: CGPoint(
-                    x: bounds.minX + layout.positions[index].x,
-                    y: bounds.minY + layout.positions[index].y
-                ),
-                anchor: .topLeading,
-                proposal: ProposedViewSize(width: layout.columnWidth, height: layout.sizes[index].height)
-            )
+    nonisolated private static func columns(for models: [MemoryFactCardModel], columnCount: Int) -> [MemoryMasonryColumn] {
+        let count = max(1, columnCount)
+        var columnModels = Array(repeating: [MemoryFactCardModel](), count: count)
+        var columnWeights = Array(repeating: 0, count: count)
+
+        for model in models {
+            let columnIndex = shortestColumnIndex(in: columnWeights)
+            columnModels[columnIndex].append(model)
+            columnWeights[columnIndex] += model.estimatedWeight
+        }
+
+        return columnModels.indices.map { index in
+            MemoryMasonryColumn(id: index, models: columnModels[index])
         }
     }
 
-    private func resolvedWidth(_ width: CGFloat?) -> CGFloat {
-        guard let width, width.isFinite, width > 0 else { return resolvedMinimumColumnWidth }
-        return width
-    }
-
-    private func masonryLayout(width: CGFloat, subviews: Subviews) -> MemoryMasonryLayoutResult {
-        let availableWidth = resolvedWidth(width)
-        let minimumColumnWidth = resolvedMinimumColumnWidth
-        let spacing = resolvedSpacing
-
-        guard !subviews.isEmpty else {
-            return MemoryMasonryLayoutResult(columnWidth: availableWidth, positions: [], sizes: [], height: 0)
-        }
-
-        let rawColumnCount = (availableWidth + spacing) / (minimumColumnWidth + spacing)
-        let columnCount = max(1, Int(rawColumnCount.rounded(.down)))
-        let columnWidth = max((availableWidth - CGFloat(columnCount - 1) * spacing) / CGFloat(columnCount), 1)
-        var columnHeights = Array(repeating: CGFloat.zero, count: columnCount)
-        var positions: [CGPoint] = []
-        var sizes: [CGSize] = []
-        positions.reserveCapacity(subviews.count)
-        sizes.reserveCapacity(subviews.count)
-
-        for subview in subviews {
-            let measuredSize = subview.sizeThatFits(ProposedViewSize(width: columnWidth, height: nil))
-            let height = measuredSize.height.isFinite ? max(measuredSize.height, 0) : 0
-            let size = CGSize(width: columnWidth, height: height)
-            let columnIndex = shortestColumnIndex(in: columnHeights)
-            let y = columnHeights[columnIndex] == 0 ? 0 : columnHeights[columnIndex] + spacing
-            let x = CGFloat(columnIndex) * (columnWidth + spacing)
-            positions.append(CGPoint(x: x, y: y))
-            sizes.append(size)
-            columnHeights[columnIndex] = y + size.height
-        }
-
-        let height = columnHeights.max() ?? 0
-        return MemoryMasonryLayoutResult(
-            columnWidth: columnWidth,
-            positions: positions,
-            sizes: sizes,
-            height: height.isFinite ? height : 0
-        )
-    }
-
-    private func shortestColumnIndex(in heights: [CGFloat]) -> Int {
+    nonisolated private static func shortestColumnIndex(in weights: [Int]) -> Int {
         var bestIndex = 0
-        var bestHeight = heights[0]
-        for index in heights.indices.dropFirst() where heights[index] < bestHeight {
+        var bestWeight = weights[0]
+        for index in weights.indices.dropFirst() where weights[index] < bestWeight {
             bestIndex = index
-            bestHeight = heights[index]
+            bestWeight = weights[index]
         }
         return bestIndex
     }
+
+    nonisolated private static func resolvedColumnCount(
+        for width: CGFloat,
+        minimumColumnWidth: CGFloat,
+        spacing: CGFloat
+    ) -> Int {
+        guard width.isFinite, width > 0 else { return 1 }
+        let minimumColumnWidth = resolvedMinimumColumnWidth(minimumColumnWidth)
+        let spacing = resolvedSpacing(spacing)
+        let rawColumnCount = (width + spacing) / (minimumColumnWidth + spacing)
+        guard rawColumnCount.isFinite, rawColumnCount > 0 else { return 1 }
+        return max(1, Int(rawColumnCount.rounded(.down)))
+    }
+
+    nonisolated private static func resolvedMinimumColumnWidth(_ width: CGFloat) -> CGFloat {
+        guard width.isFinite, width > 0 else { return 260 }
+        return width
+    }
+
+    nonisolated private static func resolvedSpacing(_ spacing: CGFloat) -> CGFloat {
+        guard spacing.isFinite, spacing > 0 else { return 0 }
+        return spacing
+    }
 }
 
-private struct MemoryMasonryLayoutResult {
-    let columnWidth: CGFloat
-    let positions: [CGPoint]
-    let sizes: [CGSize]
-    let height: CGFloat
+private struct MemoryMasonryColumn: Identifiable {
+    let id: Int
+    let models: [MemoryFactCardModel]
 }
 
 private enum MemoryLibrarySidebarScope: String, CaseIterable, Identifiable {

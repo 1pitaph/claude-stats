@@ -19,6 +19,56 @@ struct CodeMemoryStoreTests {
     }
 
     @MainActor
+    @Test("Project sort mode defaults to git and persists")
+    func projectSortModeDefaultsToGitAndPersists() async throws {
+        let defaultsName = "MemoryProjectSort-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let backend = FakeCodeMemoryBackend()
+        let resolver = FakeMemoryProjectSortMetadataResolver(metadata: .empty)
+        let store = MemoryStore(codeBackend: backend, defaults: defaults, projectSortMetadataResolver: resolver)
+
+        #expect(store.library.projectSortMode == .recentGitCommit)
+
+        store.library.projectSortMode = .alphabetical
+        let restored = MemoryStore(codeBackend: backend, defaults: defaults, projectSortMetadataResolver: resolver)
+
+        #expect(restored.library.projectSortMode == .alphabetical)
+    }
+
+    @MainActor
+    @Test("Initial refresh selects first sorted project and sort changes preserve selection")
+    func initialRefreshSelectsFirstSortedProjectAndSortChangesPreserveSelection() async throws {
+        let alpha = CodeMemoryProject(projectID: "/repos/alpha", memoryCount: 0, updatedAt: nil)
+        let beta = CodeMemoryProject(projectID: "/repos/beta", memoryCount: 0, updatedAt: nil)
+        let backend = FakeCodeMemoryBackend()
+        backend.projectResponse = [alpha, beta]
+        let alphaKey = try #require(MemoryProjectIdentity.normalizedPathKey(for: alpha.projectID))
+        let betaKey = try #require(MemoryProjectIdentity.normalizedPathKey(for: beta.projectID))
+        let resolver = FakeMemoryProjectSortMetadataResolver(
+            metadata: MemoryProjectSortMetadata(
+                gitCommitDatesByProjectID: [
+                    alphaKey: Date(timeIntervalSince1970: 1_000),
+                    betaKey: Date(timeIntervalSince1970: 2_000),
+                ],
+                sessionActivityDatesByProjectID: [:]
+            )
+        )
+        let store = MemoryStore(codeBackend: backend, projectSortMetadataResolver: resolver)
+
+        await store.refreshCodeMemoryStatus()
+
+        #expect(store.sortedCodeProjects.map(\.projectID) == [beta.projectID, alpha.projectID])
+        #expect(store.codeSelectedProjectID == beta.projectID)
+
+        await store.selectLibraryProject(alpha.projectID)
+        store.library.projectSortMode = .alphabetical
+
+        #expect(store.sortedCodeProjects.map(\.projectID) == [alpha.projectID, beta.projectID])
+        #expect(store.codeSelectedProjectID == alpha.projectID)
+    }
+
+    @MainActor
     @Test("Diagnostics retention persists and configures the backend")
     func diagnosticsRetentionPersistsAndConfiguresBackend() async throws {
         let backend = FakeCodeMemoryBackend()
@@ -608,7 +658,22 @@ struct CodeMemoryStoreTests {
     }
 }
 
+private struct FakeMemoryProjectSortMetadataResolver: MemoryProjectSortMetadataResolving {
+    let response: MemoryProjectSortMetadata
+
+    init(metadata: MemoryProjectSortMetadata) {
+        self.response = metadata
+    }
+
+    func metadata(projects: [CodeMemoryProject], sessions: [Session]) async -> MemoryProjectSortMetadata {
+        response
+    }
+}
+
 private final class FakeCodeMemoryBackend: CodeMemoryBackend, @unchecked Sendable {
+    var projectResponse: [CodeMemoryProject] = [
+        CodeMemoryProject(projectID: "claude-stats", memoryCount: 1, updatedAt: nil),
+    ]
     var searchQueries: [String] = []
     var contextQueries: [String] = []
     var acceptedMemoryIDs: [String] = []
@@ -640,7 +705,7 @@ private final class FakeCodeMemoryBackend: CodeMemoryBackend, @unchecked Sendabl
     }
 
     func projects() async throws -> [CodeMemoryProject] {
-        [CodeMemoryProject(projectID: "claude-stats", memoryCount: 1, updatedAt: nil)]
+        projectResponse
     }
 
     func search(query: String, projectID: String?, limit: Int) async throws -> CodeMemorySearchResponse {

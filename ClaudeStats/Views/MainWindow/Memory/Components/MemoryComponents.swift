@@ -115,72 +115,52 @@ struct MemoryFactRow: View {
     }
 }
 
-struct MemoryFactCard: View {
-    let memory: CodeMemoryMemory
+struct MemoryFactCardModel: Identifiable, Equatable, Sendable {
+    let id: String
+    let title: String
+    let body: String
+    let type: String
+    let status: String
+    let reviewReason: String?
+    let icon: String
+    let facts: [MemoryCompactFactModel]
+    let sourceRefs: [MemorySourceRefPillModel]
+    let estimatedWeight: Int
 
-    private static let factColumns = [
-        GridItem(.adaptive(minimum: 126), spacing: 8, alignment: .topLeading),
-    ]
+    init(memory: CodeMemoryMemory) {
+        id = memory.id
+        title = memory.title
+        body = memory.body
+        type = memory.type
+        status = memory.status
+        let reviewReason = memory.reviewReason?.isEmpty == false ? memory.reviewReason : nil
+        self.reviewReason = reviewReason
+        icon = Self.icon(for: memory.type)
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 9) {
-                Image(systemName: icon)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color.stxAccent)
-                    .frame(width: 18, height: 18)
-                    .padding(.top, 1)
-
-                Text(memory.title)
-                    .font(.sora(13, weight: .semibold))
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            MemoryInlineWrapLayout(spacing: 6, rowSpacing: 6) {
-                AIConfigsBadge(text: memory.type, color: Color.stxMuted)
-                MemoryStatusBadge(text: memory.status)
-                if let reviewReason = memory.reviewReason, !reviewReason.isEmpty {
-                    AIConfigsBadge(text: reviewReason, color: Color.stxMuted)
-                        .frame(maxWidth: 170, alignment: .leading)
-                        .truncationMode(.tail)
-                }
-            }
-
-            Text(memory.body)
-                .font(.sora(11))
-                .foregroundStyle(Color.stxMuted)
-                .fixedSize(horizontal: false, vertical: true)
-
-            LazyVGrid(columns: Self.factColumns, alignment: .leading, spacing: 6) {
-                compactFact("project", memory.projectID)
-                compactFact("confidence", String(format: "%.2f", memory.confidence))
-                compactFact("importance", String(format: "%.2f", memory.importance))
-                if let validAt = memory.validAt {
-                    compactFact("valid", MemoryFormat.timestamp(validAt))
-                }
-                if let invalidAt = memory.invalidAt {
-                    compactFact("invalid", MemoryFormat.timestamp(invalidAt))
-                }
-            }
-
-            HStack(spacing: 8) {
-                Spacer(minLength: 0)
-                MemoryCopyIconButton(value: memory.body, label: "Copy Text")
-                MemoryCopyIconButton(value: memory.id, label: "Copy ID", systemImage: "link")
-            }
-
-            if !memory.sourceRefs.isEmpty {
-                MemorySourceRefsView(sourceRefs: memory.sourceRefs)
-            }
+        var facts = [
+            MemoryCompactFactModel(label: "project", value: memory.projectID),
+            MemoryCompactFactModel(label: "confidence", value: String(format: "%.2f", memory.confidence)),
+            MemoryCompactFactModel(label: "importance", value: String(format: "%.2f", memory.importance)),
+        ]
+        if let validAt = memory.validAt {
+            facts.append(MemoryCompactFactModel(label: "valid", value: MemoryFormat.timestamp(validAt)))
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, minHeight: 176, alignment: .topLeading)
-        .appSurface(.compactCard(radius: 8, fillOpacity: 0.62, cornerStyle: .circular, maxWidth: nil), padding: nil)
+        if let invalidAt = memory.invalidAt {
+            facts.append(MemoryCompactFactModel(label: "invalid", value: MemoryFormat.timestamp(invalidAt)))
+        }
+        self.facts = facts
+        sourceRefs = memory.sourceRefs.map(MemorySourceRefPillModel.init(sourceRef:))
+        estimatedWeight = Self.estimatedWeight(
+            title: memory.title,
+            body: memory.body,
+            factCount: facts.count,
+            sourceRefCount: memory.sourceRefs.count,
+            hasReviewReason: reviewReason != nil
+        )
     }
 
-    private var icon: String {
-        switch memory.type {
+    private static func icon(for type: String) -> String {
+        switch type {
         case "command", "workflow":
             "terminal"
         case "risk":
@@ -194,11 +174,155 @@ struct MemoryFactCard: View {
         }
     }
 
-    private func compactFact(_ label: String, _ value: String) -> some View {
-        HStack(spacing: 4) {
-            Text(label)
+    private static func estimatedWeight(
+        title: String,
+        body: String,
+        factCount: Int,
+        sourceRefCount: Int,
+        hasReviewReason: Bool
+    ) -> Int {
+        let titleLines = estimatedLineCount(for: title, charactersPerLine: 34, maximum: 2)
+        let bodyLines = estimatedLineCount(for: body, charactersPerLine: 48, maximum: nil)
+        let badgeLines = hasReviewReason ? 2 : 1
+        return 86
+            + titleLines * 20
+            + badgeLines * 22
+            + bodyLines * 15
+            + factCount * 24
+            + (sourceRefCount > 0 ? 28 : 0)
+    }
+
+    private static func estimatedLineCount(for text: String, charactersPerLine: Int, maximum: Int?) -> Int {
+        let hardLineCount = text.filter(\.isNewline).count + 1
+        let wrappedLineCount = max(1, Int((Double(text.count) / Double(charactersPerLine)).rounded(.up)))
+        let lineCount = max(hardLineCount, wrappedLineCount)
+        if let maximum {
+            return min(maximum, lineCount)
+        }
+        return lineCount
+    }
+}
+
+struct MemoryCompactFactModel: Identifiable, Equatable, Sendable {
+    let label: String
+    let value: String
+
+    var id: String { label }
+}
+
+struct MemorySourceRefPillModel: Identifiable, Equatable, Sendable {
+    let id: String
+    let label: String
+    let helpText: String
+
+    init(sourceRef: CodeMemorySourceRef) {
+        id = sourceRef.id
+        label = sourceRef.label
+        helpText = sourceRef.helpText
+    }
+}
+
+struct MemoryFactCard: View, Equatable {
+    let model: MemoryFactCardModel
+
+    init(model: MemoryFactCardModel) {
+        self.model = model
+    }
+
+    init(memory: CodeMemoryMemory) {
+        self.model = MemoryFactCardModel(memory: memory)
+    }
+
+    nonisolated static func == (lhs: MemoryFactCard, rhs: MemoryFactCard) -> Bool {
+        lhs.model == rhs.model
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 9) {
+                Image(systemName: model.icon)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color.stxAccent)
+                    .frame(width: 18, height: 18)
+                    .padding(.top, 1)
+
+                Text(model.title)
+                    .font(.sora(13, weight: .semibold))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            MemoryCardBadges(
+                type: model.type,
+                status: model.status,
+                reviewReason: model.reviewReason
+            )
+
+            Text(model.body)
+                .font(.sora(11))
                 .foregroundStyle(Color.stxMuted)
-            Text(value)
+                .fixedSize(horizontal: false, vertical: true)
+
+            MemoryCompactFactsView(facts: model.facts)
+
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                MemoryCopyIconButton(value: model.body, label: "Copy Text")
+                MemoryCopyIconButton(value: model.id, label: "Copy ID", systemImage: "link")
+            }
+
+            if !model.sourceRefs.isEmpty {
+                MemorySourceRefsCompactView(sourceRefs: model.sourceRefs)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 176, alignment: .topLeading)
+        .appSurface(.compactCard(radius: 8, fillOpacity: 0.62, cornerStyle: .circular, maxWidth: nil), padding: nil)
+    }
+}
+
+private struct MemoryCardBadges: View {
+    let type: String
+    let status: String
+    let reviewReason: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                AIConfigsBadge(text: type, color: Color.stxMuted)
+                MemoryStatusBadge(text: status)
+            }
+
+            if let reviewReason {
+                AIConfigsBadge(text: reviewReason, color: Color.stxMuted)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+}
+
+private struct MemoryCompactFactsView: View {
+    let facts: [MemoryCompactFactModel]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(facts) { fact in
+                MemoryCompactFactPill(fact: fact)
+            }
+        }
+    }
+}
+
+private struct MemoryCompactFactPill: View {
+    let fact: MemoryCompactFactModel
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(fact.label)
+                .foregroundStyle(Color.stxMuted)
+            Text(fact.value)
                 .foregroundStyle(.primary)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -208,6 +332,61 @@ struct MemoryFactCard: View {
         .padding(.vertical, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 6))
+    }
+}
+
+private struct MemorySourceRefsCompactView: View {
+    let sourceRefs: [MemorySourceRefPillModel]
+
+    var body: some View {
+        if let primarySourceRef = sourceRefs.first {
+            HStack(spacing: 6) {
+                MemorySourceRefCompactPill(sourceRef: primarySourceRef)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if overflowCount > 0 {
+                    Text("+\(overflowCount)")
+                        .font(.sora(10).monospaced())
+                        .foregroundStyle(Color.stxMuted)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 4)
+                        .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 6))
+                        .help(helpText)
+                }
+            }
+            .help(helpText)
+        }
+    }
+
+    private var overflowCount: Int {
+        max(0, sourceRefs.count - 1)
+    }
+
+    private var helpText: String {
+        sourceRefs
+            .map { sourceRef in
+                "\(sourceRef.label)\n\(sourceRef.helpText)"
+            }
+            .joined(separator: "\n\n")
+    }
+}
+
+private struct MemorySourceRefCompactPill: View {
+    let sourceRef: MemorySourceRefPillModel
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "link")
+                .font(.system(size: 9, weight: .semibold))
+            Text(sourceRef.label)
+                .font(.sora(10).monospaced())
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 4)
+        .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 6))
+        .help(sourceRef.helpText)
     }
 }
 
@@ -454,66 +633,4 @@ extension CodeMemorySourceRef {
         .compactMap { $0 }
         .joined(separator: "\n")
     }
-}
-
-private struct MemoryInlineWrapLayout: Layout {
-    var spacing: CGFloat
-    var rowSpacing: CGFloat
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache _: inout ()) -> CGSize {
-        let width = max(proposal.width ?? 320, 1)
-        let rows = rows(in: width, subviews: subviews)
-        return CGSize(width: width, height: rows.height)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal _: ProposedViewSize, subviews: Subviews, cache _: inout ()) {
-        let rows = rows(in: max(bounds.width, 1), subviews: subviews)
-        for index in subviews.indices {
-            guard index < rows.positions.count else { continue }
-            subviews[index].place(
-                at: CGPoint(
-                    x: bounds.minX + rows.positions[index].x,
-                    y: bounds.minY + rows.positions[index].y
-                ),
-                anchor: .topLeading,
-                proposal: ProposedViewSize(rows.sizes[index])
-            )
-        }
-    }
-
-    private func rows(in width: CGFloat, subviews: Subviews) -> MemoryInlineWrapLayoutRows {
-        var x: CGFloat = 0
-        var y: CGFloat = 0
-        var rowHeight: CGFloat = 0
-        var positions: [CGPoint] = []
-        var sizes: [CGSize] = []
-        positions.reserveCapacity(subviews.count)
-        sizes.reserveCapacity(subviews.count)
-
-        for subview in subviews {
-            let measured = subview.sizeThatFits(ProposedViewSize(width: width, height: nil))
-            let size = CGSize(width: min(measured.width, width), height: measured.height)
-            if x + size.width > width, x > 0 {
-                x = 0
-                y += rowHeight + rowSpacing
-                rowHeight = 0
-            }
-            positions.append(CGPoint(x: x, y: y))
-            sizes.append(size)
-            x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
-        }
-
-        return MemoryInlineWrapLayoutRows(
-            positions: positions,
-            sizes: sizes,
-            height: y + rowHeight
-        )
-    }
-}
-
-private struct MemoryInlineWrapLayoutRows {
-    let positions: [CGPoint]
-    let sizes: [CGSize]
-    let height: CGFloat
 }

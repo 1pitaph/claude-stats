@@ -66,7 +66,7 @@ struct MemorySettingsView: View {
                 .disabled(store.isCodeMemoryLoading)
 
                 Button {
-                    Task { await store.refreshCodeMemoryStatus() }
+                    Task { await store.refreshCodeMemoryStatus(sessions: env.store.sessions) }
                 } label: {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }

@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 struct MemoryWorkspaceSidebar: View {
+    @Environment(AppEnvironment.self) private var env
     @Bindable var store: MemoryStore
     var onExit: () -> Void
 
@@ -61,7 +62,7 @@ struct MemoryWorkspaceSidebar: View {
                 AIConfigsMiniStat(value: "\(store.codeHealth?.memoryCount ?? 0)", label: "active")
                 Spacer(minLength: 0)
                 Button {
-                    Task { await store.refreshCodeMemoryStatus() }
+                    Task { await store.refreshCodeMemoryStatus(sessions: env.store.sessions) }
                 } label: {
                     Image(systemName: "arrow.triangle.2.circlepath")
                         .font(.system(size: 12, weight: .semibold))

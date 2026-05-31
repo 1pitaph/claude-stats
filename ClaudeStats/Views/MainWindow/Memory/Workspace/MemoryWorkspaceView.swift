@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct MemoryWorkspaceView: View {
+    @Environment(AppEnvironment.self) private var env
     @Bindable var store: MemoryStore
 
     private let horizontalInset: CGFloat = 20
@@ -13,7 +14,7 @@ struct MemoryWorkspaceView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .task {
-            await store.loadIfNeeded()
+            await store.loadIfNeeded(sessions: env.store.sessions)
         }
     }
 
@@ -43,7 +44,7 @@ struct MemoryWorkspaceView: View {
                         .controlSize(.small)
                 }
                 Button {
-                    Task { await store.refreshCodeMemoryStatus() }
+                    Task { await store.refreshCodeMemoryStatus(sessions: env.store.sessions) }
                 } label: {
                     Label("Refresh", systemImage: "arrow.triangle.2.circlepath")
                 }

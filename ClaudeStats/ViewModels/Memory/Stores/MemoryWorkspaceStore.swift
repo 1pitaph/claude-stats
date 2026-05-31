@@ -62,13 +62,18 @@ final class MemoryWorkspaceStore {
     init(
         codeBackend: any CodeMemoryBackend = CodeMemoryHTTPClient(),
         codeOutbox: CodeMemoryEventOutbox = CodeMemoryEventOutbox(),
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        projectSortMetadataResolver: any MemoryProjectSortMetadataResolving = MemoryProjectSortMetadataResolver()
     ) {
         self.codeBackend = codeBackend
         self.defaults = defaults
         self.captureMode = MemoryCaptureMode(rawValue: defaults.string(forKey: Self.captureModeDefaultsKey) ?? "") ?? .balanced
         self.search = MemorySearchStore(backend: codeBackend)
-        self.library = MemoryLibraryStore(backend: codeBackend)
+        self.library = MemoryLibraryStore(
+            backend: codeBackend,
+            defaults: defaults,
+            projectSortMetadataResolver: projectSortMetadataResolver
+        )
         self.graph = MemoryGraphStore(backend: codeBackend)
         self.review = MemoryReviewStore(backend: codeBackend)
         self.settings = MemorySettingsStore(backend: codeBackend, outbox: codeOutbox, defaults: defaults)
@@ -76,6 +81,7 @@ final class MemoryWorkspaceStore {
 
     var codeHealth: CodeMemoryHealth? { settings.health }
     var codeProjects: [CodeMemoryProject] { library.projects }
+    var sortedCodeProjects: [CodeMemoryProject] { library.sortedProjects }
     var codeModules: [CodeMemoryModule] { library.modules }
     var codeMemories: [CodeMemoryMemory] { library.memories }
     var codeSearchResults: [CodeMemorySearchResult] { search.memoryResults }
@@ -93,7 +99,14 @@ final class MemoryWorkspaceStore {
     var codeLastReindexResult: CodeMemoryProjectionDrainResponse? { settings.lastReindexResult }
     var codeLastReinferResult: CodeMemoryReinferSourcesResponse? { settings.lastReinferResult }
     var isCodeMemoryLoading: Bool {
-        isLoading || search.isLoading || search.isSearching || library.isLoading || graph.isLoadingChanges || review.isLoading || settings.isLoading
+        isLoading
+            || search.isLoading
+            || search.isSearching
+            || library.isLoading
+            || library.isLoadingProjectSortMetadata
+            || graph.isLoadingChanges
+            || review.isLoading
+            || settings.isLoading
     }
     var isSearching: Bool { search.isSearching }
     var lastError: String? {
@@ -121,28 +134,29 @@ final class MemoryWorkspaceStore {
         section = next
     }
 
-    func loadIfNeeded() async {
+    func loadIfNeeded(sessions: [Session] = []) async {
         guard !hasLoaded else { return }
-        await reload()
+        await reload(sessions: sessions)
     }
 
-    func reload() async {
+    func reload(sessions: [Session] = []) async {
         guard !isLoading else { return }
         isLoading = true
         defer {
             isLoading = false
             hasLoaded = true
         }
-        await refreshCodeMemoryStatus()
+        await refreshCodeMemoryStatus(sessions: sessions)
     }
 
-    func refreshCodeMemoryStatus() async {
+    func refreshCodeMemoryStatus(sessions: [Session] = []) async {
         await settings.refresh()
-        await library.load(projectID: selectedProjectID)
+        await library.loadProjects()
+        await library.refreshProjectSortMetadata(sessions: sessions)
         if selectedProjectID == nil {
-            selectedProjectID = library.projects.first?.projectID
+            selectedProjectID = library.sortedProjects.first?.projectID
         }
-        await library.load(projectID: selectedProjectID)
+        await library.loadProjectContent(projectID: selectedProjectID)
         await review.load(projectID: selectedProjectID)
     }
 
@@ -167,7 +181,8 @@ final class MemoryWorkspaceStore {
 
     func selectCodeProject(_ projectID: String) async {
         selectedProjectID = projectID
-        await library.load(projectID: projectID)
+        await library.loadProjects()
+        await library.loadProjectContent(projectID: projectID)
         await graph.loadChanges(projectID: projectID)
         await review.load(projectID: projectID)
     }
@@ -285,13 +300,14 @@ final class MemoryWorkspaceStore {
 
     func startCodeMemorySidecar(
         localAIEnvironment: CodeMemoryLocalAIEnvironment? = nil,
-        modelRuntimeConfig: CodeMemoryModelRuntimeConfig? = nil
+        modelRuntimeConfig: CodeMemoryModelRuntimeConfig? = nil,
+        sessions: [Session] = []
     ) async {
         await settings.startSidecar(
             localAIEnvironment: localAIEnvironment,
             modelRuntimeConfig: modelRuntimeConfig
         )
-        await refreshCodeMemoryStatus()
+        await refreshCodeMemoryStatus(sessions: sessions)
     }
 
     func stopCodeMemorySidecar() async {
@@ -371,7 +387,7 @@ final class MemoryWorkspaceStore {
             }
         }
         codeLastSyncSummary = "Synced \(sources.count) sources · \(queued) queued · \(created) active · \(proposed) proposed · \(skipped) skipped · \(failed) failed"
-        await refreshCodeMemoryStatus()
+        await refreshCodeMemoryStatus(sessions: sessions)
     }
 }
 

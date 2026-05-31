@@ -497,6 +497,39 @@ struct GitAnalyzerTests {
         #expect(contributors.first == GitContributorStat(name: "Me", email: "me@example.com", commitCount: 1, share: 1))
     }
 
+    @Test("latest commit date honors author filter", .enabled(if: GitAnalyzer().isAvailable))
+    func latestCommitDateHonorsAuthorFilter() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("git-latest-author-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        try run(["init", "-q", "-b", "main"], in: dir)
+        try run(["config", "user.email", "me@example.com"], in: dir)
+        try run(["config", "user.name", "Me"], in: dir)
+        try run(["config", "commit.gpgsign", "false"], in: dir)
+
+        try "one\n".write(to: dir.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+        try run(["add", "file.txt"], in: dir)
+        try run(["commit", "-q", "-m", "Mine old"], in: dir, environment: gitDateEnvironment(1_700_000_000))
+
+        try "two\n".write(to: dir.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+        try run(["commit", "-q", "-am", "Mine new"], in: dir, environment: gitDateEnvironment(1_700_002_000))
+
+        try "other\n".write(to: dir.appendingPathComponent("other.txt"), atomically: true, encoding: .utf8)
+        try run(["add", "other.txt"], in: dir)
+        try run(
+            ["-c", "user.email=other@example.com", "-c", "user.name=Other", "commit", "-q", "-m", "Other newest"],
+            in: dir,
+            environment: gitDateEnvironment(1_700_003_000)
+        )
+
+        let analyzer = GitAnalyzer()
+        let repo = try #require(analyzer.repo(forCwd: dir.path))
+
+        #expect(analyzer.latestCommitDate(in: repo, authorEmail: "me@example.com") == Date(timeIntervalSince1970: 1_700_002_000))
+        #expect(analyzer.latestCommitDate(in: repo, authorEmail: "other@example.com") == Date(timeIntervalSince1970: 1_700_003_000))
+    }
+
     @Test("contributor shortlog parser groups committers")
     func contributorShortlogParserGroupsCommitters() {
         let rows = GitAnalyzer.parseContributorShortlog("""
@@ -561,10 +594,11 @@ struct GitAnalyzerTests {
     // MARK: helpers
 
     @discardableResult
-    private func run(_ args: [String], in dir: URL) throws -> String {
+    private func run(_ args: [String], in dir: URL, environment: [String: String] = [:]) throws -> String {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: GitAnalyzer.gitPath)
         p.arguments = ["-C", dir.path] + args
+        p.environment = ProcessInfo.processInfo.environment.merging(environment) { _, new in new }
         let out = Pipe()
         p.standardOutput = out
         p.standardError = FileHandle.nullDevice
@@ -572,5 +606,13 @@ struct GitAnalyzerTests {
         let data = out.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()
         return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    private func gitDateEnvironment(_ timestamp: Int) -> [String: String] {
+        let value = "@\(timestamp)"
+        return [
+            "GIT_AUTHOR_DATE": value,
+            "GIT_COMMITTER_DATE": value,
+        ]
     }
 }
