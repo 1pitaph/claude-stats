@@ -1,13 +1,19 @@
 import AppKit
+import Darwin
 import UserNotifications
 
 /// Owns the ``AppEnvironment`` and kicks off the first scan once AppKit has
 /// finished launching. `MenuBarExtra`'s label/window views don't run a normal
 /// `onAppear`/`task` lifecycle at launch, so the kickoff lives here instead.
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private static let automaticTerminationReason = "Claude Stats is a resident menu bar app."
+
     let env: AppEnvironment
     private let linuxDoNotificationDelegate = LinuxDoUserNotificationDelegate()
     private var residentStatusItem: NSStatusItem?
+    private var terminationSignalSource: DispatchSourceSignal?
+    private var automaticTerminationDisabled = false
+    private var suddenTerminationDisabled = false
     private var userRequestedTermination = false
 
     override init() {
@@ -18,10 +24,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        ProcessInfo.processInfo.disableAutomaticTermination("Claude Stats is a resident menu bar app.")
+        ProcessInfo.processInfo.disableAutomaticTermination(Self.automaticTerminationReason)
+        automaticTerminationDisabled = true
         ProcessInfo.processInfo.disableSuddenTermination()
+        suddenTerminationDisabled = true
         UNUserNotificationCenter.current().delegate = linuxDoNotificationDelegate
         MainActor.assumeIsolated {
+            installTerminationSignalHandler()
             installResidentStatusItem()
             Theme.registerFonts()
             env.start()
@@ -31,10 +40,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @MainActor
     func requestUserTermination() {
+        authorizeUserTermination(reason: "explicit menu request")
+        NSApplication.shared.terminate(nil)
+    }
+
+    @MainActor
+    private func authorizeUserTermination(reason: String) {
+        guard !userRequestedTermination else { return }
         userRequestedTermination = true
         AppLivenessRescue.disarm()
-        ProcessInfo.processInfo.enableSuddenTermination()
-        NSApplication.shared.terminate(nil)
+        if automaticTerminationDisabled {
+            ProcessInfo.processInfo.enableAutomaticTermination(Self.automaticTerminationReason)
+            automaticTerminationDisabled = false
+        }
+        if suddenTerminationDisabled {
+            ProcessInfo.processInfo.enableSuddenTermination()
+            suddenTerminationDisabled = false
+        }
+        Log.app.info("Application termination approved: \(reason, privacy: .public)")
+    }
+
+    @MainActor
+    private func installTerminationSignalHandler() {
+        guard terminationSignalSource == nil else { return }
+        Darwin.signal(SIGTERM, SIG_IGN)
+        let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        source.setEventHandler { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.authorizeUserTermination(reason: "SIGTERM")
+                NSApplication.shared.terminate(nil)
+            }
+        }
+        source.resume()
+        terminationSignalSource = source
     }
 
     @MainActor
@@ -76,14 +114,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
+    @MainActor
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        if userRequestedTermination {
-            Log.app.info("Application termination approved after explicit user request")
-            return .terminateNow
-        }
-
-        Log.app.warning("Unexpected application termination request cancelled")
-        return .terminateCancel
+        authorizeUserTermination(reason: "AppKit termination request")
+        return .terminateNow
     }
 
     func applicationWillTerminate(_ notification: Notification) {
