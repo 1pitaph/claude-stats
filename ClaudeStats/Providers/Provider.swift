@@ -30,6 +30,10 @@ protocol Provider: Sendable {
     /// decide which provider-specific events are useful enough to show.
     func transcriptMessages(for session: Session) async -> [SessionTranscriptMessage]
 
+    /// Parse true executed shell/terminal commands from a provider transcript.
+    /// Mentions in natural-language messages are intentionally ignored.
+    func executedCommands(for session: Session) async -> [SessionCommandEvent]
+
     /// Pretty label for a canonical model id. Used wherever a model surfaces
     /// to the user (Dashboard breakdown, "Favorite model" stat, …). Default
     /// returns the id unchanged — providers override when their ids carry a
@@ -65,6 +69,7 @@ protocol Provider: Sendable {
 extension Provider {
     var dataDirectoryPath: String? { nil }
     func transcriptMessages(for session: Session) async -> [SessionTranscriptMessage] { [] }
+    func executedCommands(for session: Session) async -> [SessionCommandEvent] { [] }
     func displayName(forModel id: String) -> String { id }
     func cacheHitRate(for usage: TokenUsage) -> Double? { usage.cacheHitRate }
     func globalConfigurationLocations() -> [ProviderConfigLocation] { [] }

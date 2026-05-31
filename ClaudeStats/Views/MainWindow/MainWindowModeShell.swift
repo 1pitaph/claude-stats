@@ -6,7 +6,6 @@ enum MainWindowMode: String, Sendable {
     case sessions
     case configs
     case memory
-    case chat
     case settings
     case network
     case warp
@@ -19,7 +18,6 @@ enum MainWindowMotion {
     static let sessionsSidebarWidth: CGFloat = 240
     static let configsSidebarWidth: CGFloat = 240
     static let memorySidebarWidth: CGFloat = 240
-    static let chatSidebarWidth: CGFloat = 240
     static let settingsSidebarWidth: CGFloat = 220
     static let networkSidebarWidth: CGFloat = 240
     static let warpSidebarWidth: CGFloat = 240
@@ -87,13 +85,6 @@ enum MainWindowMotion {
         )
     }
 
-    static var chatDetailTransition: AnyTransition {
-        .asymmetric(
-            insertion: .offset(x: detailOffset).combined(with: .opacity),
-            removal: .offset(x: detailOffset).combined(with: .opacity)
-        )
-    }
-
     static var networkDetailTransition: AnyTransition {
         .asymmetric(
             insertion: .offset(x: detailOffset).combined(with: .opacity),
@@ -120,7 +111,7 @@ enum MainWindowMotion {
 /// directly between app, LinuxDo, sessions, configs, memory, settings, network, Warp, and ops
 /// navigation while the detail panel stays mounted so its leading boundary can
 /// move with the sidebar width.
-struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSidebar: View, ConfigsSidebar: View, MemorySidebar: View, ChatSidebar: View, SettingsSidebar: View, NetworkSidebar: View, WarpSidebar: View, OpsSidebar: View, AppDetail: View, LinuxDoDetail: View, SessionsDetail: View, ConfigsDetail: View, MemoryDetail: View, ChatDetail: View, SettingsDetail: View, NetworkDetail: View, WarpDetail: View, OpsDetail: View>: View {
+struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSidebar: View, ConfigsSidebar: View, MemorySidebar: View, SettingsSidebar: View, NetworkSidebar: View, WarpSidebar: View, OpsSidebar: View, AppDetail: View, LinuxDoDetail: View, SessionsDetail: View, ConfigsDetail: View, MemoryDetail: View, SettingsDetail: View, NetworkDetail: View, WarpDetail: View, OpsDetail: View>: View {
     let mode: MainWindowMode
     let sidebarVisible: Bool
     let boundaryFalloffEnabled: Bool
@@ -130,7 +121,6 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
     private let sessionsSidebar: SessionsSidebar
     private let configsSidebar: ConfigsSidebar
     private let memorySidebar: MemorySidebar
-    private let chatSidebar: ChatSidebar
     private let settingsSidebar: SettingsSidebar
     private let networkSidebar: NetworkSidebar
     private let warpSidebar: WarpSidebar
@@ -140,7 +130,6 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
     private let sessionsDetail: SessionsDetail
     private let configsDetail: ConfigsDetail
     private let memoryDetail: MemoryDetail
-    private let chatDetail: ChatDetail
     private let settingsDetail: SettingsDetail
     private let networkDetail: NetworkDetail
     private let warpDetail: WarpDetail
@@ -155,7 +144,6 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
         @ViewBuilder sessionsSidebar: () -> SessionsSidebar,
         @ViewBuilder configsSidebar: () -> ConfigsSidebar,
         @ViewBuilder memorySidebar: () -> MemorySidebar,
-        @ViewBuilder chatSidebar: () -> ChatSidebar,
         @ViewBuilder settingsSidebar: () -> SettingsSidebar,
         @ViewBuilder networkSidebar: () -> NetworkSidebar,
         @ViewBuilder warpSidebar: () -> WarpSidebar,
@@ -165,7 +153,6 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
         @ViewBuilder sessionsDetail: () -> SessionsDetail,
         @ViewBuilder configsDetail: () -> ConfigsDetail,
         @ViewBuilder memoryDetail: () -> MemoryDetail,
-        @ViewBuilder chatDetail: () -> ChatDetail,
         @ViewBuilder settingsDetail: () -> SettingsDetail,
         @ViewBuilder networkDetail: () -> NetworkDetail,
         @ViewBuilder warpDetail: () -> WarpDetail,
@@ -179,7 +166,6 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
         self.sessionsSidebar = sessionsSidebar()
         self.configsSidebar = configsSidebar()
         self.memorySidebar = memorySidebar()
-        self.chatSidebar = chatSidebar()
         self.settingsSidebar = settingsSidebar()
         self.networkSidebar = networkSidebar()
         self.warpSidebar = warpSidebar()
@@ -189,7 +175,6 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
         self.sessionsDetail = sessionsDetail()
         self.configsDetail = configsDetail()
         self.memoryDetail = memoryDetail()
-        self.chatDetail = chatDetail()
         self.settingsDetail = settingsDetail()
         self.networkDetail = networkDetail()
         self.warpDetail = warpDetail()
@@ -223,8 +208,6 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
             sidebarVisible ? MainWindowMotion.configsSidebarWidth : 0
         case .memory:
             sidebarVisible ? MainWindowMotion.memorySidebarWidth : 0
-        case .chat:
-            sidebarVisible ? MainWindowMotion.chatSidebarWidth : 0
         case .settings:
             MainWindowMotion.settingsSidebarWidth
         case .network:
@@ -247,8 +230,6 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
         case .configs:
             return sidebarVisible
         case .memory:
-            return sidebarVisible
-        case .chat:
             return sidebarVisible
         case .settings:
             return true
@@ -279,10 +260,6 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
 
     private var memorySidebarIsActive: Bool {
         mode == .memory && sidebarVisible
-    }
-
-    private var chatSidebarIsActive: Bool {
-        mode == .chat && sidebarVisible
     }
 
     private var settingsSidebarIsActive: Bool {
@@ -339,13 +316,6 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
                     .allowsHitTesting(memorySidebarIsActive)
                     .accessibilityHidden(!memorySidebarIsActive)
                     .transition(MainWindowMotion.secondarySidebarTransition)
-            case .chat:
-                chatSidebar
-                    .frame(width: MainWindowMotion.chatSidebarWidth)
-                    .opacity(sidebarVisible ? 1 : 0)
-                    .allowsHitTesting(chatSidebarIsActive)
-                    .accessibilityHidden(!chatSidebarIsActive)
-                    .transition(MainWindowMotion.secondarySidebarTransition)
             case .settings:
                 settingsSidebar
                     .frame(width: MainWindowMotion.settingsSidebarWidth)
@@ -400,10 +370,6 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
             case .memory:
                 memoryDetail
                     .transition(MainWindowMotion.memoryDetailTransition)
-                    .zIndex(1)
-            case .chat:
-                chatDetail
-                    .transition(MainWindowMotion.chatDetailTransition)
                     .zIndex(1)
             case .settings:
                 settingsDetail
@@ -464,13 +430,6 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
             Spacer()
         }
         .padding()
-    } chatSidebar: {
-        VStack(alignment: .leading) {
-            Text("Back")
-            Text("Chat")
-            Spacer()
-        }
-        .padding()
     } settingsSidebar: {
         VStack(alignment: .leading) {
             Text("Back")
@@ -509,8 +468,6 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
         Color.stxBackground.overlay(Text("Config Detail"))
     } memoryDetail: {
         Color.stxBackground.overlay(Text("Memory Detail"))
-    } chatDetail: {
-        Color.stxBackground.overlay(Text("Chat Detail"))
     } settingsDetail: {
         Color.stxBackground.overlay(Text("Settings Detail"))
     } networkDetail: {

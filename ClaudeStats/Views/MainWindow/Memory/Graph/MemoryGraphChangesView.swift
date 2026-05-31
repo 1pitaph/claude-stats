@@ -128,6 +128,8 @@ private struct MemoryChangeGraphCanvasView: View {
     @Bindable var graphStore: MemoryGraphStore
     @State private var dragStart = CGSize.zero
     @State private var isDragging = false
+    @State private var hoveredEdgeID: String?
+    @State private var selectedDisplayEdgeID: String?
 
     var body: some View {
         GeometryReader { proxy in
@@ -152,64 +154,75 @@ private struct MemoryChangeGraphCanvasView: View {
 
     @ViewBuilder
     private func graphContent(size: CGSize) -> some View {
-        if let graph = visibleGraph, !graph.nodes.isEmpty {
-            let render = MemoryGraphRenderLimiter.limit(
-                nodes: graph.nodes,
-                edges: graph.edges,
-                maxNodes: MemoryGraphRenderLimiter.changeNodeLimit,
-                maxEdges: MemoryGraphRenderLimiter.changeEdgeLimit,
-                selectedNodeID: graphStore.selectedChangeNodeID,
-                selectedEdgeID: graphStore.selectedChangeEdgeID
-            )
+        if let presentation = graphStore.changePresentation, !presentation.nodes.isEmpty {
             let positions = MemoryChangeGraphLayout.positions(
-                for: render.nodes,
-                edges: render.edges,
+                for: presentation.nodes,
                 in: size,
                 pan: graphStore.pan,
                 zoom: CGFloat(graphStore.zoom)
             )
+            let selectedNodeID = selectedPresentationNodeID(in: presentation)
+            let neighborhood = presentation.neighborNodeIDs(
+                selectedNodeID: selectedNodeID,
+                selectedEdgeID: selectedDisplayEdgeID,
+                selectedGroupID: graphStore.selectedChangeGroupID
+            )
 
             ZStack {
                 Canvas { context, _ in
-                    drawEdges(render.edges, positions: positions, in: &context)
+                    drawEdges(presentation.edges, positions: positions, in: &context)
                 }
 
-                if render.showsEdgeHitTargets {
-                    ForEach(render.edges) { edge in
-                        if let midpoint = MemoryGraphLayout.midpoint(for: edge, positions: positions) {
-                            Button {
-                                graphStore.selectChangeEdge(edge.id)
-                                if let memoryID = edge.metadata?["memory_id"] {
+                ForEach(presentation.edges) { edge in
+                    if let midpoint = MemoryGraphLayout.midpoint(for: edge, positions: positions) {
+                        let showsLabel = hoveredEdgeID == edge.id || selectedDisplayEdgeID == edge.id
+                        Button {
+                            selectedDisplayEdgeID = edge.id
+                            if let eventID = edge.eventIDs.first {
+                                graphStore.selectChangeEvent(eventID)
+                                if let memoryID = graphStore.selectedChangeEvent?.memoryID {
                                     Task { await graphStore.loadHistory(memoryID: memoryID) }
                                 }
-                            } label: {
-                                Circle()
-                                    .fill(graphStore.selectedChangeEdgeID == edge.id ? Color.stxAccent : edgeColor(edge).opacity(0.42))
-                                    .frame(width: graphStore.selectedChangeEdgeID == edge.id ? 10 : 7, height: graphStore.selectedChangeEdgeID == edge.id ? 10 : 7)
                             }
-                            .buttonStyle(.plain)
-                            .position(midpoint)
-                            .help(edge.kind)
+                        } label: {
+                            HStack(spacing: 5) {
+                                Circle()
+                                    .fill(selectedDisplayEdgeID == edge.id ? Color.stxAccent : MemoryGraphStyle.edgeColor(for: edge.kind).opacity(0.48))
+                                    .frame(width: selectedDisplayEdgeID == edge.id ? 10 : 7, height: selectedDisplayEdgeID == edge.id ? 10 : 7)
+                                if showsLabel {
+                                    Text(edge.label)
+                                        .font(.sora(8, weight: .semibold))
+                                        .foregroundStyle(MemoryGraphStyle.edgeColor(for: edge.kind))
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 2)
+                                        .background(.regularMaterial, in: Capsule())
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .position(midpoint)
+                        .help(edge.label)
+                        .onHover { isHovering in
+                            hoveredEdgeID = isHovering ? edge.id : nil
                         }
                     }
                 }
 
-                ForEach(render.nodes) { node in
+                ForEach(presentation.nodes) { node in
                     if let position = positions[node.id] {
+                        let isSelected = isSelected(node)
                         let highlighted = isHighlighted(node)
-                        MemoryGraphNodeView(
+                        MemoryGraphNodeCardView(
                             node: node,
-                            isSelected: graphStore.selectedChangeNodeID == node.id,
+                            isSelected: isSelected,
                             isHighlighted: highlighted,
-                            isCompact: render.usesCompactNodes
-                                && graphStore.selectedChangeNodeID != node.id
+                            isDimmed: !neighborhood.isEmpty && !neighborhood.contains(node.id),
+                            isCompact: presentation.nodes.count > 90
+                                && !isSelected
                                 && !highlighted
-                                && node.kind != "project"
+                                && node.kind != "group"
                         ) {
-                            graphStore.selectChangeNode(node.id)
-                            if let memoryID = node.metadata?["memory_id"] {
-                                Task { await graphStore.loadHistory(memoryID: memoryID) }
-                            }
+                            select(node)
                         }
                         .position(position)
                     }
@@ -217,16 +230,13 @@ private struct MemoryChangeGraphCanvasView: View {
             }
             .frame(width: size.width, height: size.height)
             .clipped()
-            .overlay(alignment: .topLeading) {
-                if render.usesCompactNodes {
-                    MemoryGraphRenderLimitBadge(
-                        render: render,
-                        backendTotalNodes: nil,
-                        backendTotalEdges: nil,
-                        backendTruncated: false
-                    )
-                    .padding(12)
+            .overlay(alignment: .top) {
+                VStack(spacing: 8) {
+                    MemoryGraphLaneHeaderView()
+                    MemoryGraphSummaryBadge(summary: presentation.summary)
                 }
+                .padding(.horizontal, 16)
+                .padding(.top, 10)
             }
         } else {
             MemoryEmptyState(
@@ -238,42 +248,122 @@ private struct MemoryChangeGraphCanvasView: View {
         }
     }
 
-    private var visibleGraph: CodeMemoryGraph? {
-        graphStore.focusedChangeGraph
+    private func selectedPresentationNodeID(in presentation: MemoryGraphPresentation) -> String? {
+        if let selectedChangeGroupID = graphStore.selectedChangeGroupID {
+            return selectedChangeGroupID
+        }
+        if let selectedChangeNodeID = graphStore.selectedChangeNodeID {
+            return presentation.nodes.first { node in
+                node.rawNodeID == selectedChangeNodeID || node.id == selectedChangeNodeID
+            }?.id
+        }
+        return nil
     }
 
-    private func drawEdges(_ edges: [CodeMemoryGraphEdge], positions: [String: CGPoint], in context: inout GraphicsContext) {
+    private func isSelected(_ node: MemoryGraphPresentation.Node) -> Bool {
+        if let groupID = node.groupID, groupID == graphStore.selectedChangeGroupID {
+            return true
+        }
+        if let rawNodeID = node.rawNodeID, rawNodeID == graphStore.selectedChangeNodeID {
+            return true
+        }
+        if let eventID = node.eventID, eventID == graphStore.selectedChangeEvent?.eventID {
+            return true
+        }
+        return false
+    }
+
+    private func select(_ node: MemoryGraphPresentation.Node) {
+        if let groupID = node.groupID, node.kind == "group" {
+            graphStore.selectChangeGroup(groupID)
+            return
+        }
+        if let eventID = node.eventID {
+            graphStore.selectChangeEvent(eventID)
+            if let memoryID = node.memoryID {
+                Task { await graphStore.loadHistory(memoryID: memoryID) }
+            }
+            return
+        }
+        if let rawNodeID = node.rawNodeID {
+            graphStore.selectChangeNode(rawNodeID)
+            if let memoryID = node.memoryID {
+                Task { await graphStore.loadHistory(memoryID: memoryID) }
+            }
+        }
+    }
+
+    private func drawEdges(_ edges: [MemoryGraphPresentation.Edge], positions: [String: CGPoint], in context: inout GraphicsContext) {
         for edge in edges {
             guard let source = positions[edge.source], let target = positions[edge.target] else { continue }
             var path = Path()
             path.move(to: source)
             path.addLine(to: target)
-            let selected = graphStore.selectedChangeEdgeID == edge.id
-            context.stroke(path, with: .color(selected ? Color.stxAccent : edgeColor(edge).opacity(0.64)), lineWidth: selected ? 2 : 1)
+            let selected = selectedDisplayEdgeID == edge.id
+            let color = selected ? Color.stxAccent : MemoryGraphStyle.edgeColor(for: edge.kind).opacity(0.68)
+            context.stroke(path, with: .color(color), style: MemoryGraphStyle.edgeStrokeStyle(for: edge.kind, isSelected: selected))
+            if edge.kind != "NEXT_EVENT" {
+                drawArrowHead(from: source, to: target, color: color, in: &context)
+            }
         }
     }
 
-    private func edgeColor(_ edge: CodeMemoryGraphEdge) -> Color {
-        switch edge.kind {
-        case "NEXT_EVENT":
-            Color.stxMuted
-        case "AFFECTS":
-            MemoryGraphStyle.color(for: "change_event")
-        case "FROM_SOURCE":
-            MemoryGraphStyle.color(for: "episode")
-        default:
-            Color.stxStroke
-        }
+    private func drawArrowHead(from source: CGPoint, to target: CGPoint, color: Color, in context: inout GraphicsContext) {
+        let dx = target.x - source.x
+        let dy = target.y - source.y
+        let length = max(1, sqrt(dx * dx + dy * dy))
+        let unitX = dx / length
+        let unitY = dy / length
+        let tip = CGPoint(x: target.x - unitX * 18, y: target.y - unitY * 18)
+        let base = CGPoint(x: tip.x - unitX * 8, y: tip.y - unitY * 8)
+        let perpendicular = CGPoint(x: -unitY * 4.5, y: unitX * 4.5)
+        var arrow = Path()
+        arrow.move(to: tip)
+        arrow.addLine(to: CGPoint(x: base.x + perpendicular.x, y: base.y + perpendicular.y))
+        arrow.addLine(to: CGPoint(x: base.x - perpendicular.x, y: base.y - perpendicular.y))
+        arrow.closeSubpath()
+        context.fill(arrow, with: .color(color))
     }
 
-    private func isHighlighted(_ node: CodeMemoryGraphNode) -> Bool {
+    private func isHighlighted(_ node: MemoryGraphPresentation.Node) -> Bool {
         let search = graphStore.changeSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !search.isEmpty else { return false }
-        return "\(node.title) \(node.body ?? "") \(node.kind) \(node.status ?? "")"
+        return "\(node.displayTitle) \(node.subtitle ?? "") \(node.badges.joined(separator: " ")) \(node.helpText)"
             .lowercased()
             .contains(search)
     }
+}
 
+private struct MemoryGraphLaneHeaderView: View {
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(MemoryGraphLane.allCases, id: \.rawValue) { lane in
+                Text(lane.label)
+                    .font(.sora(10, weight: .semibold))
+                    .foregroundStyle(Color.stxMuted)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.stxStroke.opacity(0.55), lineWidth: 1))
+    }
+}
+
+private struct MemoryGraphSummaryBadge: View {
+    let summary: String
+
+    var body: some View {
+        Text(summary)
+            .font(.sora(10, weight: .semibold))
+            .foregroundStyle(.primary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(Color.primary.opacity(0.055), in: Capsule())
+    }
 }
 
 private struct MemoryGraphChangeInspectorView: View {
@@ -306,6 +396,13 @@ private struct MemoryGraphChangeInspectorView: View {
                focused.nodes.count != graph.nodes.count || focused.edges.count != graph.edges.count {
                 MemoryGraphInspectorFactRow(label: "focus", value: "\(focused.nodes.count)/\(graph.nodes.count) nodes, \(focused.edges.count)/\(graph.edges.count) edges")
             }
+            if let presentation = store.graph.changePresentation {
+                MemoryGraphInspectorFactRow(label: "view", value: "\(presentation.mode.label) · \(presentation.density.label)")
+                Text(presentation.summary)
+                    .font(.sora(10))
+                    .foregroundStyle(Color.stxMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(12)
         .appSurface(.compactCard(radius: 8, fillOpacity: 0.54, cornerStyle: .circular, maxWidth: nil), padding: nil)
@@ -313,7 +410,9 @@ private struct MemoryGraphChangeInspectorView: View {
 
     @ViewBuilder
     private var selection: some View {
-        if let event = store.graph.selectedChangeEvent {
+        if let group = store.graph.selectedChangeGroup {
+            groupInspector(group)
+        } else if let event = store.graph.selectedChangeEvent {
             eventInspector(event)
         } else if let memoryID = store.graph.selectedChangeMemoryID {
             memoryInspector(memoryID)
@@ -328,14 +427,16 @@ private struct MemoryGraphChangeInspectorView: View {
     }
 
     private func eventInspector(_ event: CodeMemoryEvent) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let changedFields = MemoryGraphPresentation.changedFields(for: event)
+        return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: MemoryGraphStyle.symbol(for: "change_event"))
-                    .foregroundStyle(MemoryGraphStyle.color(for: "change_event"))
-                Text(event.eventType)
+                    .foregroundStyle(MemoryGraphStyle.eventColor(for: event.eventType))
+                Text(MemoryGraphPresentation.friendlyEventName(for: event.eventType))
                     .font(.sora(14, weight: .semibold))
                 Spacer(minLength: 0)
             }
+            MemoryGraphInspectorFactRow(label: "type", value: event.eventType)
             MemoryGraphInspectorFactRow(label: "seq", value: "\(event.seq)")
             MemoryGraphInspectorFactRow(label: "event", value: event.eventID)
             MemoryGraphInspectorFactRow(label: "memory", value: event.memoryID ?? "-")
@@ -343,6 +444,9 @@ private struct MemoryGraphChangeInspectorView: View {
             MemoryGraphInspectorFactRow(label: "time", value: MemoryFormat.timestamp(event.timestamp))
             if let status = event.statusTransition {
                 MemoryGraphInspectorFactRow(label: "status", value: status)
+            }
+            if !changedFields.isEmpty {
+                badgeRow(title: "Changed", values: changedFields)
             }
             MemoryChangePayloadDiffView(before: event.before, after: event.after, delta: event.delta)
             if !event.sourceRefs.isEmpty {
@@ -359,17 +463,99 @@ private struct MemoryGraphChangeInspectorView: View {
         .appSurface(.compactCard(radius: 8, fillOpacity: 0.54, cornerStyle: .circular, maxWidth: nil), padding: nil)
     }
 
-    private func memoryInspector(_ memoryID: String) -> some View {
+    private func groupInspector(_ group: MemoryGraphPresentation.GroupSummary) -> some View {
         VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: MemoryGraphStyle.symbol(for: "group"))
+                    .foregroundStyle(MemoryGraphStyle.color(for: "group"))
+                Text(group.title)
+                    .font(.sora(14, weight: .semibold))
+                    .lineLimit(2)
+                Spacer(minLength: 0)
+            }
+            if !group.subtitle.isEmpty {
+                Text(group.subtitle)
+                    .font(.sora(11))
+                    .foregroundStyle(Color.stxMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            MemoryGraphInspectorFactRow(label: "events", value: "\(group.eventIDs.count)")
+            if !group.memoryIDs.isEmpty {
+                badgeRow(title: "Memories", values: group.memoryIDs)
+            }
+            if !group.sourceLabels.isEmpty {
+                badgeRow(title: "Sources", values: group.sourceLabels)
+            }
+            if !group.changedFieldCounts.isEmpty {
+                let fields = group.changedFieldCounts.sorted { lhs, rhs in
+                    if lhs.value != rhs.value {
+                        return lhs.value > rhs.value
+                    }
+                    return lhs.key < rhs.key
+                }.map { "\($0.key) ×\($0.value)" }
+                badgeRow(title: "Changed", values: fields)
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Events")
+                    .font(.sora(12, weight: .semibold))
+                ForEach(group.eventIDs, id: \.self) { eventID in
+                    if let event = store.graph.events.first(where: { $0.eventID == eventID }) {
+                        Button {
+                            store.graph.selectChangeEvent(event.eventID)
+                            if let memoryID = event.memoryID {
+                                Task { await store.graph.loadHistory(memoryID: memoryID) }
+                            }
+                        } label: {
+                            HStack(spacing: 8) {
+                                Text("#\(event.seq)")
+                                    .font(.sora(10, weight: .semibold).monospaced())
+                                    .foregroundStyle(Color.stxMuted)
+                                Text(MemoryGraphPresentation.friendlyEventName(for: event.eventType))
+                                    .font(.sora(10, weight: .semibold))
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
+                            }
+                            .padding(7)
+                            .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 7))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .appSurface(.compactCard(radius: 8, fillOpacity: 0.54, cornerStyle: .circular, maxWidth: nil), padding: nil)
+    }
+
+    private func memoryInspector(_ memoryID: String) -> some View {
+        let selectedNode = store.graph.selectedChangeNode
+        return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: MemoryGraphStyle.symbol(for: "memory"))
                     .foregroundStyle(MemoryGraphStyle.color(for: "memory"))
-                Text(memoryID)
+                Text(selectedNode?.title ?? memoryID)
                     .font(.sora(14, weight: .semibold))
                     .lineLimit(2)
                 Spacer(minLength: 0)
             }
             MemoryGraphInspectorFactRow(label: "id", value: memoryID)
+            if let selectedNode {
+                if let type = selectedNode.type, !type.isEmpty {
+                    MemoryGraphInspectorFactRow(label: "type", value: type)
+                }
+                if let status = selectedNode.status, !status.isEmpty {
+                    MemoryGraphInspectorFactRow(label: "status", value: status)
+                }
+                if let body = selectedNode.body, !body.isEmpty {
+                    Text(body)
+                        .font(.sora(11))
+                        .foregroundStyle(Color.stxMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let sourceRefs = selectedNode.sourceRefs, !sourceRefs.isEmpty {
+                    MemorySourceRefsView(sourceRefs: sourceRefs)
+                }
+            }
             MemoryGraphMemoryHistorySection(graphStore: store.graph, memoryID: memoryID)
         }
         .padding(12)
@@ -417,6 +603,53 @@ private struct MemoryGraphChangeInspectorView: View {
         }
         .padding(12)
         .appSurface(.compactCard(radius: 8, fillOpacity: 0.54, cornerStyle: .circular, maxWidth: nil), padding: nil)
+    }
+
+    private func badgeRow(title: String, values: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.sora(10, weight: .semibold))
+                .foregroundStyle(Color.stxMuted)
+            FlowBadgeRow(values: values)
+        }
+    }
+}
+
+private struct FlowBadgeRow: View {
+    let values: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            ForEach(rows, id: \.self) { row in
+                HStack(spacing: 5) {
+                    ForEach(row, id: \.self) { value in
+                        Text(value)
+                            .font(.sora(9, weight: .semibold).monospaced())
+                            .foregroundStyle(Color.stxAccent)
+                            .lineLimit(1)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Color.stxAccent.opacity(0.11), in: Capsule())
+                    }
+                }
+            }
+        }
+    }
+
+    private var rows: [[String]] {
+        var result: [[String]] = [[]]
+        var currentWidth = 0
+        for value in values.prefix(9) {
+            let estimated = max(5, value.count) + 2
+            if currentWidth + estimated > 34, result.last?.isEmpty == false {
+                result.append([value])
+                currentWidth = estimated
+            } else {
+                result[result.count - 1].append(value)
+                currentWidth += estimated
+            }
+        }
+        return result.filter { !$0.isEmpty }
     }
 }
 

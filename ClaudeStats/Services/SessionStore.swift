@@ -26,6 +26,14 @@ final class SessionStore {
         let stats: SessionStats
     }
 
+    private struct CommandCacheEntry {
+        let fileSize: Int64
+        let lastModified: Date
+        let events: [SessionCommandEvent]
+    }
+
+    private var commandCache: [String: CommandCacheEntry] = [:]
+
     /// Max transcripts parsed concurrently.
     private static let parseBatchSize = 16
 
@@ -78,6 +86,42 @@ final class SessionStore {
         return { session in
             await provider.transcriptMessages(for: session)
         }
+    }
+
+    func executedCommands(for session: Session) async -> [SessionCommandEvent] {
+        let cacheKey = commandCacheKey(for: session)
+        if let cached = commandCache[cacheKey],
+           cached.fileSize == session.fileSize,
+           cached.lastModified == session.lastModified {
+            return cached.events
+        }
+
+        guard let provider = registry.provider(for: session.provider) else { return [] }
+        let events = await provider.executedCommands(for: session)
+        commandCache[cacheKey] = CommandCacheEntry(
+            fileSize: session.fileSize,
+            lastModified: session.lastModified,
+            events: events
+        )
+        return events
+    }
+
+    func recentSessionCommandSummaries(
+        sessionLimit: Int = 5,
+        commandLimit: Int = 3
+    ) async -> [SessionCommandSummary] {
+        let recent = SessionCommandSummaryBuilder.recentSessions(sessions, limit: sessionLimit)
+        var summaries: [SessionCommandSummary] = []
+        summaries.reserveCapacity(recent.count)
+        for session in recent {
+            let events = await executedCommands(for: session)
+            summaries.append(SessionCommandSummaryBuilder.summary(
+                for: session,
+                events: events,
+                commandLimit: commandLimit
+            ))
+        }
+        return summaries
     }
 
     func summary(for period: StatsPeriod, provider: ProviderKind? = nil, now: Date = .now) -> UsageSummary {
@@ -133,7 +177,9 @@ final class SessionStore {
         }
 
         let liveIDs = Set(discovered.map(\.id))
+        let liveCommandKeys = Set(discovered.map { commandCacheKey(for: $0) })
         cache = cache.filter { liveIDs.contains($0.key) }
+        commandCache = commandCache.filter { liveCommandKeys.contains($0.key) }
 
         var withStats = discovered
         for i in withStats.indices { withStats[i].stats = cache[withStats[i].id]?.stats }
@@ -161,6 +207,10 @@ final class SessionStore {
     func stopAutoRefresh() {
         autoRefreshTask?.cancel()
         autoRefreshTask = nil
+    }
+
+    private func commandCacheKey(for session: Session) -> String {
+        "\(session.provider.rawValue):\(session.id)"
     }
 }
 

@@ -17,6 +17,8 @@ struct MemoryGraphWorkspaceView: View {
     private var toolbar: some View {
         HStack(spacing: 10) {
             searchField
+            displayModePicker
+            densityPicker
 
             Menu {
                 ForEach(store.codeProjects) { project in
@@ -74,12 +76,42 @@ struct MemoryGraphWorkspaceView: View {
         .padding(14)
     }
 
+    private var displayModePicker: some View {
+        Picker("Mode", selection: Binding(
+            get: { store.graph.displayMode },
+            set: { store.graph.displayMode = $0 }
+        )) {
+            ForEach(MemoryGraphDisplayMode.allCases) { mode in
+                Text(mode.label).tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
+        .controlSize(.small)
+        .frame(width: 220)
+        .help("Graph Reading Mode")
+    }
+
+    private var densityPicker: some View {
+        Picker("Density", selection: Binding(
+            get: { store.graph.density },
+            set: { store.graph.density = $0 }
+        )) {
+            ForEach(MemoryGraphDensity.allCases) { density in
+                Text(density.label).tag(density)
+            }
+        }
+        .pickerStyle(.segmented)
+        .controlSize(.small)
+        .frame(width: 132)
+        .help("Graph Density")
+    }
+
     private var searchField: some View {
         HStack(spacing: 7) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 12))
                 .foregroundStyle(Color.stxMuted)
-            TextField("Event type or memory id", text: Binding(
+            TextField("Event, field, source, or memory", text: Binding(
                 get: { store.graph.changeSearchText },
                 set: { store.graph.changeSearchText = $0 }
             ))

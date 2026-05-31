@@ -1,3 +1,5 @@
+import ApplicationServices
+import AppKit
 import SwiftUI
 
 struct FeaturesSettingsView: View {
@@ -20,6 +22,7 @@ struct FeaturesSettingsView: View {
             githubCard(prefs: prefs)
             leaderboardsCard(prefs: prefs)
             floatingTabCard(prefs: prefs)
+            cursorCommandOverlayCard(prefs: prefs)
             notchIslandCard(prefs: prefs)
         }
     }
@@ -107,6 +110,45 @@ struct FeaturesSettingsView: View {
         }
     }
 
+    private func cursorCommandOverlayCard(prefs: Preferences) -> some View {
+        @Bindable var prefs = prefs
+        return FeatureControlCard(
+            title: "Cursor Commands",
+            symbol: "terminal.fill",
+            description: "Shows recent session commands next to the active text cursor, with copy-only command actions.",
+            status: cursorCommandOverlayStatus(prefs: prefs),
+            isOn: cursorCommandOverlayBinding(prefs: prefs),
+            onConfigure: nil
+        ) {
+            CursorCommandOverlayFeaturePreview()
+        } controls: {
+            VStack(alignment: .leading, spacing: 10) {
+                if !AXIsProcessTrusted() {
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "accessibility")
+                            .foregroundStyle(Color.stxAccent)
+                            .frame(width: 18, height: 18)
+                        Text("Grant Accessibility access so Claude Stats can find the focused text cursor. The overlay will stay hidden until access is available.")
+                            .font(.sora(11))
+                            .foregroundStyle(Color.stxMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 8)
+                        Button("Open Accessibility") {
+                            let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+                            _ = AXIsProcessTrustedWithOptions(options)
+                            CursorTextFocusLocator.openAccessibilitySettings()
+                        }
+                        .controlSize(.small)
+                    }
+                } else {
+                    Label("Accessibility access is available.", systemImage: "checkmark.circle")
+                        .font(.sora(11))
+                        .foregroundStyle(Color.stxMuted)
+                }
+            }
+        }
+    }
+
     private func notchIslandCard(prefs: Preferences) -> some View {
         @Bindable var prefs = prefs
         return FeatureControlCard(
@@ -136,6 +178,24 @@ struct FeaturesSettingsView: View {
 
     private func notchIslandStatus(prefs: Preferences) -> String {
         "\(prefs.notchIslandSizePreset.displayName) - \(prefs.notchIslandEnabledModules.count) modules"
+    }
+
+    private func cursorCommandOverlayStatus(prefs: Preferences) -> String {
+        guard prefs.cursorCommandOverlayEnabled else { return "Off" }
+        return AXIsProcessTrusted() ? "Ready near text cursor" : "Needs Accessibility"
+    }
+
+    private func cursorCommandOverlayBinding(prefs: Preferences) -> Binding<Bool> {
+        Binding(
+            get: { prefs.cursorCommandOverlayEnabled },
+            set: { enabled in
+                prefs.cursorCommandOverlayEnabled = enabled
+                if enabled, !AXIsProcessTrusted() {
+                    let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+                    _ = AXIsProcessTrustedWithOptions(options)
+                }
+            }
+        )
     }
 
     private var githubStatus: String {
@@ -368,6 +428,54 @@ private struct FloatingTabFeaturePreview: View {
                 PreviewMetric(title: "Cost", value: "$42")
             }
             .frame(width: 92)
+        }
+    }
+}
+
+private struct CursorCommandOverlayFeaturePreview: View {
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.primary.opacity(0.055))
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 6) {
+                    Circle().fill(Color.stxMuted.opacity(0.45)).frame(width: 6, height: 6)
+                    RoundedRectangle(cornerRadius: 3).fill(Color.stxMuted.opacity(0.18)).frame(width: 86, height: 8)
+                    Spacer()
+                }
+
+                VStack(alignment: .leading, spacing: 7) {
+                    RoundedRectangle(cornerRadius: 3).fill(Color.primary.opacity(0.16)).frame(width: 210, height: 9)
+                    RoundedRectangle(cornerRadius: 3).fill(Color.primary.opacity(0.10)).frame(width: 164, height: 9)
+                    HStack(spacing: 4) {
+                        Rectangle().fill(Color.stxAccent).frame(width: 2, height: 18)
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.stxAccent.opacity(0.18))
+                            .frame(width: 30, height: 28)
+                            .overlay {
+                                Image(systemName: "terminal.fill")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(Color.stxAccent)
+                            }
+                    }
+                    .padding(.top, 2)
+                }
+
+                Spacer()
+
+                HStack(spacing: 6) {
+                    ForEach(["git status", "bash scripts/run-tests.sh", "rg command"], id: \.self) { command in
+                        Text(command)
+                            .font(.system(size: 8, design: .monospaced))
+                            .lineLimit(1)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 4)
+                            .background(Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                    }
+                }
+            }
+            .padding(14)
         }
     }
 }

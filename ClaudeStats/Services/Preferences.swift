@@ -79,6 +79,11 @@ final class Preferences {
     var floatingTabEnabled: Bool {
         didSet { defaults.set(floatingTabEnabled, forKey: Keys.floatingTabEnabled) }
     }
+    /// Cursor-adjacent command palette for recent AI sessions. It is quiet until
+    /// Accessibility permission is granted.
+    var cursorCommandOverlayEnabled: Bool {
+        didSet { defaults.set(cursorCommandOverlayEnabled, forKey: Keys.cursorCommandOverlayEnabled) }
+    }
     /// Last snapped edge for the floating tab. Kept out of Settings to keep the
     /// UI simple; dragging the tab updates it silently.
     var floatingTabEdge: FloatingPanelEdge {
@@ -483,6 +488,7 @@ final class Preferences {
         menuBarIncludesCache = (defaults.object(forKey: Keys.menuBarIncludesCache) as? Bool) ?? true
         openMainWindowOnLaunch = (defaults.object(forKey: Keys.openMainWindowOnLaunch) as? Bool) ?? true
         floatingTabEnabled = (defaults.object(forKey: Keys.floatingTabEnabled) as? Bool) ?? true
+        cursorCommandOverlayEnabled = (defaults.object(forKey: Keys.cursorCommandOverlayEnabled) as? Bool) ?? true
         floatingTabEdge = FloatingPanelEdge(rawValue: defaults.string(forKey: Keys.floatingTabEdge) ?? "") ?? .right
         floatingTabAnchor = (defaults.object(forKey: Keys.floatingTabAnchor) as? Double) ?? 0.5
         notchIslandEnabled = defaults.bool(forKey: Keys.notchIslandEnabled)
@@ -694,6 +700,7 @@ final class Preferences {
         static let menuBarIncludesCache = "menuBarIncludesCache"
         static let openMainWindowOnLaunch = "openMainWindowOnLaunch"
         static let floatingTabEnabled = "floatingTabEnabled"
+        static let cursorCommandOverlayEnabled = "cursorCommandOverlayEnabled"
         static let floatingTabEdge = "floatingTabEdge"
         static let floatingTabAnchor = "floatingTabAnchor"
         static let notchIslandEnabled = "notchIslandEnabled"

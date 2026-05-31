@@ -42,6 +42,11 @@ struct ClaudeProvider: Provider {
             .messages(transcriptAt: URL(fileURLWithPath: session.filePath))
     }
 
+    func executedCommands(for session: Session) async -> [SessionCommandEvent] {
+        await TranscriptParser(pricing: pricing)
+            .executedCommands(transcriptAt: URL(fileURLWithPath: session.filePath))
+    }
+
     /// Pretty label for Anthropic's canonical model ids:
     /// `claude-opus-4-7` → `Opus 4.7`, `claude-haiku-4-5` → `Haiku 4.5`,
     /// `claude-3.5-sonnet` → `Sonnet 3.5`. Unknown shapes fall back to a

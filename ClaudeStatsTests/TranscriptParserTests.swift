@@ -92,6 +92,24 @@ struct TranscriptParserTests {
         #expect(messages[1].model == "model-a")
     }
 
+    @Test("Extracts executed Bash commands and ignores mentioned commands")
+    func executedCommands() async throws {
+        let dir = try TempDir.make()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("session.jsonl")
+        let text = """
+        {"type":"assistant","timestamp":"2026-02-01T00:00:01.000Z","message":{"model":"model-a","content":[{"type":"text","text":"I might run `git status`, but this is only prose."},{"type":"tool_use","name":"Bash","input":{"command":"git diff --stat"}}]}}
+        {"type":"assistant","timestamp":"2026-02-01T00:00:02.000Z","message":{"model":"model-a","content":[{"type":"tool_use","name":"Read","input":{"command":"should-not-count"}}]}}
+        """
+        try TempDir.write(text, to: url)
+
+        let commands = await TranscriptParser(pricing: TestPricing.table)
+            .executedCommands(transcriptAt: url)
+
+        #expect(commands.map(\.command) == ["git diff --stat"])
+        #expect(commands.first?.timestamp == (try Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse("2026-02-01T00:00:01.000Z")))
+    }
+
     @Test("Returns nil for a transcript with no real messages")
     func returnsNilForEmptyTranscript() async throws {
         let dir = try TempDir.make()

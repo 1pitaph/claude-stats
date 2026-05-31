@@ -22,7 +22,7 @@ enum TerminalRuntimeKind: String, CaseIterable, Identifiable, Sendable {
 
     var symbol: String {
         switch self {
-        case .warp: "sparkles"
+        case .warp: "terminal"
         case .disabled: "nosign"
         }
     }

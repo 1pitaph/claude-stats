@@ -129,7 +129,7 @@ struct WarpRuntimeSessionView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Image(systemName: "sparkles")
+            Image(systemName: "terminal")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(TerminalPalette.accent)
 

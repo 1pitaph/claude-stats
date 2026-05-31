@@ -178,14 +178,12 @@ struct MainWindowView: View {
                     isSessionsActive: mode == .sessions,
                     isConfigsActive: mode == .configs,
                     isMemoryActive: mode == .memory,
-                    isChatActive: mode == .chat,
                     isWarpActive: mode == .warp,
                     onOpenSettings: openSettings,
                     onOpenLinuxDo: openLinuxDo,
                     onOpenSessions: openSessions,
                     onOpenConfigs: openConfigs,
                     onOpenMemory: openMemory,
-                    onOpenChat: openChat,
                     onOpenNetwork: openNetwork,
                     onOpenWarp: { openWarp() },
                     onOpenOps: openOps
@@ -206,8 +204,6 @@ struct MainWindowView: View {
                 ConfigWorkspaceSidebar(store: env.configWorkspace, onExit: closeConfigs)
             } memorySidebar: {
                 MemoryWorkspaceSidebar(store: env.memory, onExit: closeMemory)
-            } chatSidebar: {
-                ChatWorkspaceSidebar(store: env.chat, defaultModelID: env.localAI.modelStore.selectedLLMModel.id, onExit: closeChat)
             } settingsSidebar: {
                 SettingsSidebarColumn(section: settingsSectionBinding, onExit: closeSettings)
             } networkSidebar: {
@@ -230,8 +226,6 @@ struct MainWindowView: View {
                 )
             } memoryDetail: {
                 MemoryWorkspaceView(store: env.memory)
-            } chatDetail: {
-                ChatWorkspaceView(store: env.chat)
             } settingsDetail: {
                 SettingsDetailView(section: settingsSection, onSelectSection: selectSettingsSection)
             } networkDetail: {
@@ -252,7 +246,7 @@ struct MainWindowView: View {
                     .onTapGesture { clearTextFocus() }
             }
 
-            if mode == .app || mode == .linuxDo || mode == .sessions || mode == .configs || mode == .memory || mode == .chat || mode == .network || mode == .warp || mode == .ops {
+            if mode == .app || mode == .linuxDo || mode == .sessions || mode == .configs || mode == .memory || mode == .network || mode == .warp || mode == .ops {
                 sidebarToggle
                     .padding(.leading, 81)
                     .padding(.top, 11)
@@ -446,10 +440,6 @@ struct MainWindowView: View {
         transition(to: .memory)
     }
 
-    private func openChat() {
-        transition(to: .chat)
-    }
-
     private func openNetwork() {
         transition(to: .network)
     }
@@ -483,10 +473,6 @@ struct MainWindowView: View {
     }
 
     private func closeMemory() {
-        transition(to: .app)
-    }
-
-    private func closeChat() {
         transition(to: .app)
     }
 
@@ -545,6 +531,12 @@ struct MainWindowView: View {
     private func normalizeNavigationState() {
         if modeRaw == "sessions" {
             modeRaw = MainWindowMode.sessions.rawValue
+            sidebarVisible = true
+        }
+
+        if modeRaw == "chat" {
+            modeRaw = MainWindowMode.warp.rawValue
+            warpSectionRaw = WarpWorkspaceSection.sessions.rawValue
             sidebarVisible = true
         }
 

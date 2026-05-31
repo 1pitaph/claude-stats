@@ -216,7 +216,7 @@ struct FloatingStatsPanelView: View {
                 )
             }
 
-            FloatingStatsActionButton(symbol: "sparkles", label: "Open Warp") {
+            FloatingStatsActionButton(symbol: "terminal", label: "Open Warp") {
                 NotificationCenter.default.post(
                     name: .openMainWindowDestinationFromFloatingStats,
                     object: FloatingStatsMainWindowDestination.warp

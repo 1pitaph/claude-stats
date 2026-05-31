@@ -8,6 +8,10 @@ final class MemoryGraphStore {
     var changeSearchText = ""
     var selectedChangeNodeID: String?
     var selectedChangeEdgeID: String?
+    var selectedChangeGroupID: String?
+    var displayMode: MemoryGraphDisplayMode = .sourceCentric
+    var density: MemoryGraphDensity = .grouped
+    var expandedGroupIDs: Set<String> = []
     var zoom: Double = 1
     var pan = CGSize.zero
     private(set) var changeGraph: CodeMemoryGraph?
@@ -36,6 +40,14 @@ final class MemoryGraphStore {
                 event.statusTransition,
                 event.actor["id"],
                 event.actor["kind"],
+                event.after?.displayValue("body"),
+                event.before?.displayValue("body"),
+                MemoryGraphPresentation.changedFields(for: event).joined(separator: " "),
+                event.sourceRefs.map { ref in
+                    [ref.kind, ref.path, ref.uri, ref.sourceID, ref.episodeID, ref.quote, ref.metadata.values.joined(separator: " ")]
+                        .compactMap { $0 }
+                        .joined(separator: " ")
+                }.joined(separator: " "),
             ]
             .compactMap { $0 }
             .joined(separator: " ")
@@ -52,6 +64,24 @@ final class MemoryGraphStore {
     var selectedChangeEdge: CodeMemoryGraphEdge? {
         guard let selectedChangeEdgeID else { return nil }
         return changeGraph?.edges.first { $0.id == selectedChangeEdgeID }
+    }
+
+    var changePresentation: MemoryGraphPresentation? {
+        guard let projectID = changeGraph?.projectID,
+              let focusedChangeGraph else { return nil }
+        return MemoryGraphPresentation.build(
+            projectID: projectID,
+            graph: focusedChangeGraph,
+            events: events,
+            mode: displayMode,
+            density: density,
+            expandedGroupIDs: expandedGroupIDs,
+            searchText: changeSearchText
+        )
+    }
+
+    var selectedChangeGroup: MemoryGraphPresentation.GroupSummary? {
+        changePresentation?.group(id: selectedChangeGroupID)
     }
 
     var selectedChangeEvent: CodeMemoryEvent? {
@@ -149,15 +179,29 @@ final class MemoryGraphStore {
     func selectChangeNode(_ id: String?) {
         selectedChangeNodeID = id
         selectedChangeEdgeID = nil
+        selectedChangeGroupID = nil
     }
 
     func selectChangeEdge(_ id: String?) {
         selectedChangeEdgeID = id
         selectedChangeNodeID = nil
+        selectedChangeGroupID = nil
     }
 
     func selectChangeEvent(_ eventID: String) {
+        selectedChangeGroupID = nil
         selectChangeNode(MemoryChangeGraphBuilder.eventNodeID(eventID))
+    }
+
+    func selectChangeGroup(_ id: String) {
+        selectedChangeGroupID = id
+        selectedChangeNodeID = nil
+        selectedChangeEdgeID = nil
+        if expandedGroupIDs.contains(id) {
+            expandedGroupIDs.remove(id)
+        } else {
+            expandedGroupIDs.insert(id)
+        }
     }
 
     func history(for memoryID: String) -> CodeMemoryMemoryHistory? {
@@ -356,7 +400,7 @@ enum MemoryChangeGraphBuilder {
         return String(nodeID.dropFirst(prefix.count))
     }
 
-    private static func memoryNodeID(_ memoryID: String) -> String {
+    static func memoryNodeID(_ memoryID: String) -> String {
         memoryID.hasPrefix("memory:") ? memoryID : "memory:\(memoryID)"
     }
 
@@ -384,16 +428,17 @@ enum MemoryChangeGraphBuilder {
                 "uri": ref.uri ?? "",
                 "path": ref.path ?? "",
             ].filter { !$0.value.isEmpty }
+                .merging(ref.metadata, uniquingKeysWith: { current, _ in current })
         )
     }
 
-    private static func sourceNodeID(for ref: CodeMemorySourceRef) -> String {
+    static func sourceNodeID(for ref: CodeMemorySourceRef) -> String {
         let rawID = ref.episodeID ?? ref.sourceID ?? ref.uri ?? ref.path ?? ref.id
         let kind = ref.episodeID == nil ? "source" : "episode"
         return sourceNodeID(rawID: rawID, kind: kind)
     }
 
-    private static func sourceNodeID(rawID: String, kind: String) -> String {
+    static func sourceNodeID(rawID: String, kind: String) -> String {
         "\(kind):\(rawID.memoryGraphStableIDComponent)"
     }
 
@@ -422,6 +467,14 @@ enum MemoryChangeGraphBuilder {
             event.statusTransition,
             event.actor["id"],
             event.actor["kind"],
+            event.after?.displayValue("body"),
+            event.before?.displayValue("body"),
+            MemoryGraphPresentation.changedFields(for: event).joined(separator: " "),
+            event.sourceRefs.map { ref in
+                [ref.kind, ref.path, ref.uri, ref.sourceID, ref.episodeID, ref.quote, ref.metadata.values.joined(separator: " ")]
+                    .compactMap { $0 }
+                    .joined(separator: " ")
+            }.joined(separator: " "),
         ]
         .compactMap { $0 }
         .joined(separator: " ")

@@ -137,11 +137,119 @@ struct CodexTranscriptParser: Sendable {
         return messages
     }
 
+    func executedCommands(transcriptAt url: URL) async -> [SessionCommandEvent] {
+        guard let data = try? Data(contentsOf: url) else { return [] }
+
+        var events: [SessionCommandEvent] = []
+        let decoder = JSONDecoder()
+        for lineBytes in data.split(separator: 0x0A /* \n */, omittingEmptySubsequences: true) {
+            let lineData = Data(lineBytes)
+            let timestamp = (try? decoder.decode(CodexLine.self, from: lineData))
+                .flatMap { ISO8601.parse($0.timestamp) }
+            guard let json = try? JSONSerialization.jsonObject(with: lineData) else { continue }
+
+            var seen: Set<String> = []
+            for command in Self.extractExecutedCommands(from: json, inheritedToolContext: false) {
+                let cleaned = command.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !cleaned.isEmpty, seen.insert(cleaned).inserted else { continue }
+                events.append(SessionCommandEvent(command: cleaned, timestamp: timestamp))
+            }
+        }
+
+        return events
+    }
+
     private func track(_ date: Date?, _ first: inout Date?, _ last: inout Date?) {
         guard let date else { return }
         if first == nil || date < first! { first = date }
         if last == nil || date > last! { last = date }
     }
+
+    private static func extractExecutedCommands(from value: Any, inheritedToolContext: Bool) -> [String] {
+        if let dictionary = value as? [String: Any] {
+            let isToolContext = inheritedToolContext || indicatesToolExecution(dictionary)
+            var commands: [String] = []
+
+            if isToolContext {
+                for key in commandKeys {
+                    if let command = dictionary[key] as? String {
+                        commands.append(command)
+                    }
+                }
+            }
+
+            for key in argumentKeys {
+                if let argument = dictionary[key] as? String,
+                   let parsed = parseJSONString(argument) {
+                    commands.append(contentsOf: extractExecutedCommands(from: parsed, inheritedToolContext: isToolContext))
+                }
+            }
+
+            for (key, child) in dictionary where !commandKeys.contains(key) {
+                commands.append(contentsOf: extractExecutedCommands(from: child, inheritedToolContext: isToolContext))
+            }
+            return commands
+        }
+
+        if let array = value as? [Any] {
+            return array.flatMap { extractExecutedCommands(from: $0, inheritedToolContext: inheritedToolContext) }
+        }
+
+        return []
+    }
+
+    private static func indicatesToolExecution(_ dictionary: [String: Any]) -> Bool {
+        for key in contextKeys {
+            guard let raw = dictionary[key] as? String else { continue }
+            let value = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !value.isEmpty else { continue }
+            if value == "bash" || value == "shell" || value == "terminal" || value == "exec_command" || value == "run_command" {
+                return true
+            }
+            if value.contains("tool")
+                || value.contains("exec")
+                || value.contains("shell")
+                || value.contains("terminal")
+                || value.contains("command") {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func parseJSONString(_ string: String) -> Any? {
+        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("{") || trimmed.hasPrefix("["),
+              let data = trimmed.data(using: .utf8) else {
+            return nil
+        }
+        return try? JSONSerialization.jsonObject(with: data)
+    }
+
+    private static let commandKeys: Set<String> = [
+        "command",
+        "cmd",
+        "command_line",
+        "shell_command",
+    ]
+
+    private static let argumentKeys: Set<String> = [
+        "arguments",
+        "args",
+        "input",
+    ]
+
+    private static let contextKeys: Set<String> = [
+        "type",
+        "name",
+        "tool",
+        "tool_name",
+        "toolName",
+        "kind",
+        "event",
+        "subtype",
+        "category",
+    ]
 }
 
 // MARK: - JSONL line shapes (only the fields we read)

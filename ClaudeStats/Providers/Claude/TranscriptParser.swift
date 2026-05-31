@@ -162,6 +162,27 @@ struct TranscriptParser: Sendable {
         return messages
     }
 
+    func executedCommands(transcriptAt url: URL) async -> [SessionCommandEvent] {
+        guard let data = try? Data(contentsOf: url) else { return [] }
+
+        var commands: [SessionCommandEvent] = []
+        let decoder = JSONDecoder()
+        for lineBytes in data.split(separator: 0x0A /* \n */, omittingEmptySubsequences: true) {
+            guard let line = try? decoder.decode(TranscriptLine.self, from: Data(lineBytes)),
+                  line.type == "assistant",
+                  let content = line.message?.content else {
+                continue
+            }
+
+            let timestamp = ISO8601.parse(line.timestamp)
+            for command in content.executedShellCommands {
+                commands.append(SessionCommandEvent(command: command, timestamp: timestamp))
+            }
+        }
+
+        return commands
+    }
+
     private func track(_ date: Date?, _ first: inout Date?, _ last: inout Date?) {
         guard let date else { return }
         if first == nil || date < first! { first = date }
@@ -314,12 +335,18 @@ private struct TranscriptLine: Decodable {
             guard case .blocks(let blocks) = self, !blocks.isEmpty else { return false }
             return blocks.allSatisfy { $0.isToolBlock }
         }
+
+        var executedShellCommands: [String] {
+            guard case .blocks(let blocks) = self else { return [] }
+            return blocks.compactMap(\.executedShellCommand)
+        }
     }
 
     struct ContentBlock: Decodable {
         let type: String?
         let text: String?
         let name: String?
+        let input: ToolInput?
         let content: BlockContent?
 
         var displayText: String? {
@@ -340,6 +367,40 @@ private struct TranscriptLine: Decodable {
 
         var isToolBlock: Bool {
             type == "tool_use" || type == "tool_result"
+        }
+
+        var executedShellCommand: String? {
+            guard type == "tool_use", Self.isShellToolName(name) else { return nil }
+            return input?.shellCommandValue
+        }
+
+        private static func isShellToolName(_ name: String?) -> Bool {
+            let normalized = (name ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !normalized.isEmpty else { return false }
+            if ["bash", "shell", "sh", "zsh", "fish", "terminal", "exec_command", "run_command", "shell_command"].contains(normalized) {
+                return true
+            }
+            return normalized.contains("bash") || normalized.contains("shell") || normalized.contains("terminal")
+        }
+    }
+
+    struct ToolInput: Decodable {
+        let command: String?
+        let cmd: String?
+        let commandLine: String?
+        let shellCommandRaw: String?
+
+        enum CodingKeys: String, CodingKey {
+            case command
+            case cmd
+            case commandLine = "command_line"
+            case shellCommandRaw = "shell_command"
+        }
+
+        var shellCommandValue: String? {
+            [command, cmd, commandLine, shellCommandRaw]
+                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty }
+                .first
         }
     }
 
@@ -362,6 +423,12 @@ private struct TranscriptLine: Decodable {
             case .ignored: nil
             }
         }
+    }
+}
+
+private extension String {
+    var nonEmpty: String? {
+        isEmpty ? nil : self
     }
 }
 

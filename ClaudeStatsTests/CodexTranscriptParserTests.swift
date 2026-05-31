@@ -111,6 +111,25 @@ struct CodexTranscriptParserTests {
         #expect(messages.first?.timestamp == (try Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse("2026-01-10T09:00:02.000Z")))
     }
 
+    @Test("Extracts tolerant executed command schemas and ignores prose")
+    func executedCommands() async throws {
+        let root = try TempDir.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("rollout.jsonl")
+        let lines = [
+            #"{"timestamp":"2026-01-10T09:00:00.000Z","type":"event_msg","payload":{"type":"agent_message","message":"I will run bash scripts/run-tests.sh later."}}"#,
+            #"{"timestamp":"2026-01-10T09:00:01.000Z","type":"event_msg","payload":{"type":"tool_call","name":"shell","arguments":"{\"command\":\"git status\"}"}}"#,
+            #"{"timestamp":"2026-01-10T09:00:02.000Z","type":"exec_command","payload":{"cmd":"npm test"}}"#,
+            #"{"timestamp":"2026-01-10T09:00:03.000Z","type":"event_msg","payload":{"type":"tool_call","tool_name":"terminal","input":{"shell_command":"swift test"}}}"#,
+        ]
+        try TempDir.write(lines.joined(separator: "\n") + "\n", to: url)
+
+        let commands = await CodexTranscriptParser(pricing: CodexSampleTranscript.pricing)
+            .executedCommands(transcriptAt: url)
+
+        #expect(commands.map(\.command) == ["git status", "npm test", "swift test"])
+    }
+
     @Test("First/last activity span the transcript; timeline has one bucket per hour")
     func activityWindow() async throws {
         let stats = try await parseSample()

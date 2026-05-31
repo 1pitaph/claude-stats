@@ -18,6 +18,7 @@ final class AppEnvironment {
     let transcriptAnalysis: TranscriptAnalysisStore
     let updater = UpdaterController()
     let floatingStatsPanel = FloatingStatsPanelController()
+    let cursorCommandOverlay = CursorCommandOverlayController()
     let notchIsland = NotchIslandController()
     let warpSessionStore: WarpSessionStore
     /// View models live in the environment so the Settings window and the
@@ -157,6 +158,7 @@ final class AppEnvironment {
         applyAutoRefreshSetting()
         updater.start()
         floatingStatsPanel.start(environment: self)
+        cursorCommandOverlay.start(environment: self)
         if !Self.isRunningUnitTests {
             notchIsland.start(environment: self)
         }

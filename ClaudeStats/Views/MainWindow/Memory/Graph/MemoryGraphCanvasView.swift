@@ -1,78 +1,5 @@
 import SwiftUI
 
-struct MemoryGraphNodeView: View {
-    let node: CodeMemoryGraphNode
-    let isSelected: Bool
-    let isHighlighted: Bool
-    var isCompact = false
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            if isCompact {
-                Image(systemName: MemoryGraphStyle.symbol(for: node.kind))
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(MemoryGraphStyle.color(for: node.kind))
-                    .frame(width: 24, height: 24)
-                    .background(fill, in: Circle())
-                    .overlay(Circle().strokeBorder(stroke, lineWidth: isSelected ? 2 : 1))
-                    .shadow(color: Color.black.opacity(isSelected ? 0.12 : 0.04), radius: isSelected ? 8 : 3, y: 2)
-            } else {
-                HStack(spacing: 6) {
-                    Image(systemName: MemoryGraphStyle.symbol(for: node.kind))
-                        .font(.system(size: 11, weight: .semibold))
-                        .frame(width: 14)
-                    Text(node.title)
-                        .font(.sora(10, weight: .semibold))
-                        .lineLimit(1)
-                }
-                .foregroundStyle(.primary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .frame(width: width, alignment: .leading)
-                .background(fill, in: RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(stroke, lineWidth: isSelected ? 2 : 1))
-                .shadow(color: Color.black.opacity(isSelected ? 0.12 : 0.04), radius: isSelected ? 8 : 3, y: 2)
-            }
-        }
-        .buttonStyle(.plain)
-        .help("\(node.title)\n\(node.id)")
-    }
-
-    private var width: CGFloat {
-        switch node.kind {
-        case "project":
-            176
-        case "memory":
-            190
-        case "change_event":
-            178
-        default:
-            156
-        }
-    }
-
-    private var fill: Color {
-        if isSelected {
-            return MemoryGraphStyle.color(for: node.kind).opacity(0.24)
-        }
-        if isHighlighted {
-            return Color.stxAccent.opacity(0.18)
-        }
-        return Color.primary.opacity(0.07)
-    }
-
-    private var stroke: Color {
-        if isSelected {
-            return Color.stxAccent
-        }
-        if isHighlighted {
-            return Color.stxAccent.opacity(0.85)
-        }
-        return MemoryGraphStyle.color(for: node.kind).opacity(0.42)
-    }
-}
-
 struct MemoryGraphRenderModel: Sendable, Hashable {
     var nodes: [CodeMemoryGraphNode]
     var edges: [CodeMemoryGraphEdge]
@@ -251,61 +178,61 @@ struct MemoryGraphRenderLimitBadge: View {
     }
 }
 
-enum MemoryGraphStyle {
-    static func color(for kind: String) -> Color {
-        switch kind {
-        case "project":
-            Color.stxAccent
-        case "module", "scope":
-            Color(red: 0.22, green: 0.58, blue: 0.9)
-        case "memory":
-            Color(red: 0.42, green: 0.72, blue: 0.35)
-        case "event":
-            Color(red: 0.9, green: 0.56, blue: 0.22)
-        case "change_event":
-            Color(red: 0.95, green: 0.38, blue: 0.28)
-        case "source", "episode":
-            Color(red: 0.76, green: 0.48, blue: 0.86)
-        default:
-            isGraphitiKind(kind) ? Color(red: 0.94, green: 0.37, blue: 0.46) : Color.stxMuted
-        }
-    }
-
-    static func symbol(for kind: String) -> String {
-        switch kind {
-        case "project":
-            "folder"
-        case "module", "scope":
-            "shippingbox"
-        case "memory":
-            "text.badge.checkmark"
-        case "event":
-            "bolt.horizontal"
-        case "change_event":
-            "arrow.triangle.2.circlepath"
-        case "source":
-            "doc.text"
-        case "episode":
-            "doc.text.magnifyingglass"
-        default:
-            isGraphitiKind(kind) ? "point.3.connected.trianglepath.dotted" : "circle.hexagongrid"
-        }
-    }
-
-    static func isGraphitiKind(_ kind: String) -> Bool {
-        let lower = kind.lowercased()
-        return lower.contains("graphiti") || lower == "entity" || lower == "relationship"
-    }
-}
-
 enum MemoryGraphLayout {
     static func midpoint(for edge: CodeMemoryGraphEdge, positions: [String: CGPoint]) -> CGPoint? {
+        guard let source = positions[edge.source], let target = positions[edge.target] else { return nil }
+        return CGPoint(x: (source.x + target.x) / 2, y: (source.y + target.y) / 2)
+    }
+
+    static func midpoint(for edge: MemoryGraphPresentation.Edge, positions: [String: CGPoint]) -> CGPoint? {
         guard let source = positions[edge.source], let target = positions[edge.target] else { return nil }
         return CGPoint(x: (source.x + target.x) / 2, y: (source.y + target.y) / 2)
     }
 }
 
 enum MemoryChangeGraphLayout {
+    static func positions(
+        for nodes: [MemoryGraphPresentation.Node],
+        in size: CGSize,
+        pan: CGSize,
+        zoom: CGFloat
+    ) -> [String: CGPoint] {
+        guard !nodes.isEmpty else { return [:] }
+
+        let canvasWidth = max(size.width, 360)
+        let canvasHeight = max(size.height, 300)
+        let center = CGPoint(x: canvasWidth / 2 + pan.width, y: canvasHeight / 2 + pan.height + 14)
+        let laneX: [MemoryGraphLane: CGFloat] = [
+            .source: max(125, center.x - max(205, canvasWidth * 0.29) * zoom),
+            .event: center.x,
+            .memory: min(canvasWidth - 125, center.x + max(205, canvasWidth * 0.29) * zoom),
+        ]
+        let grouped = Dictionary(grouping: nodes, by: \.lane)
+        var positions: [String: CGPoint] = [:]
+
+        for lane in MemoryGraphLane.allCases {
+            let laneNodes = (grouped[lane] ?? []).sorted { lhs, rhs in
+                if lhs.sortIndex != rhs.sortIndex {
+                    return lhs.sortIndex < rhs.sortIndex
+                }
+                return lhs.id < rhs.id
+            }
+            guard !laneNodes.isEmpty, let x = laneX[lane] else { continue }
+            let rowGap = min(112 * zoom, max(86, canvasHeight / CGFloat(max(laneNodes.count, 4))))
+            let startY = center.y - CGFloat(laneNodes.count - 1) * rowGap / 2
+            for (index, node) in laneNodes.enumerated() {
+                positions[node.id] = CGPoint(x: x, y: startY + CGFloat(index) * rowGap)
+            }
+        }
+
+        return positions.mapValues { point in
+            CGPoint(
+                x: min(max(point.x, 54), canvasWidth - 54),
+                y: min(max(point.y, 56), canvasHeight - 42)
+            )
+        }
+    }
+
     static func positions(
         for nodes: [CodeMemoryGraphNode],
         edges: [CodeMemoryGraphEdge],

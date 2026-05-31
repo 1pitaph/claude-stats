@@ -29,6 +29,11 @@ struct CodexProvider: Provider {
             .messages(transcriptAt: URL(fileURLWithPath: session.filePath))
     }
 
+    func executedCommands(for session: Session) async -> [SessionCommandEvent] {
+        await CodexTranscriptParser(pricing: pricing)
+            .executedCommands(transcriptAt: URL(fileURLWithPath: session.filePath))
+    }
+
     func cacheHitRate(for usage: TokenUsage) -> Double? {
         usage.cachedInputRate
     }
