@@ -219,6 +219,11 @@ stop_running_memory_sidecars
 stop_running_mediaremote_helpers
 cleanup_stale_registrations
 
+MEMORY_DEV_LOG_DIR="$PWD/var/memory-logs"
+mkdir -p "$MEMORY_DEV_LOG_DIR"
+export CLAUDE_STATS_MEMORY_DEV_LOG_DIR="$MEMORY_DEV_LOG_DIR"
+launchctl setenv CLAUDE_STATS_MEMORY_DEV_LOG_DIR "$MEMORY_DEV_LOG_DIR" 2>/dev/null || true
+
 xcodebuild \
     -project ClaudeStats.xcodeproj \
     -scheme ClaudeStats \

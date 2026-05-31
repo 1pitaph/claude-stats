@@ -300,15 +300,18 @@ struct MemorySettingsView: View {
 
     private var diagnosticsCard: some View {
         @Bindable var settings = store.settings
-        let logPath = store.codeHealth?.diagnosticsLogPath ?? MemoryDiagnosticsLog.currentLogURL().path
+        let jsonLogPath = store.codeHealth?.diagnosticsLogPath ?? MemoryDiagnosticsLog.currentLogURL().path
+        let readableLogPath = readableDiagnosticsPath(for: jsonLogPath)
         let devLogPath = store.codeHealth?.diagnosticsDevLogPath
+        let devReadableLogPath = devLogPath.map { readableDiagnosticsPath(for: $0) }
         return VStack(alignment: .leading, spacing: 10) {
             Text("Diagnostics Log")
                 .font(.sora(15, weight: .semibold))
 
-            fact("current", logPath.memoryAbbreviatingHomeDirectory)
-            if let devLogPath {
-                fact("dev", devLogPath.memoryAbbreviatingHomeDirectory)
+            fact("current", readableLogPath.memoryAbbreviatingHomeDirectory)
+            fact("jsonl", jsonLogPath.memoryAbbreviatingHomeDirectory)
+            if let devReadableLogPath {
+                fact("dev", devReadableLogPath.memoryAbbreviatingHomeDirectory)
             }
             if let size = store.codeHealth?.diagnosticsLogSize {
                 fact("size", ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))
@@ -342,7 +345,7 @@ struct MemorySettingsView: View {
                 }
                 .controlSize(.small)
 
-                MemoryCopyButton(value: logPath, label: "Copy Log Path", systemImage: "link")
+                MemoryCopyButton(value: readableLogPath, label: "Copy Log Path", systemImage: "link")
             }
 
             if let result = settings.lastDiagnosticsConfigurationResult {
@@ -353,6 +356,13 @@ struct MemorySettingsView: View {
         }
         .padding(16)
         .appSurface(.compactCard(radius: 8, fillOpacity: 0.55, cornerStyle: .circular, maxWidth: nil), padding: nil)
+    }
+
+    private func readableDiagnosticsPath(for jsonLogPath: String) -> String {
+        URL(fileURLWithPath: jsonLogPath)
+            .deletingPathExtension()
+            .appendingPathExtension("log")
+            .path
     }
 
     private var shellCard: some View {

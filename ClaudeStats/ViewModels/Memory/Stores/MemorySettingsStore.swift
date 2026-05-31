@@ -55,11 +55,6 @@ final class MemorySettingsStore {
 
         do {
             health = try await backend.health()
-            if let retentionDays = health?.diagnosticsRetentionDays,
-               let retention = MemoryDiagnosticsRetention(rawValue: retentionDays),
-               retention != diagnosticsRetention {
-                diagnosticsRetention = retention
-            }
             if let apiVersion = health?.apiVersion, apiVersion < CodeMemorySidecarManager.requiredAPIVersion {
                 lastError = "Code Memory sidecar is out of date: API v\(apiVersion), app requires v\(CodeMemorySidecarManager.requiredAPIVersion). Restart memoryd."
             } else {
@@ -96,7 +91,8 @@ final class MemorySettingsStore {
         do {
             let configuration = CodeMemorySidecarConfiguration(
                 localAI: localAIEnvironment,
-                modelRuntimeConfig: modelRuntimeConfig
+                modelRuntimeConfig: modelRuntimeConfig,
+                diagnosticsRetentionDays: diagnosticsRetention.rawValue
             )
             let pid = try CodeMemorySidecarManager(configuration: configuration).start(helperPath: CodeMemorySidecarManager.defaultHelperPath())
             MemoryDiagnosticsLog.record(

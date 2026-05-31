@@ -14,6 +14,7 @@ struct MemoryLLMConfigurationTests {
         let changedProtocol = Self.runtimeConfig(protocolName: .openAIChatCompletions, llmKey: "online-key", dimensions: 384)
         let changedKey = Self.runtimeConfig(protocolName: .openAIResponses, llmKey: "other-key", dimensions: 384)
         let changedDimensions = Self.runtimeConfig(protocolName: .openAIResponses, llmKey: "online-key", dimensions: 768)
+        let changedRetention = Self.runtimeConfig(protocolName: .openAIResponses, llmKey: "online-key", dimensions: 384, diagnosticsRetentionDays: 7)
 
         try first.write(to: url)
         let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
@@ -24,6 +25,84 @@ struct MemoryLLMConfigurationTests {
         #expect(first.configurationHash != changedProtocol.configurationHash)
         #expect(first.configurationHash != changedKey.configurationHash)
         #expect(first.configurationHash != changedDimensions.configurationHash)
+        #expect(first.configurationHash != changedRetention.configurationHash)
+    }
+
+    @Test("Health decodes diagnostics log metadata")
+    func healthDecodesDiagnosticsFields() throws {
+        let raw = """
+        {
+          "status": "ok",
+          "store": "/tmp/code-memory.sqlite3",
+          "api_version": 16,
+          "event_count": 1,
+          "memory_count": 2,
+          "diagnostics_log_path": "/tmp/memory-capture-2026-05-31-10.jsonl",
+          "diagnostics_log_size": 42,
+          "diagnostics_dev_log_path": "/repo/var/memory-logs/memory-capture-2026-05-31-10.jsonl",
+          "diagnostics_dev_log_size": 24,
+          "diagnostics_retention_days": 7,
+          "adapters": {}
+        }
+        """
+        let health = try JSONDecoder.codeMemoryDecoder.decode(CodeMemoryHealth.self, from: Data(raw.utf8))
+
+        #expect(health.diagnosticsLogPath == "/tmp/memory-capture-2026-05-31-10.jsonl")
+        #expect(health.diagnosticsLogSize == 42)
+        #expect(health.diagnosticsDevLogPath == "/repo/var/memory-logs/memory-capture-2026-05-31-10.jsonl")
+        #expect(health.diagnosticsDevLogSize == 24)
+        #expect(health.diagnosticsRetentionDays == 7)
+    }
+
+    @Test("Diagnostics dev log directory is hidden unless debug environment is present")
+    func diagnosticsDevDirectoryRequiresEnvironment() {
+        #expect(MemoryDiagnosticsLog.devLogDirectory(environment: [:]) == nil)
+        #expect(MemoryDiagnosticsLog.devLogDirectory(environment: [
+            MemoryDiagnosticsLog.devLogDirectoryEnvironmentKey: "/tmp/memory-logs",
+        ])?.path == "/tmp/memory-logs")
+    }
+
+    @Test("Diagnostics log lines are readable flat JSONL")
+    func diagnosticsLogLinesAreReadableFlatJSONL() throws {
+        let data = MemoryDiagnosticsLog.recordData(
+            "swift.source.upload.start",
+            date: Date(timeIntervalSince1970: 1_801_234_567.89),
+            fields: [
+                "api_key": "secret-key",
+                "project_id": "/Users/1pitaph/dev/mac/claude-stats",
+                "source_id": "session:codex:test",
+                "content_hash": "abc123",
+                "event": "caller event",
+                "ts": "caller timestamp",
+            ]
+        )
+        let line = try #require(String(data: data, encoding: .utf8))
+        let readableData = MemoryDiagnosticsLog.readableRecordData(
+            "swift.source.upload.start",
+            date: Date(timeIntervalSince1970: 1_801_234_567.89),
+            fields: [
+                "api_key": "secret-key",
+                "project_id": "/Users/1pitaph/dev/mac/claude-stats",
+                "source_id": "session:codex:test",
+                "content_hash": "abc123",
+            ]
+        )
+        let readable = try #require(String(data: readableData, encoding: .utf8))
+
+        #expect(line.hasPrefix(#"{"ts": ""#))
+        #expect(line.contains(#""level": "info", "event": "swift.source.upload.start""#))
+        #expect(line.contains(#""source_id": "session:codex:test", "project_id": "/Users/1pitaph/dev/mac/claude-stats""#))
+        #expect(line.contains(#""content_hash": "abc123""#))
+        #expect(line.contains(#""field_event": "caller event""#))
+        #expect(line.contains(#""field_ts": "caller timestamp""#))
+        #expect(line.contains(#""api_key": "[redacted]""#))
+        #expect(!line.contains(#""fields""#))
+        #expect(!line.contains(#"\/Users"#))
+        _ = try JSONSerialization.jsonObject(with: data)
+        #expect(readable.contains("INFO swift.source.upload.start"))
+        #expect(readable.contains("source_id     session:codex:test"))
+        #expect(readable.contains("project_id    /Users/1pitaph/dev/mac/claude-stats"))
+        #expect(readable.contains("api_key       [redacted]"))
     }
 
     @Test("Provider settings JSON does not persist raw API keys")
@@ -58,7 +137,8 @@ struct MemoryLLMConfigurationTests {
     private static func runtimeConfig(
         protocolName: CodeMemoryLLMProtocol,
         llmKey: String,
-        dimensions: Int
+        dimensions: Int,
+        diagnosticsRetentionDays: Int = 3
     ) -> CodeMemoryModelRuntimeConfig {
         CodeMemoryModelRuntimeConfig(
             mode: "online",
@@ -73,7 +153,8 @@ struct MemoryLLMConfigurationTests {
                 apiKey: "embedding-key",
                 model: "multilingual-e5-small-gguf-q8",
                 dimensions: dimensions
-            )
+            ),
+            diagnosticsRetentionDays: diagnosticsRetentionDays
         )
     }
 }

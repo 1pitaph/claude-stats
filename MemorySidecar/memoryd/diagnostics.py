@@ -12,7 +12,23 @@ from typing import Any, Callable
 
 DIAGNOSTIC_LOG_PREFIX = "memory-capture-"
 DIAGNOSTIC_LOG_SUFFIX = ".jsonl"
+DIAGNOSTIC_READABLE_LOG_SUFFIX = ".log"
 DEFAULT_RETENTION_DAYS = 3
+CANONICAL_RECORD_KEYS = (
+    "ts",
+    "level",
+    "event",
+    "run_id",
+    "source_id",
+    "source_kind",
+    "project_id",
+    "chunk_index",
+    "duration_ms",
+    "counts",
+    "model",
+    "error",
+)
+RESERVED_RECORD_KEYS = {"ts", "level", "event"}
 
 
 class MemoryDiagnosticsLogger:
@@ -57,17 +73,25 @@ class MemoryDiagnosticsLogger:
         directory = directory or self.app_log_dir
         return directory / f"{DIAGNOSTIC_LOG_PREFIX}{self._hour_key()}{DIAGNOSTIC_LOG_SUFFIX}"
 
+    def current_readable_log_path(self, directory: Path | None = None) -> Path:
+        directory = directory or self.app_log_dir
+        return directory / f"{DIAGNOSTIC_LOG_PREFIX}{self._hour_key()}{DIAGNOSTIC_READABLE_LOG_SUFFIX}"
+
     def summary(self) -> dict[str, Any]:
         app_path = self.current_log_path(self.app_log_dir)
         result: dict[str, Any] = {
             "diagnostics_log_path": str(app_path),
             "diagnostics_log_size": _file_size(app_path),
+            "diagnostics_readable_log_path": str(self.current_readable_log_path(self.app_log_dir)),
+            "diagnostics_readable_log_size": _file_size(self.current_readable_log_path(self.app_log_dir)),
             "diagnostics_retention_days": self.retention_days,
         }
         if self.dev_log_dir is not None:
             dev_path = self.current_log_path(self.dev_log_dir)
             result["diagnostics_dev_log_path"] = str(dev_path)
             result["diagnostics_dev_log_size"] = _file_size(dev_path)
+            result["diagnostics_dev_readable_log_path"] = str(self.current_readable_log_path(self.dev_log_dir))
+            result["diagnostics_dev_readable_log_size"] = _file_size(self.current_readable_log_path(self.dev_log_dir))
         return result
 
     def log(self, event: str, *, level: str = "info", **fields: Any) -> None:
@@ -83,7 +107,9 @@ class MemoryDiagnosticsLogger:
                 directory.mkdir(parents=True, exist_ok=True)
             except OSError:
                 continue
-            for path in directory.glob(f"{DIAGNOSTIC_LOG_PREFIX}*{DIAGNOSTIC_LOG_SUFFIX}"):
+            for path in directory.glob(f"{DIAGNOSTIC_LOG_PREFIX}*"):
+                if path.suffix not in {DIAGNOSTIC_LOG_SUFFIX, DIAGNOSTIC_READABLE_LOG_SUFFIX}:
+                    continue
                 timestamp = _timestamp_from_log_name(path.name)
                 if timestamp is None:
                     continue
@@ -104,14 +130,17 @@ class MemoryDiagnosticsLogger:
             "level": level,
             "event": event,
         }
-        record.update(_sanitize(fields))
-        data = json.dumps(record, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8") + b"\n"
+        record.update(_metadata_safe_fields(_sanitize(fields)))
+        ordered = _ordered_record(record)
+        data = json.dumps(ordered, ensure_ascii=False, separators=(", ", ": ")).encode("utf-8") + b"\n"
+        readable_data = _readable_record(ordered).encode("utf-8")
         for directory in self.log_dirs:
-            path = self.current_log_path(directory)
             try:
                 directory.mkdir(parents=True, exist_ok=True)
-                with path.open("ab") as handle:
+                with self.current_log_path(directory).open("ab") as handle:
                     handle.write(data)
+                with self.current_readable_log_path(directory).open("ab") as handle:
+                    handle.write(readable_data)
             except OSError:
                 continue
 
@@ -159,6 +188,47 @@ def _sanitize(value: Any) -> Any:
     return str(value)
 
 
+def _ordered_record(record: dict[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key in CANONICAL_RECORD_KEYS:
+        if key in record:
+            result[key] = record[key]
+    for key in sorted(record):
+        if key not in result:
+            result[key] = record[key]
+    return result
+
+
+def _readable_record(record: dict[str, Any]) -> str:
+    timestamp = record.get("ts", "-")
+    level = str(record.get("level", "info")).upper()
+    event = record.get("event", "-")
+    fields = [(key, value) for key, value in record.items() if key not in RESERVED_RECORD_KEYS]
+    key_width = min(max((len(key) for key, _ in fields), default=1), 24)
+    lines = [f"[{timestamp}] {level} {event}"]
+    for key, value in fields:
+        lines.append(f"  {key.ljust(key_width)}  {_readable_value(value)}")
+    lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def _readable_value(value: Any) -> str:
+    if isinstance(value, (dict, list)):
+        text = json.dumps(value, ensure_ascii=False, separators=(", ", ": "))
+    else:
+        text = str(value)
+    return text.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+
+
+def _metadata_safe_fields(fields: dict[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in fields.items():
+        output_key = f"field_{key}" if key in RESERVED_RECORD_KEYS else key
+        if output_key not in result:
+            result[output_key] = value
+    return result
+
+
 def _redacted_key(key: str) -> bool:
     normalized = key.lower()
     return bool(
@@ -170,9 +240,12 @@ def _redacted_key(key: str) -> bool:
 
 
 def _timestamp_from_log_name(name: str) -> float | None:
-    if not name.startswith(DIAGNOSTIC_LOG_PREFIX) or not name.endswith(DIAGNOSTIC_LOG_SUFFIX):
+    if not name.startswith(DIAGNOSTIC_LOG_PREFIX):
         return None
-    stamp = name[len(DIAGNOSTIC_LOG_PREFIX) : -len(DIAGNOSTIC_LOG_SUFFIX)]
+    if not (name.endswith(DIAGNOSTIC_LOG_SUFFIX) or name.endswith(DIAGNOSTIC_READABLE_LOG_SUFFIX)):
+        return None
+    suffix_len = len(DIAGNOSTIC_LOG_SUFFIX) if name.endswith(DIAGNOSTIC_LOG_SUFFIX) else len(DIAGNOSTIC_READABLE_LOG_SUFFIX)
+    stamp = name[len(DIAGNOSTIC_LOG_PREFIX) : -suffix_len]
     try:
         return datetime.strptime(stamp, "%Y-%m-%d-%H").replace(tzinfo=timezone.utc).timestamp()
     except ValueError:

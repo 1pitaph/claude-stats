@@ -56,5 +56,6 @@ ClaudeStats/Resources/GitTools/manifest.json
 !ClaudeStats/Resources/GitTools/bin/.gitkeep
 
 # === Misc === #
+var/memory-logs/
 *.log
 *.orig

@@ -17,6 +17,7 @@ struct CodeMemorySidecarConfiguration: Sendable, Hashable {
     var rootDirectory: URL = MemoryPaths.rootDirectory()
     var localAI: CodeMemoryLocalAIEnvironment?
     var modelRuntimeConfig: CodeMemoryModelRuntimeConfig?
+    var diagnosticsRetentionDays: Int = MemoryDiagnosticsLog.defaultRetentionDays
 
     var baseURL: URL {
         URL(string: "http://\(host):\(port)")!
@@ -114,6 +115,7 @@ struct CodeMemorySidecarManager: Sendable {
         environment["PYTHONPATH"] = existing.map { "\(pythonPath):\($0)" } ?? pythonPath
         environment["MEM0_TELEMETRY"] = "false"
         environment["GRAPHITI_TELEMETRY_ENABLED"] = "false"
+        environment["CLAUDE_STATS_MEMORY_DIAGNOSTICS_RETENTION_DAYS"] = "\(configuration.diagnosticsRetentionDays >= 7 ? 7 : 3)"
         if let modelRuntimeConfig = configuration.modelRuntimeConfig {
             try modelRuntimeConfig.write(to: runtimeConfigURL)
             environment["CLAUDE_STATS_MEMORY_RUNTIME_CONFIG"] = runtimeConfigURL.path

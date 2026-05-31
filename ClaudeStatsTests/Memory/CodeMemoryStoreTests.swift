@@ -19,6 +19,31 @@ struct CodeMemoryStoreTests {
     }
 
     @MainActor
+    @Test("Diagnostics retention persists and configures the backend")
+    func diagnosticsRetentionPersistsAndConfiguresBackend() async throws {
+        let backend = FakeCodeMemoryBackend()
+        let defaultsName = "MemoryDiagnosticsRetention-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let outboxURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("jsonl")
+        defer { try? FileManager.default.removeItem(at: outboxURL) }
+        let outbox = CodeMemoryEventOutbox(url: outboxURL)
+        let store = MemorySettingsStore(backend: backend, outbox: outbox, defaults: defaults)
+
+        #expect(store.diagnosticsRetention == .threeDays)
+
+        await store.configureDiagnosticsRetention(.sevenDays)
+        let restored = MemorySettingsStore(backend: backend, outbox: outbox, defaults: defaults)
+
+        #expect(store.diagnosticsRetention == .sevenDays)
+        #expect(restored.diagnosticsRetention == .sevenDays)
+        #expect(backend.configuredDiagnosticsRetentionDays == [7])
+        #expect(store.lastDiagnosticsConfigurationResult?.diagnosticsRetentionDays == 7)
+    }
+
+    @MainActor
     @Test("Search stores sidecar results")
     func searchStoresSidecarResults() async throws {
         let backend = FakeCodeMemoryBackend()
@@ -601,6 +626,7 @@ private final class FakeCodeMemoryBackend: CodeMemoryBackend, @unchecked Sendabl
     var historyMemoryIDs: [String] = []
     var ingestedSources: [CodeMemorySourceInput] = []
     var reinferProjectIDs: [String?] = []
+    var configuredDiagnosticsRetentionDays: [Int] = []
     var reinferResponse = CodeMemoryReinferSourcesResponse(status: "ok", scanned: 0, attempted: 0, proposed: 0, skipped: 0, errors: [])
 
     func health() async throws -> CodeMemoryHealth {
@@ -721,6 +747,11 @@ private final class FakeCodeMemoryBackend: CodeMemoryBackend, @unchecked Sendabl
     func reinferSources(projectID: String?) async throws -> CodeMemoryReinferSourcesResponse {
         reinferProjectIDs.append(projectID)
         return reinferResponse
+    }
+
+    func configureDiagnostics(retentionDays: Int) async throws -> CodeMemoryDiagnosticsConfigurationResponse {
+        configuredDiagnosticsRetentionDays.append(retentionDays)
+        return CodeMemoryDiagnosticsConfigurationResponse(status: "ok", diagnosticsRetentionDays: retentionDays)
     }
 
     func recordEvent(_ event: CodeMemoryEventInput) async throws {}

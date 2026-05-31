@@ -3,6 +3,7 @@ import json
 import os
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -255,6 +256,160 @@ class MemorySidecarTests(unittest.TestCase):
 
         self.assertEqual(memories, [])
 
+    def test_diagnostics_logger_writes_hourly_jsonl_and_redacts_sensitive_fields(self):
+        from memoryd.diagnostics import MemoryDiagnosticsLogger
+
+        fixed = datetime(2026, 5, 31, 10, 15, tzinfo=timezone.utc).timestamp()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "root"
+            dev = Path(tmp) / "dev"
+            logger = MemoryDiagnosticsLogger(root, dev_log_dir=dev, clock=lambda: fixed)
+            logger.log(
+                "source.ingest.start",
+                body="raw source body should not be logged",
+                api_key="secret-key",
+                content_hash="abc123",
+                ts="caller timestamp",
+            )
+
+            app_log = root / "diagnostics" / "memory-capture-2026-05-31-10.jsonl"
+            app_readable_log = root / "diagnostics" / "memory-capture-2026-05-31-10.log"
+            dev_log = dev / "memory-capture-2026-05-31-10.jsonl"
+            dev_readable_log = dev / "memory-capture-2026-05-31-10.log"
+            self.assertTrue(app_log.exists())
+            self.assertTrue(app_readable_log.exists())
+            self.assertTrue(dev_log.exists())
+            self.assertTrue(dev_readable_log.exists())
+            raw = app_log.read_text(encoding="utf-8")
+            readable = app_readable_log.read_text(encoding="utf-8")
+            payload = json.loads(raw.strip())
+
+        self.assertEqual(payload["event"], "source.ingest.start")
+        self.assertEqual(payload["content_hash"], "abc123")
+        self.assertEqual(payload["body"], "[redacted]")
+        self.assertEqual(payload["api_key"], "[redacted]")
+        self.assertEqual(payload["field_ts"], "caller timestamp")
+        self.assertNotEqual(payload["ts"], "caller timestamp")
+        self.assertTrue(raw.startswith('{"ts": "'))
+        self.assertIn('"event": "source.ingest.start"', raw)
+        self.assertIn('"content_hash": "abc123"', raw)
+        self.assertIn("[2026-05-31T10:15:00.000Z] INFO source.ingest.start", readable)
+        self.assertIn("content_hash  abc123", readable)
+        self.assertIn("api_key       [redacted]", readable)
+        self.assertNotIn("raw source body", json.dumps(payload))
+        self.assertNotIn("secret-key", json.dumps(payload))
+        self.assertNotIn("raw source body", readable)
+        self.assertNotIn("secret-key", readable)
+
+    def test_diagnostics_retention_prunes_old_hourly_logs(self):
+        from memoryd.diagnostics import MemoryDiagnosticsLogger
+
+        fixed = datetime(2026, 5, 31, 10, 0, tzinfo=timezone.utc).timestamp()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            log_dir = root / "diagnostics"
+            log_dir.mkdir(parents=True)
+            old_log = log_dir / "memory-capture-2026-05-27-09.jsonl"
+            old_readable_log = log_dir / "memory-capture-2026-05-27-09.log"
+            keep_log = log_dir / "memory-capture-2026-05-30-09.jsonl"
+            old_log.write_text("{}\n", encoding="utf-8")
+            old_readable_log.write_text("old\n", encoding="utf-8")
+            keep_log.write_text("{}\n", encoding="utf-8")
+
+            MemoryDiagnosticsLogger(root, retention_days=3, clock=lambda: fixed)
+
+            self.assertFalse(old_log.exists())
+            self.assertFalse(old_readable_log.exists())
+            self.assertTrue(keep_log.exists())
+
+    def test_embedding_and_mem0_diagnostics_are_recorded(self):
+        from memoryd.adapters import Mem0Adapter, _instrument_mem0_embedding_client
+        from memoryd.config import EmbeddingEndpointConfig, LLMEndpointConfig, MemoryModelConfig
+        from memoryd.diagnostics import MemoryDiagnosticsLogger
+
+        class FakeEmbeddings:
+            def create(self, *args, **kwargs):
+                return {"data": [{"embedding": [0.0, 1.0]}]}
+
+        class FakeEmbeddingClient:
+            embeddings = FakeEmbeddings()
+
+        class FakeClient:
+            def __init__(self):
+                self.embedding_model = type("EmbeddingModel", (), {"client": FakeEmbeddingClient()})()
+
+            def add(self, body, *, user_id, metadata, infer):
+                return {"id": "mem0:1", "memory": body, "metadata": metadata, "user_id": user_id}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            logger = MemoryDiagnosticsLogger(root)
+            config = MemoryModelConfig(
+                llm=LLMEndpointConfig("openai_chat_completions", "http://127.0.0.1:18765/v1", "token", "llm"),
+                embedding=EmbeddingEndpointConfig("http://127.0.0.1:18765/v1", "token", "embed", 384),
+                mem0_enabled=True,
+                graphiti_enabled=False,
+                qdrant_path=root / "qdrant",
+                kuzu_path=root / "graphiti.kuzu",
+                adapter_timeout_seconds=20,
+            )
+            client = FakeClient()
+            _instrument_mem0_embedding_client(client, config, logger)
+            client.embedding_model.client.embeddings.create(input=["hello"], model="embed")
+
+            adapter = Mem0Adapter.__new__(Mem0Adapter)
+            adapter.client = client
+            adapter.diagnostics = logger
+            adapter._add_to_mem0(
+                "Store reusable build command.",
+                project_id="p",
+                metadata={"type": "command"},
+                run_id="run:1",
+                source={"id": "src:1", "kind": "codex_transcript"},
+                chunk_index=1,
+            )
+
+            logs = "\n".join(path.read_text(encoding="utf-8") for path in (root / "diagnostics").glob("memory-capture-*.jsonl"))
+
+        self.assertIn("embedding.request.start", logs)
+        self.assertIn("embedding.request.end", logs)
+        self.assertIn("mem0.add.start", logs)
+        self.assertIn("mem0.add.end", logs)
+
+    def test_llm_extraction_diagnostics_are_recorded(self):
+        from memoryd.adapters import Mem0Adapter
+        from memoryd.config import EmbeddingEndpointConfig, LLMEndpointConfig, MemoryModelConfig
+        from memoryd.diagnostics import MemoryDiagnosticsLogger
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            logger = MemoryDiagnosticsLogger(root)
+            config = MemoryModelConfig(
+                llm=LLMEndpointConfig("openai_chat_completions", "http://127.0.0.1:18765/v1", "token", "llm"),
+                embedding=EmbeddingEndpointConfig("http://127.0.0.1:18765/v1", "token", "embed", 384),
+                mem0_enabled=True,
+                graphiti_enabled=False,
+                qdrant_path=root / "qdrant",
+                kuzu_path=root / "graphiti.kuzu",
+                adapter_timeout_seconds=20,
+            )
+            adapter = Mem0Adapter.__new__(Mem0Adapter)
+            adapter.config = config
+            adapter.diagnostics = logger
+            adapter._call_extraction_llm = lambda prompt: '{"memories":[{"memory":"Run tests after code changes.","type":"workflow"}]}'
+
+            memories, raw_count = adapter._extract_chunk_memories(
+                "User: please remember the test command",
+                chunk={"project_id": "p", "run_id": "run:1", "chunk_index": 1},
+                source={"id": "src:1", "kind": "codex_transcript"},
+            )
+            logs = "\n".join(path.read_text(encoding="utf-8") for path in (root / "diagnostics").glob("memory-capture-*.jsonl"))
+
+        self.assertEqual(raw_count, 1)
+        self.assertEqual(len(memories), 1)
+        self.assertIn("llm.extract.start", logs)
+        self.assertIn("llm.extract.end", logs)
+
     def test_openai_responses_parser_extracts_text_and_function_calls(self):
         from memoryd.llm_providers import _parse_responses_output
 
@@ -496,6 +651,8 @@ class MemorySidecarTests(unittest.TestCase):
             self.assertEqual(skipped["blockers"]["capture"], "already_running")
             self.assertIn("already running", skipped["message"])
             self.assertEqual(adapters.captured_sources, [])
+            logs = "\n".join(path.read_text(encoding="utf-8") for path in (Path(tmp) / "diagnostics").glob("memory-capture-*.jsonl"))
+            self.assertIn("capture.drain.busy", logs)
 
             drained = store.drain_projection_jobs(limit=5)
             self.assertEqual(drained["delivered"], 1)
