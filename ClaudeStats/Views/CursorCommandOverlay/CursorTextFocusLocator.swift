@@ -15,6 +15,8 @@ struct CursorTextFocusTarget: Sendable, Hashable {
 
 @MainActor
 final class CursorTextFocusLocator {
+    private var lastDiagnostic: String?
+
     var isTrusted: Bool {
         AXIsProcessTrusted()
     }
@@ -33,21 +35,98 @@ final class CursorTextFocusLocator {
             return nil
         }
 
-        let desktopBounds = CursorCommandOverlayGeometry.desktopBounds()
-        if let caretRect = caretAccessibilityRect(for: focusedElement) {
-            let rect = CursorCommandOverlayGeometry.accessibilityRectToAppKit(caretRect, desktopBounds: desktopBounds)
-            return CursorTextFocusTarget(rect: rect.normalizedForOverlay, source: .caret)
+        let screens = CursorCommandOverlayGeometry.liveScreens()
+        let desktopBounds = CursorCommandOverlayGeometry.desktopBounds(screens: screens)
+        if let caretRect = caretAccessibilityRect(for: focusedElement, desktopBounds: desktopBounds, screens: screens) {
+            return CursorTextFocusTarget(rect: caretRect, source: .caret)
         }
 
-        if let elementRect = elementAccessibilityRect(for: focusedElement) {
-            let rect = CursorCommandOverlayGeometry.accessibilityRectToAppKit(elementRect, desktopBounds: desktopBounds)
-            return CursorTextFocusTarget(rect: rect.normalizedForOverlay, source: .focusedElement)
+        if let elementRect = elementAccessibilityRect(for: focusedElement, desktopBounds: desktopBounds, screens: screens) {
+            return CursorTextFocusTarget(rect: elementRect, source: .focusedElement)
+        } else if elementAccessibilityRawRect(for: focusedElement) != nil {
+            logDiagnosticOnce("focused element frame rejected; falling back to mouse")
         }
 
+        return mouseTarget()
+    }
+
+    private func mouseTarget() -> CursorTextFocusTarget {
         let mouse = NSEvent.mouseLocation
-        return CursorTextFocusTarget(
-            rect: CGRect(x: mouse.x, y: mouse.y, width: 1, height: 1),
-            source: .mouse
+        logDiagnosticOnce("using mouse fallback")
+        return CursorCommandOverlayGeometry.mouseTarget(at: mouse)
+    }
+
+    private func normalizedCaretRect(
+        _ axRect: CGRect?,
+        label: String,
+        desktopBounds: CGRect,
+        screens: [CursorCommandOverlayScreen]
+    ) -> CGRect? {
+        guard let axRect, axRect.isUsableAccessibilityRect else {
+            return nil
+        }
+
+        let rect = CursorCommandOverlayGeometry.accessibilityRectToAppKit(axRect, desktopBounds: desktopBounds)
+        guard let normalized = CursorCommandOverlayGeometry.normalizedCaretRect(rect, screens: screens) else {
+            logDiagnosticOnce("\(label) caret bounds rejected")
+            return nil
+        }
+        return normalized
+    }
+
+    private func normalizedFocusedElementRect(
+        _ axRect: CGRect?,
+        desktopBounds: CGRect,
+        screens: [CursorCommandOverlayScreen]
+    ) -> CGRect? {
+        guard let axRect, axRect.isUsableAccessibilityRect else {
+            return nil
+        }
+
+        let rect = CursorCommandOverlayGeometry.accessibilityRectToAppKit(axRect, desktopBounds: desktopBounds)
+        guard let normalized = CursorCommandOverlayGeometry.normalizedFocusedElementRect(rect, screens: screens) else {
+            return nil
+        }
+        return normalized
+    }
+
+    private func logDiagnosticOnce(_ message: String) {
+        guard lastDiagnostic != message else { return }
+        lastDiagnostic = message
+        Log.overlay.debug("Cursor overlay locator: \(message, privacy: .public)")
+    }
+
+    nonisolated static func caretRangeCandidates(for range: CFRange) -> [CFRange] {
+        let location = max(0, range.location)
+        let length = max(0, range.length)
+        let end = location + length
+        var ranges = [CFRange(location: end, length: 0)]
+        if length > 0 {
+            ranges.append(CFRange(location: location, length: length))
+        }
+        if end > 0 {
+            ranges.append(CFRange(location: end - 1, length: 1))
+        }
+        return ranges
+    }
+
+    private func elementAccessibilityRawRect(for element: AXUIElement) -> CGRect? {
+        guard let position = copyCGPointAttribute(kAXPositionAttribute as CFString, from: element),
+              let size = copyCGSizeAttribute(kAXSizeAttribute as CFString, from: element) else {
+            return nil
+        }
+        return CGRect(origin: position, size: size)
+    }
+
+    private func elementAccessibilityRect(
+        for element: AXUIElement,
+        desktopBounds: CGRect,
+        screens: [CursorCommandOverlayScreen]
+    ) -> CGRect? {
+        normalizedFocusedElementRect(
+            elementAccessibilityRawRect(for: element),
+            desktopBounds: desktopBounds,
+            screens: screens
         )
     }
 
@@ -69,17 +148,26 @@ final class CursorTextFocusLocator {
         return !roles.isDisjoint(with: Self.textInputRoles)
     }
 
-    private func caretAccessibilityRect(for element: AXUIElement) -> CGRect? {
+    private func caretAccessibilityRect(
+        for element: AXUIElement,
+        desktopBounds: CGRect,
+        screens: [CursorCommandOverlayScreen]
+    ) -> CGRect? {
         guard let range = copyCFRangeAttribute(kAXSelectedTextRangeAttribute as CFString, from: element) else {
             return nil
         }
-        if let rect = boundsForRange(range, in: element), rect.isUsableAccessibilityRect {
-            return rect
-        }
 
-        guard range.location > 0 else { return nil }
-        let previousCharacterRange = CFRange(location: range.location - 1, length: 1)
-        return boundsForRange(previousCharacterRange, in: element)
+        for candidate in Self.caretRangeCandidates(for: range) {
+            if let rect = normalizedCaretRect(
+                boundsForRange(candidate, in: element),
+                label: candidate.length == 0 ? "collapsed" : "selection",
+                desktopBounds: desktopBounds,
+                screens: screens
+            ) {
+                return rect
+            }
+        }
+        return nil
     }
 
     private func boundsForRange(_ range: CFRange, in element: AXUIElement) -> CGRect? {
@@ -105,14 +193,6 @@ final class CursorTextFocusLocator {
             return nil
         }
         return rect
-    }
-
-    private func elementAccessibilityRect(for element: AXUIElement) -> CGRect? {
-        guard let position = copyCGPointAttribute(kAXPositionAttribute as CFString, from: element),
-              let size = copyCGSizeAttribute(kAXSizeAttribute as CFString, from: element) else {
-            return nil
-        }
-        return CGRect(origin: position, size: size)
     }
 
     private func copyElementAttribute(_ attribute: CFString, from element: AXUIElement) -> AXUIElement? {
@@ -186,13 +266,14 @@ final class CursorTextFocusLocator {
 }
 
 private extension CGRect {
-    var normalizedForOverlay: CGRect {
-        let width = max(2, self.width)
-        let height = max(16, self.height)
-        return CGRect(x: minX, y: minY, width: width, height: height)
-    }
-
     var isUsableAccessibilityRect: Bool {
-        width.isFinite && height.isFinite && minX.isFinite && minY.isFinite && width >= 0 && height >= 0
+        origin.x.isFinite
+            && origin.y.isFinite
+            && size.width.isFinite
+            && size.height.isFinite
+            && size.width >= 0
+            && size.height > 0
+            && !isNull
+            && !isInfinite
     }
 }

@@ -14,4 +14,5 @@ enum Log {
     static let notch = Logger(subsystem: subsystem, category: "notch")
     static let updater = Logger(subsystem: subsystem, category: "updater")
     static let analysis = Logger(subsystem: subsystem, category: "analysis")
+    static let overlay = Logger(subsystem: subsystem, category: "overlay")
 }

@@ -17,6 +17,7 @@ final class CursorCommandOverlayController {
     private var screenObserver: NSObjectProtocol?
     private var activationObserver: NSObjectProtocol?
     private var copiedResetTask: Task<Void, Never>?
+    private var lastLoggedTargetSource: CursorTextFocusTarget.Source?
     private var isStarted = false
 
     func start(environment: AppEnvironment) {
@@ -117,6 +118,7 @@ final class CursorCommandOverlayController {
         }
 
         lastTarget = target
+        logTargetSourceChange(target.source)
         ensurePanel()
         applyPanelFrame(animated: false)
         panel?.orderFrontRegardless()
@@ -174,11 +176,13 @@ final class CursorCommandOverlayController {
         state.lastError = nil
         state.copiedCommand = nil
         lastTarget = nil
+        lastLoggedTargetSource = nil
     }
 
     private func hidePanel(resetExpanded: Bool) {
         panel?.orderOut(nil)
         lastTarget = nil
+        lastLoggedTargetSource = nil
         if resetExpanded {
             summaryTask?.cancel()
             state.isExpanded = false
@@ -244,16 +248,19 @@ final class CursorCommandOverlayController {
     }
 
     private func currentPanelFrame() -> CGRect {
-        let targetRect = lastTarget?.rect ?? {
-            let mouse = NSEvent.mouseLocation
-            return CGRect(x: mouse.x, y: mouse.y, width: 1, height: 1)
-        }()
+        let target = lastTarget ?? CursorCommandOverlayGeometry.mouseTarget(at: NSEvent.mouseLocation)
         let size = state.isExpanded ? expandedSize : CursorCommandOverlayGeometry.collapsedSize
         return CursorCommandOverlayGeometry.preferredFrame(
-            anchorRect: targetRect,
+            for: target,
             size: size,
-            visibleFrame: CursorCommandOverlayGeometry.bestVisibleFrame(for: targetRect)
+            screens: CursorCommandOverlayGeometry.liveScreens()
         )
+    }
+
+    private func logTargetSourceChange(_ source: CursorTextFocusTarget.Source) {
+        guard lastLoggedTargetSource != source else { return }
+        lastLoggedTargetSource = source
+        Log.overlay.debug("Cursor overlay target source: \(source.diagnosticName, privacy: .public)")
     }
 
     private var expandedSize: CGSize {
@@ -282,5 +289,15 @@ final class CursorCommandOverlayController {
 private final class CursorCommandOverlayHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         true
+    }
+}
+
+private extension CursorTextFocusTarget.Source {
+    var diagnosticName: String {
+        switch self {
+        case .caret: "caret"
+        case .focusedElement: "focusedElement"
+        case .mouse: "mouse"
+        }
     }
 }
