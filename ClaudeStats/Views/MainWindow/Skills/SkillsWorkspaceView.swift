@@ -1283,7 +1283,7 @@ private struct SkillsRemoteRowContent: View, Equatable {
                     Label("\(installs)", systemImage: AppIcon.Action.download)
                 }
                 if skill.isDuplicate {
-                    Label("Duplicate", systemImage: AppIcon.Action.copy)
+                    Label("Duplicate", systemImage: AppIcon.Action.duplicateNew)
                 }
             }
             .font(.sora(9))

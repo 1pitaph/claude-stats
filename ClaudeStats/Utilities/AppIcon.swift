@@ -38,7 +38,6 @@ enum AppIcon {
         static let reply = "arrowshape.turn.up.left"
         static let reset = "arrow.counterclockwise"
         static let revealInFinder = "finder"
-        static let save = "checkmark"
         static let search = "magnifyingglass"
         static let send = "paperplane"
         static let sendFilled = "paperplane.fill"
@@ -83,8 +82,8 @@ enum AppIcon {
         static let error = "exclamationmark.circle"
         static let errorFilled = "exclamationmark.circle.fill"
         static let failure = "xmark.octagon"
-        static let failureCircle = "xmark.circle.fill"
         static let failureFilled = "xmark.octagon.fill"
+        static let failureCircle = failureFilled
         static let helpBubble = "questionmark.bubble"
         static let history = "clock.arrow.circlepath"
         static let info = "info.circle"
@@ -117,11 +116,10 @@ enum AppIcon {
         static let memory = "brain"
         static let network = "network"
         static let ops = "wrench.and.screwdriver"
-        static let sessions = "chart.bar.xaxis"
         static let settings = "gearshape"
         static let system = "cpu"
-        static let terminal = "terminal"
-        static let usage = "chart.bar.xaxis"
+        static let terminal = "terminal.fill"
+        static let usage = "chart.line.uptrend.xyaxis"
         static let warp = "terminal"
     }
 
@@ -139,7 +137,6 @@ enum AppIcon {
         static let key = "key"
         static let keyFilled = "key.fill"
         static let link = "link"
-        static let market = "bag"
         static let package = "shippingbox"
         static let plugin = "puzzlepiece.extension"
         static let quote = "quote.bubble"
@@ -160,7 +157,6 @@ enum AppIcon {
         static let ai = "sparkles"
         static let important = "star.circle.fill"
         static let magic = "wand.and.stars"
-        static let sparkle = "sparkle"
         static let tip = "lightbulb.fill"
     }
 
@@ -170,14 +166,14 @@ enum AppIcon {
     }
 
     enum Runtime {
-        static let terminal = "terminal"
-        static let terminalFilled = "terminal.fill"
+        static let terminal = Workspace.terminal
+        static let terminalFilled = terminal
     }
 
     enum Settings {
-        static let about = "info.circle"
+        static let about = Status.info
         static let features = "switch.2"
-        static let general = "gearshape"
+        static let general = "gearshape.2"
         static let systemSettings = "gear"
         static let llm = "brain.head.profile"
         static let menuBar = "menubar.rectangle"
@@ -192,17 +188,17 @@ enum AppIcon {
         static let instruction = Resource.documentText
         static let plan = "checklist"
         static let pluginManifest = Resource.plugin
-        static let provider = Workspace.configs
+        static let provider = "server.rack"
         static let scope = "scope"
-        static let skillFiles = Feature.ai
+        static let skillFiles = "sparkle.magnifyingglass"
     }
 
     enum Skill {
-        static let curated = Feature.ai
+        static let curated = "star"
         static let discover = Action.search
         static let file = Resource.plugin
-        static let installed = Resource.externalDrive
-        static let market = Resource.market
+        static let installed = Resource.externalDriveReady
+        static let market = "bag"
     }
 
     enum Network {
@@ -210,31 +206,29 @@ enum AppIcon {
         static let certificates = Status.secure
         static let direct = "arrow.forward.circle"
         static let domain = "globe"
-        static let filterApp = "app"
-        static let method = "arrow.right.circle"
-        static let proxy = Workspace.network
+        static let proxy = "arrow.triangle.swap"
         static let radio = "antenna.radiowaves.left.and.right"
-        static let replay = Action.refresh
-        static let rules = Workspace.configs
+        static let replay = "arrow.counterclockwise.circle"
+        static let rules = Resource.clipboardList
         static let secureNetwork = "network.badge.shield.half.filled"
-        static let traffic = "list.bullet.rectangle"
+        static let traffic = "list.bullet.rectangle.portrait"
         static let webSocket = "point.3.connected.trianglepath.dotted"
     }
 
     enum Ops {
-        static let brew = Resource.package
-        static let cleanup = Feature.ai
-        static let diagnostics = Settings.tracking
-        static let docker = Resource.externalDrive
-        static let environment = Runtime.terminal
-        static let homebrew = "mug"
-        static let npm = Resource.package
-        static let pnpm = Settings.platforms
-        static let ports = Network.webSocket
-        static let processes = Workspace.system
+        static let brew = "mug"
+        static let cleanup = "eraser"
+        static let diagnostics = "stethoscope"
+        static let docker = "externaldrive.connected.to.line.below"
+        static let environment = "ellipsis.curlybraces"
+        static let homebrew = "mug.fill"
+        static let npm = "curlybraces.square"
+        static let pnpm = "square.stack.3d.up.fill"
+        static let ports = "cable.connector"
+        static let processes = "list.bullet.rectangle"
         static let swiftPackage = "swift"
         static let xcode = "hammer"
-        static let yarn = Resource.tray
+        static let yarn = "tray.full"
     }
 
     enum Terminal {
@@ -246,11 +240,11 @@ enum AppIcon {
 
     enum SystemMonitor {
         static let battery = "battery.75percent"
-        static let cpu = "cpu"
+        static let cpu = "cpu.fill"
         static let disk = "internaldrive"
         static let gpu = "display"
         static let memory = "memorychip"
-        static let network = Workspace.network
+        static let network = "wifi.router"
         static let power = "bolt.horizontal"
         static let thermal = "thermometer.medium"
     }
@@ -276,9 +270,9 @@ enum AppIcon {
         static let media = "music.note"
         static let privacy = "web.camera"
         static let recording = "record.circle"
-        static let screenAssistant = Feature.ai
+        static let screenAssistant = Action.viewfinder
         static let shelf = Action.downloadTray
-        static let stats = Workspace.system
+        static let stats = Metric.gauge
         static let timer = "timer"
         static let previewHome = "house.fill"
         static let previewUsage = "chart.xyaxis.line"
@@ -293,7 +287,7 @@ enum AppIcon {
         static let tokensWithCache = "bolt.circle"
         static let tokensWithoutCacheRead = "bolt.slash.circle"
         static let trophyFilled = "trophy.fill"
-        static let week = "calendar"
+        static let week = "calendar.day.timeline.left"
         static let year = "calendar.circle"
     }
 
@@ -307,24 +301,22 @@ enum AppIcon {
     }
 
     enum Session {
-        static let analysis = "text.magnifyingglass"
-        static let atlas = Network.webSocket
+        static let atlas = "point.3.filled.connected.trianglepath.dotted"
         static let bubbles = "circle.grid.3x3.circle"
         static let cloud = "textformat"
-        static let command = Runtime.terminal
-        static let framework = Resource.package
+        static let command = "command"
+        static let framework = "books.vertical"
         static let function = "function"
         static let language = "character.book.closed"
-        static let roleAssistant = Feature.ai
-        static let roleSystem = Workspace.settings
-        static let roleTool = Workspace.ops
+        static let roleAssistant = Feature.magic
+        static let roleSystem = "gearshape.fill"
+        static let roleTool = "wrench.adjustable"
         static let roleUser = "person"
-        static let typeName = "curlybraces"
+        static let typeName = Code.braces
     }
 
     enum Pointer {
         static let click = "cursorarrow.click"
-        static let cursor = "cursorarrow"
         static let motion = "cursorarrow.motionlines"
     }
 
@@ -371,19 +363,17 @@ enum AppIcon {
     }
 
     enum Metric {
-        static let bolt = "bolt"
         static let boltFilled = "bolt.fill"
         static let chart = "chart.bar"
         static let cost = "dollarsign.circle"
-        static let experiment = "flask"
         static let gauge = "gauge.with.dots.needle.33percent"
         static let number = "number"
     }
 
     enum LocalAI {
-        static let embedding = Workspace.memory
-        static let experimentalEmbedding = Metric.experiment
-        static let model = Workspace.system
+        static let embedding = "circle.hexagongrid"
+        static let experimentalEmbedding = "flask"
+        static let model = "cube.box"
     }
 
     enum App {
