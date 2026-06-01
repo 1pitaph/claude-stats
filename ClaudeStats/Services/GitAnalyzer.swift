@@ -95,6 +95,27 @@ struct GitAnalyzer: Sendable {
         return Self.parseLog(output, repoID: repo.id)
     }
 
+    func commits(in repo: GitRepo, during interval: DateInterval, authorEmail: String?) -> [GitCommit] {
+        guard isAvailable else { return [] }
+        let formatter = ISO8601DateFormatter()
+        let sinceArg = formatter.string(from: interval.start)
+        let beforeArg = formatter.string(from: interval.end)
+        let format = "format:\(Self.recordSep)%H\(Self.fieldSep)%at\(Self.fieldSep)%an\(Self.fieldSep)%ae\(Self.fieldSep)%s"
+        var args = [
+            "-C", repo.rootPath,
+            "log",
+            "--no-merges",
+            "--since=\(sinceArg)",
+            "--before=\(beforeArg)",
+            "--numstat",
+            "--pretty=\(format)",
+        ]
+        if let authorEmail, !authorEmail.isEmpty { args.append("--author=\(authorEmail)") }
+        guard let output = runGit(args) else { return [] }
+        return Self.parseLog(output, repoID: repo.id)
+            .filter { interval.contains($0.date) }
+    }
+
     func latestCommitDate(in repo: GitRepo, authorEmail: String?) -> Date? {
         guard isAvailable else { return nil }
         var args = ["-C", repo.rootPath, "log", "-1", "--format=%ct"]

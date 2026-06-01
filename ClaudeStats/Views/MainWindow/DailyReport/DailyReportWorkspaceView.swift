@@ -3,6 +3,7 @@ import SwiftUI
 struct DailyReportWorkspaceView: View {
     @Environment(AppEnvironment.self) private var env
     @Bindable var store: DailyReportViewModel
+    @State private var projectGitSelection: DailyReportProjectGitSheetSelection?
 
     private struct ReloadKey: Equatable {
         let month: Date
@@ -19,6 +20,9 @@ struct DailyReportWorkspaceView: View {
         }
         .task(id: reloadKey) {
             await store.reload(sessions: env.store.sessions)
+        }
+        .sheet(item: $projectGitSelection) { selection in
+            DailyReportProjectGitDetailSheet(selection: selection)
         }
     }
 
@@ -61,7 +65,9 @@ struct DailyReportWorkspaceView: View {
 
     @ViewBuilder
     private var content: some View {
-        DailyReportCalendarSection(store: store, rightColumn: .selectedDay)
+        DailyReportCalendarSection(store: store, rightColumn: .selectedDay) { project in
+            projectGitSelection = DailyReportProjectGitSheetSelection(project: project, day: store.selectedDate)
+        }
     }
 }
 
@@ -115,6 +121,7 @@ private struct DailyReportResolvedColumns: Equatable {
 private struct DailyReportCalendarSection: View {
     @Bindable var store: DailyReportViewModel
     let rightColumn: DailyReportRightColumn
+    let onProjectSelected: (DailyReportProjectDaySummary) -> Void
 
     var body: some View {
         horizontalLayout
@@ -157,7 +164,7 @@ private struct DailyReportCalendarSection: View {
     private var projectsColumn: some View {
         switch rightColumn {
         case .selectedDay:
-            DailyReportDayDetailPanel(summary: store.selectedDaySummary)
+            DailyReportDayDetailPanel(summary: store.selectedDaySummary, onProjectSelected: onProjectSelected)
         case .monthProjects:
             DailyReportMonthProjectsPanel(snapshot: store.snapshot)
         }
@@ -375,6 +382,7 @@ private struct DailyReportProjectMiniRow: View {
 
 private struct DailyReportDayDetailPanel: View {
     let summary: DailyReportDaySummary
+    let onProjectSelected: (DailyReportProjectDaySummary) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -402,7 +410,9 @@ private struct DailyReportDayDetailPanel: View {
             } else {
                 VStack(spacing: 8) {
                     ForEach(summary.projects) { project in
-                        DailyReportProjectDayRow(project: project)
+                        DailyReportProjectDayRow(project: project) {
+                            onProjectSelected(project)
+                        }
                     }
                 }
             }
@@ -413,34 +423,40 @@ private struct DailyReportDayDetailPanel: View {
 
 private struct DailyReportProjectDayRow: View {
     let project: DailyReportProjectDaySummary
+    let action: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(project.displayName)
-                    .font(.sora(13, weight: .semibold))
-                    .lineLimit(1)
-                if let path = project.path {
-                    Text(path)
-                        .font(.sora(10))
-                        .foregroundStyle(Color.stxMuted)
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(project.displayName)
+                        .font(.sora(13, weight: .semibold))
                         .lineLimit(1)
-                        .truncationMode(.middle)
+                    if let path = project.path {
+                        Text(path)
+                            .font(.sora(10))
+                            .foregroundStyle(Color.stxMuted)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
                 }
-            }
 
-            HStack(spacing: 6) {
-                DailyReportMetricPill(symbol: AppIcon.Status.clock, text: Format.duration(project.activeDuration))
-                DailyReportMetricPill(symbol: AppIcon.Workspace.usage, text: Format.tokens(project.tokens))
-                DailyReportMetricPill(symbol: AppIcon.Resource.conversation, text: "\(project.sessionCount)")
-                if project.gitCommitCount > 0 {
-                    DailyReportMetricPill(symbol: AppIcon.Workspace.git, text: "\(project.gitCommitCount)")
+                HStack(spacing: 6) {
+                    DailyReportMetricPill(symbol: AppIcon.Status.clock, text: Format.duration(project.activeDuration))
+                    DailyReportMetricPill(symbol: AppIcon.Workspace.usage, text: Format.tokens(project.tokens))
+                    DailyReportMetricPill(symbol: AppIcon.Resource.conversation, text: "\(project.sessionCount)")
+                    if project.gitCommitCount > 0 {
+                        DailyReportMetricPill(symbol: AppIcon.Workspace.git, text: "\(project.gitCommitCount)")
+                    }
                 }
             }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.primary.opacity(0.035)))
+            .contentShape(Rectangle())
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.primary.opacity(0.035)))
+        .buttonStyle(.plain)
+        .help("Open git commits and AI summary")
     }
 }
 
