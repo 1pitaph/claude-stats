@@ -1000,7 +1000,7 @@ class MemoryStore:
         memory_results = canonical["results"]
         graph_results: list[dict[str, Any]] = []
         if include_graph_facts:
-            for result in self.adapters.search(query, project_id=project_id, limit=limit):
+            for result in self._adapter_search_facts(query, project_id=project_id, limit=limit):
                 fact = self._graph_fact_from_adapter_result(result, project_id=project_id)
                 if fact is None:
                     continue
@@ -1052,6 +1052,12 @@ class MemoryStore:
             "graph_facts": unified["graph_results"],
             "sources": unified["source_results"],
         }
+
+    def _adapter_search_facts(self, query: str, *, project_id: str | None, limit: int) -> list[dict[str, Any]]:
+        search_facts = getattr(self.adapters, "search_facts", None)
+        if callable(search_facts):
+            return search_facts(query, project_id=project_id, limit=limit)
+        return self.adapters.search(query, project_id=project_id, limit=limit)
 
     def projects(self) -> list[dict[str, Any]]:
         memory_rows = self.conn.execute("SELECT * FROM memories WHERE extracted_by = 'mem0'").fetchall()
@@ -1105,6 +1111,22 @@ class MemoryStore:
     ) -> dict[str, Any]:
         nodes: dict[str, dict[str, Any]] = {}
         edges: list[dict[str, Any]] = []
+        if include_adapter:
+            adapter_graph = self.adapters.graph(project_id, limit=min(max(node_limit or 80, 1), 80))
+            for node in adapter_graph.get("nodes", []):
+                if isinstance(node, dict) and node.get("id"):
+                    nodes[str(node["id"])] = node
+            for edge in adapter_graph.get("edges", []):
+                if isinstance(edge, dict) and edge.get("source") and edge.get("target"):
+                    edges.append(edge)
+            return self._bounded_graph_response(
+                project_id,
+                nodes,
+                edges,
+                node_limit=node_limit,
+                edge_limit=edge_limit,
+            )
+
         nodes[f"project:{project_id}"] = {"id": f"project:{project_id}", "kind": "project", "title": project_id}
 
         for scope in self.conn.execute("SELECT * FROM scopes WHERE project_id = ?", (project_id,)):
@@ -1171,15 +1193,6 @@ class MemoryStore:
                 episode_node = link["episode_id"] if str(link["episode_id"]).startswith("episode:") else f"episode:{link['episode_id']}"
                 if memory_node in nodes and episode_node in nodes:
                     edges.append({"source": memory_node, "target": episode_node, "kind": "HAS_PROVENANCE", "metadata": {"relation": link["relation"]}})
-
-        if include_adapter:
-            adapter_graph = self.adapters.graph(project_id, limit=min(max(node_limit or 80, 1), 80))
-            for node in adapter_graph.get("nodes", []):
-                if isinstance(node, dict) and node.get("id"):
-                    nodes[str(node["id"])] = node
-            for edge in adapter_graph.get("edges", []):
-                if isinstance(edge, dict) and edge.get("source") and edge.get("target"):
-                    edges.append(edge)
 
         return self._bounded_graph_response(
             project_id,
@@ -2044,12 +2057,19 @@ class MemoryStore:
     def _enqueue_projection_jobs(self, memory: dict[str, Any], event: dict[str, Any], *, force: bool = False) -> int:
         if GRAPHITI_PROJECTION_ADAPTER not in set(self.adapters.names()):
             return 0
+        if str(event.get("event_type") or "") not in MEMORY_VERSION_EVENT_TYPES:
+            return 0
+        if _canonical_memory_rejection_reason(memory) is not None:
+            return 0
+        memory_id = str(memory.get("id") or "")
+        if not memory_id:
+            return 0
         now = time.time()
         count = 0
         adapter = GRAPHITI_PROJECTION_ADAPTER
         job_id = "job:" + hashlib.sha256(canonical_json({
             "adapter": adapter,
-            "memory_id": memory["id"],
+            "memory_id": memory_id,
             "event_id": event.get("event_id"),
         }).encode("utf-8")).hexdigest()[:24]
         if force:
@@ -2061,7 +2081,7 @@ class MemoryStore:
                 last_error, created_at, updated_at
             ) VALUES (?, ?, ?, ?, 'pending', 0, NULL, ?, ?)
             """,
-            (job_id, adapter, memory["id"], event.get("event_id") or "", now, now),
+            (job_id, adapter, memory_id, event.get("event_id") or "", now, now),
         )
         count += max(0, cursor.rowcount)
         return count
@@ -2139,10 +2159,14 @@ class MemoryStore:
                 memory = self._memory_row(memory_row) if memory_row is not None else event.get("after")
                 if not isinstance(memory, dict):
                     raise KeyError(memory_id)
-                result = self.adapters.index_memory(memory, event, adapter_name=GRAPHITI_PROJECTION_ADAPTER)
+                project_memory_event = getattr(self.adapters, "project_memory_event", None)
+                if callable(project_memory_event):
+                    result = project_memory_event(memory, event)
+                else:
+                    result = self.adapters.index_memory(memory, event, adapter_name=GRAPHITI_PROJECTION_ADAPTER)
                 status = str(result.get(GRAPHITI_PROJECTION_ADAPTER) or "")
                 if not status.startswith("ok:"):
-                    raise RuntimeError(status or "graphiti projection returned no adapter status")
+                    raise RuntimeError(status or "graphiti projection returned no projector status")
                 adapter_id = status.removeprefix("ok:")
                 self.conn.execute(
                     """

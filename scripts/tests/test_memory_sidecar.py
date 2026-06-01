@@ -114,11 +114,14 @@ class FakeGraphitiAdapters:
     def health(self):
         return {"graphiti": self.health_status}
 
-    def index_memory(self, memory, event, *, adapter_name=None):
+    def project_memory_event(self, memory, event):
         if self.fail:
             return {"graphiti": "error: offline"}
-        self.indexed.append({"memory": memory, "event": event, "adapter": adapter_name})
+        self.indexed.append({"memory": memory, "event": event, "adapter": "graphiti"})
         return {"graphiti": f"ok:{event['event_id']}"}
+
+    def index_memory(self, memory, event, *, adapter_name=None):
+        return self.project_memory_event(memory, event)
 
     def capture_source(self, source, chunks):
         return []
@@ -142,6 +145,9 @@ class FakeGraphitiAdapters:
         return []
 
     def search(self, query, *, project_id, limit):
+        return []
+
+    def search_facts(self, query, *, project_id, limit):
         return []
 
     def graph(self, project_id, *, limit=80):
@@ -458,7 +464,7 @@ class MemorySidecarTests(unittest.TestCase):
             hits = store.search("run-debug", project_id="claude-stats")
             self.assertEqual(hits["results"], [])
 
-            graph = store.graph("claude-stats")
+            graph = store.graph("claude-stats", include_adapter=False)
             node_kinds = {node["kind"] for node in graph["nodes"]}
             edge_kinds = {edge["kind"] for edge in graph["edges"]}
             self.assertIn("event", node_kinds)
@@ -528,6 +534,72 @@ class MemorySidecarTests(unittest.TestCase):
             self.assertEqual(drained["projection"]["delivered"], 3)
             self.assertEqual({item["adapter"] for item in graphiti.indexed}, {"graphiti"})
             self.assertEqual(graphiti.indexed[0]["event"]["event_type"], "memory.observed")
+            mapping = store.conn.execute(
+                "SELECT adapter, adapter_id FROM adapter_mappings WHERE memory_id = ?",
+                (memory_id,),
+            ).fetchone()
+            self.assertEqual(mapping["adapter"], "graphiti")
+
+    def test_graphiti_projection_payload_is_canonical_memory_event(self):
+        from memoryd.adapters import GRAPHITI_PROJECTION_SCHEMA_VERSION, build_graphiti_projection_payload
+
+        payload = build_graphiti_projection_payload(
+            {
+                "id": "manual:one",
+                "project_id": "p",
+                "title": "Manual fact",
+                "body": "Manual facts can be projected.",
+                "type": "fact",
+                "status": "active",
+                "source_refs": [{"kind": "manual", "uri": "manual://one"}],
+                "metadata": {"provider": "manual_provider"},
+                "extracted_by": "manual",
+            },
+            {
+                "event_id": "event:one",
+                "seq": 7,
+                "event_type": "memory.observed",
+                "timestamp": 123.0,
+                "actor": {"kind": "test"},
+                "memory_id": "manual:one",
+            },
+        )
+
+        self.assertEqual(payload["schema_version"], GRAPHITI_PROJECTION_SCHEMA_VERSION)
+        self.assertEqual(payload["kind"], "canonical_memory_event")
+        self.assertEqual(payload["memory_provider"], "manual")
+        self.assertNotIn("provider", payload)
+        self.assertEqual(payload["memory"]["id"], "manual:one")
+        self.assertEqual(payload["memory"]["provider"], "manual")
+        self.assertEqual(payload["memory"]["source_refs"][0]["uri"], "manual://one")
+        self.assertEqual(payload["event"]["id"], "event:one")
+        self.assertEqual(payload["event"]["type"], "memory.observed")
+        self.assertEqual(payload["project"]["id"], "p")
+
+    def test_graphiti_projection_skips_noncanonical_memories(self):
+        from memoryd.adapters import CompositeAdapters
+        from memoryd.store import MemoryStore
+
+        with tempfile.TemporaryDirectory() as tmp:
+            graphiti = FakeGraphitiAdapters()
+            store = MemoryStore(Path(tmp), adapters=CompositeAdapters([FakeMem0Adapters(), graphiti]))
+            store.append_event(
+                {
+                    "project_id": "p",
+                    "event_type": "memory.observed",
+                    "after": {
+                        "id": "mem:raw",
+                        "title": "Raw source",
+                        "body": "Project: p\nSource kind: CLAUDE.md\nSource path: CLAUDE.md\n\n# Build",
+                        "type": "fact",
+                        "status": "active",
+                        "extracted_by": "mem0",
+                    },
+                }
+            )
+
+            self.assertEqual(store.health()["projection_pending"], 0)
+            self.assertEqual(store.reindex(project_id="p")["enqueued"], 0)
 
     def test_projects_modules_and_health_count_active_only(self):
         from memoryd.store import MemoryStore
@@ -1856,7 +1928,7 @@ class MemorySidecarTests(unittest.TestCase):
             store.drain_projection_jobs(limit=5)
             memory = store.memories(project_id="p")["memories"][0]
             pack = store.context_pack("run-debug", project_id="p")
-            graph = store.graph("p")
+            graph = store.graph("p", include_adapter=False)
 
             self.assertEqual(pack["context"]["rules"][0]["id"], memory["id"])
             self.assertEqual(len(pack["sources"]), 1)

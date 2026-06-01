@@ -8,6 +8,7 @@ from typing import Any
 
 from .adapter_utils import endpoint_error, protocol_label, safe_group_id
 from .config import LocalAIConfig
+from .graph_projection import build_graphiti_projection_payload, graphiti_projection_episode_body
 
 
 class GraphitiAdapter:
@@ -50,36 +51,17 @@ class GraphitiAdapter:
             return {"graphiti": f"enabled: local kuzu + {protocol_label(self.config.llm.protocol)} LLM + local embedding"}
         return {"graphiti": f"unavailable: {self.last_error}"}
 
-    def index_memory(self, memory: dict[str, Any], event: dict[str, Any], *, adapter_name: str | None = None) -> dict[str, str]:
+    def project_memory_event(self, memory: dict[str, Any], event: dict[str, Any]) -> dict[str, str]:
         if not self.available or self.graphiti is None:
             return {"graphiti": f"unavailable: {self.last_error}"}
         if error := endpoint_error(self.config):
             self.last_error = error
             return {"graphiti": f"unavailable: {error}"}
-        episode_name = str(event.get("event_id") or memory.get("id") or "memory")
-        project_id = str(memory.get("project_id") or "default")
-        body = json.dumps(
-            {
-                "memory_id": memory.get("id"),
-                "project_id": project_id,
-                "provider": "mem0",
-                "title": memory.get("title"),
-                "body": memory.get("body"),
-                "type": memory.get("type"),
-                "status": memory.get("status"),
-                "scopes": memory.get("scopes") or [],
-                "source_refs": memory.get("source_refs") or [],
-                "event_summary": {
-                    "event_id": event.get("event_id"),
-                    "event_type": event.get("event_type"),
-                    "actor": event.get("actor"),
-                    "timestamp": event.get("timestamp"),
-                },
-            },
-            sort_keys=True,
-            ensure_ascii=False,
-        )
-        source_description = f"Claude Stats mem0 memory project={project_id}"
+        payload = build_graphiti_projection_payload(memory, event)
+        episode_name = str(payload["event"].get("id") or payload["memory"].get("id") or "memory")
+        project_id = str(payload["project"].get("id") or "default")
+        body = graphiti_projection_episode_body(memory, event)
+        source_description = f"Claude Stats canonical memory project={project_id}"
         reference_time = datetime.fromtimestamp(float(event.get("timestamp") or time.time()), timezone.utc)
         group_id = safe_group_id(project_id)
         from graphiti_core.nodes import EpisodeType  # type: ignore
@@ -106,13 +88,10 @@ class GraphitiAdapter:
         episode_uuid = str(getattr(episode, "uuid", "") or f"episode:{episode_name}")
         return {"graphiti": f"ok:{episode_uuid}"}
 
-    def infer_memories(self, source: dict[str, Any]) -> list[dict[str, Any]]:
-        return []
+    def index_memory(self, memory: dict[str, Any], event: dict[str, Any], *, adapter_name: str | None = None) -> dict[str, str]:
+        return self.project_memory_event(memory, event)
 
-    def inference_errors(self) -> list[dict[str, str]]:
-        return []
-
-    def search(self, query: str, *, project_id: str | None, limit: int) -> list[dict[str, Any]]:
+    def search_facts(self, query: str, *, project_id: str | None, limit: int) -> list[dict[str, Any]]:
         if not self.available or self.graphiti is None or not query.strip():
             return []
         if error := endpoint_error(self.config):
@@ -171,6 +150,9 @@ class GraphitiAdapter:
                 }
             )
         return results
+
+    def search(self, query: str, *, project_id: str | None, limit: int) -> list[dict[str, Any]]:
+        return self.search_facts(query, project_id=project_id, limit=limit)
 
     def graph(self, project_id: str, *, limit: int = 80) -> dict[str, list[dict[str, Any]]]:
         if not self.available or self.graphiti is None:

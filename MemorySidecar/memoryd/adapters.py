@@ -4,13 +4,14 @@ import json
 from typing import Any
 
 from .adapter_factory import build_adapters
-from .adapter_protocols import AdapterHealth, CompositeAdapters, MemoryAdapters, NullAdapters
+from .adapter_protocols import AdapterHealth, CompositeAdapters, KnowledgeGraphProjector, MemoryAdapters, MemoryProvider, NullAdapters
 from .adapter_utils import compact_error as _compact_error
 from .adapter_utils import endpoint_error as _endpoint_error
 from .adapter_utils import endpoint_url_error as _endpoint_url_error
 from .adapter_utils import protocol_label as _protocol_label
 from .adapter_utils import safe_group_id as _safe_group_id
 from .graphiti_adapter import GraphitiAdapter, _graphiti_llm_client, _noop_cross_encoder
+from .graph_projection import GRAPHITI_PROJECTION_SCHEMA_VERSION, build_graphiti_projection_payload, graphiti_projection_episode_body
 from .mem0_adapter import (
     Mem0Adapter,
     _instrument_mem0_embedding_client,
@@ -63,10 +64,15 @@ __all__ = [
     "AdapterHealth",
     "CompositeAdapters",
     "GraphitiAdapter",
+    "KnowledgeGraphProjector",
     "Mem0Adapter",
     "MemoryAdapters",
+    "MemoryProvider",
     "NullAdapters",
+    "GRAPHITI_PROJECTION_SCHEMA_VERSION",
+    "build_graphiti_projection_payload",
     "build_adapters",
+    "graphiti_projection_episode_body",
     "mirror_from_mem0_item",
     "_compact_error",
     "_endpoint_error",

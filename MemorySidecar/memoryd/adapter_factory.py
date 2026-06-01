@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .adapter_protocols import CompositeAdapters, MemoryAdapters, NullAdapters
+from .adapter_protocols import CompositeAdapters, KnowledgeGraphProjector, MemoryAdapters, MemoryProvider, NullAdapters
 from .config import LocalAIConfig, load_local_ai_config
 from .diagnostics import MemoryDiagnosticsLogger
 from .graphiti_adapter import GraphitiAdapter
@@ -16,14 +16,15 @@ def build_adapters(
     config = config or load_local_ai_config(root)
     if not config.enabled:
         return NullAdapters(_disabled_detail(config))
-    adapters: list[MemoryAdapters] = []
+    memory_provider: MemoryProvider | None = None
+    graph_projector: KnowledgeGraphProjector | None = None
     if config.mem0_enabled:
-        adapters.append(Mem0Adapter(config, diagnostics=diagnostics))
+        memory_provider = Mem0Adapter(config, diagnostics=diagnostics)
     if config.graphiti_enabled:
-        adapters.append(GraphitiAdapter(config))
-    if not adapters:
+        graph_projector = GraphitiAdapter(config)
+    if memory_provider is None and graph_projector is None:
         return NullAdapters("mem0 and Graphiti are disabled")
-    return CompositeAdapters(adapters)
+    return CompositeAdapters(memory_provider=memory_provider, graph_projector=graph_projector)
 
 
 def _disabled_detail(config: LocalAIConfig) -> str:

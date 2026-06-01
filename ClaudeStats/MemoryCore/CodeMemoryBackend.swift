@@ -170,7 +170,7 @@ struct CodeMemoryHTTPClient: CodeMemoryBackend {
                 URLQueryItem(name: "node_limit", value: "700"),
                 URLQueryItem(name: "edge_limit", value: "1200"),
                 URLQueryItem(name: "include_events", value: "false"),
-                URLQueryItem(name: "include_sources", value: "true"),
+                URLQueryItem(name: "include_sources", value: "false"),
                 URLQueryItem(name: "include_adapter", value: "true"),
             ]
         )
