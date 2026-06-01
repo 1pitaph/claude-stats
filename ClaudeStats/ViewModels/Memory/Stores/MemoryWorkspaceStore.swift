@@ -45,7 +45,6 @@ final class MemoryWorkspaceStore {
 
     let search: MemorySearchStore
     let library: MemoryLibraryStore
-    let gantt: MemoryGanttStore
     let graph: MemoryGraphStore
     let review: MemoryReviewStore
     let settings: MemorySettingsStore
@@ -75,7 +74,6 @@ final class MemoryWorkspaceStore {
             defaults: defaults,
             projectSortMetadataResolver: projectSortMetadataResolver
         )
-        self.gantt = MemoryGanttStore(backend: codeBackend)
         self.graph = MemoryGraphStore(backend: codeBackend)
         self.review = MemoryReviewStore(backend: codeBackend)
         self.settings = MemorySettingsStore(backend: codeBackend, outbox: codeOutbox, defaults: defaults)
@@ -86,7 +84,6 @@ final class MemoryWorkspaceStore {
     var sortedCodeProjects: [CodeMemoryProject] { library.sortedProjects }
     var codeModules: [CodeMemoryModule] { library.modules }
     var codeMemories: [CodeMemoryMemory] { library.memories }
-    var codeGanttItems: [MemoryGanttItem] { gantt.items }
     var codeSearchResults: [CodeMemorySearchResult] { search.memoryResults }
     var codeGraphResults: [CodeMemoryGraphFact] { search.graphResults }
     var codeSourceResults: [CodeMemoryEpisode] { search.sourceResults }
@@ -107,14 +104,13 @@ final class MemoryWorkspaceStore {
             || search.isSearching
             || library.isLoading
             || library.isLoadingProjectSortMetadata
-            || gantt.isLoading
             || graph.isLoadingChanges
             || review.isLoading
             || settings.isLoading
     }
     var isSearching: Bool { search.isSearching }
     var lastError: String? {
-        syncError ?? settings.lastError ?? search.lastError ?? library.lastError ?? gantt.lastError ?? graph.changeLastError ?? review.lastError
+        syncError ?? settings.lastError ?? search.lastError ?? library.lastError ?? graph.changeLastError ?? review.lastError
     }
     var setupMessage: String? { settings.setupMessage }
     var diagnosticsRetentionDays: Int { settings.diagnosticsRetention.rawValue }
@@ -161,9 +157,6 @@ final class MemoryWorkspaceStore {
             selectedProjectID = library.sortedProjects.first?.projectID
         }
         await library.loadProjectContent(projectID: selectedProjectID)
-        if section == .gantt {
-            await gantt.load(projectID: selectedProjectID)
-        }
         await review.load(projectID: selectedProjectID)
     }
 
@@ -197,20 +190,6 @@ final class MemoryWorkspaceStore {
     func selectLibraryProject(_ projectID: String) async {
         library.selectedModuleID = nil
         await selectCodeProject(projectID)
-    }
-
-    func selectGanttProject(_ projectID: String) async {
-        selectedProjectID = projectID
-        await library.loadProjects()
-        await gantt.load(projectID: projectID)
-    }
-
-    func loadGanttForSelectedProject() async {
-        if selectedProjectID == nil {
-            await library.loadProjects()
-            selectedProjectID = library.sortedProjects.first?.projectID
-        }
-        await gantt.load(projectID: selectedProjectID)
     }
 
     func selectModule(_ moduleID: String?) async {

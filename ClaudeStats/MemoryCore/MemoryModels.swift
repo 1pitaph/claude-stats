@@ -26,7 +26,6 @@ enum MemoryBlockRole: String, Codable, CaseIterable, Identifiable, Sendable, Has
 enum MemoryWorkspaceSection: String, Codable, CaseIterable, Identifiable, Sendable, Hashable {
     case search
     case memories
-    case gantt
     case graph
     case review
     case settings
@@ -34,7 +33,7 @@ enum MemoryWorkspaceSection: String, Codable, CaseIterable, Identifiable, Sendab
     var id: String { rawValue }
 
     static var allCases: [MemoryWorkspaceSection] {
-        [.search, .memories, .gantt, .graph, .review, .settings]
+        [.search, .memories, .graph, .review, .settings]
     }
 }
 

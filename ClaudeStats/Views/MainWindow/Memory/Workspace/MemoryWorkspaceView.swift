@@ -64,8 +64,6 @@ struct MemoryWorkspaceView: View {
             MemorySearchView(store: store)
         case .memories:
             MemoryLibraryView(store: store)
-        case .gantt:
-            MemoryGanttWorkspaceView(store: store)
         case .graph:
             MemoryGraphWorkspaceView(store: store)
         case .review:
@@ -79,7 +77,6 @@ struct MemoryWorkspaceView: View {
         switch section {
         case .search: "Search"
         case .memories: "Memories"
-        case .gantt: "Gantt"
         case .graph: "Graph"
         case .review: "Review"
         case .settings: "Settings"
@@ -90,7 +87,6 @@ struct MemoryWorkspaceView: View {
         switch section {
         case .search: "Canonical memory, graph facts, sources, and trace provenance."
         case .memories: "Active project and module memory library."
-        case .gantt: "Memory validity intervals by project."
         case .graph: "Temporal knowledge graph of entities, facts, and provenance."
         case .review: "Human gate for proposals, conflicts, and low-confidence facts."
         case .settings: "Local sidecar, adapters, projection jobs, and shell capture."

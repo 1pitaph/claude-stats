@@ -59,118 +59,6 @@ struct CodeMemoryStoreTests {
     }
 
     @MainActor
-    @Test("Gantt load fetches all statuses and resolves intervals")
-    func ganttLoadFetchesAllStatusesAndResolvesIntervals() async throws {
-        let backend = FakeCodeMemoryBackend()
-        var active = Self.memory(id: "memory:active", status: "active")
-        active.createdAt = 100
-        active.validAt = nil
-        active.invalidAt = nil
-
-        var proposed = Self.memory(id: "memory:proposed", status: "proposed")
-        proposed.normalizedClaim = "proposed interval"
-        proposed.title = "Proposed interval"
-        proposed.createdAt = 110
-        proposed.validAt = 120
-        proposed.invalidAt = 240
-
-        backend.memoryResponsesByStatus = [
-            "active": [active],
-            "proposed": [proposed],
-        ]
-        let store = MemoryGanttStore(backend: backend, nowProvider: { 1_000 })
-
-        await store.load(projectID: "claude-stats")
-
-        #expect(backend.memoryFilters.map(\.statuses) == MemoryGanttStore.statuses.map { [$0] })
-        #expect(backend.memoryFilters.allSatisfy { $0.projectID == "claude-stats" && !$0.includeGraphFacts })
-        #expect(store.items.count == 2)
-
-        let activeItem = try #require(store.items.first { $0.id == "memory:active" })
-        #expect(activeItem.start == 100)
-        #expect(activeItem.end == 1_000)
-        #expect(activeItem.isOpenEnded)
-
-        let proposedItem = try #require(store.items.first { $0.id == "memory:proposed" })
-        #expect(proposedItem.start == 120)
-        #expect(proposedItem.end == 240)
-        #expect(!proposedItem.isOpenEnded)
-    }
-
-    @MainActor
-    @Test("Gantt load deduplicates canonical memories and sorts intervals")
-    func ganttLoadDeduplicatesCanonicalMemoriesAndSortsIntervals() async throws {
-        let backend = FakeCodeMemoryBackend()
-        var older = Self.memory(id: "memory:dup-old", status: "active")
-        older.title = "Duplicate"
-        older.body = "Remember to run tests."
-        older.normalizedClaim = "run tests"
-        older.importance = 0.2
-        older.confidence = 0.2
-        older.validAt = 300
-        older.invalidAt = 400
-        older.updatedAt = 1
-
-        var better = older
-        better.id = "memory:dup-new"
-        better.status = "deprecated"
-        better.importance = 0.9
-        better.confidence = 0.8
-        better.updatedAt = 2
-
-        var first = Self.memory(id: "memory:first", status: "active")
-        first.title = "First"
-        first.normalizedClaim = "first"
-        first.validAt = 100
-        first.invalidAt = 150
-
-        var second = Self.memory(id: "memory:second", status: "conflicted")
-        second.title = "Second"
-        second.normalizedClaim = "second"
-        second.validAt = 100
-        second.invalidAt = 150
-
-        var third = Self.memory(id: "memory:third", status: "proposed")
-        third.title = "Third"
-        third.normalizedClaim = "third"
-        third.validAt = 100
-        third.invalidAt = 200
-
-        backend.memoryResponsesByStatus = [
-            "active": [older, first],
-            "conflicted": [second],
-            "deprecated": [better],
-            "proposed": [third],
-        ]
-        let store = MemoryGanttStore(backend: backend, nowProvider: { 500 })
-
-        await store.load(projectID: "claude-stats")
-
-        #expect(store.items.map(\.id) == [
-            "memory:first",
-            "memory:second",
-            "memory:third",
-            "memory:dup-new",
-        ])
-        let duplicate = try #require(store.items.first { $0.id == "memory:dup-new" })
-        #expect(duplicate.memory.metadata?["canonical_alias_ids"] == "memory:dup-old")
-    }
-
-    @MainActor
-    @Test("Gantt load handles empty projects")
-    func ganttLoadHandlesEmptyProjects() async throws {
-        let backend = FakeCodeMemoryBackend()
-        let store = MemoryGanttStore(backend: backend, nowProvider: { 1_000 })
-
-        await store.load(projectID: "empty")
-
-        #expect(backend.memoryFilters.count == MemoryGanttStore.statuses.count)
-        #expect(store.loadedProjectID == "empty")
-        #expect(store.items.isEmpty)
-        #expect(store.lastError == nil)
-    }
-
-    @MainActor
     @Test("Project sort mode defaults to git and persists")
     func projectSortModeDefaultsToGitAndPersists() async throws {
         let defaultsName = "MemoryProjectSort-\(UUID().uuidString)"
@@ -865,8 +753,6 @@ private final class FakeCodeMemoryBackend: CodeMemoryBackend, @unchecked Sendabl
     ]
     var moduleResponse: [CodeMemoryModule] = []
     var memoryResponse: [CodeMemoryMemory] = []
-    var memoryResponsesByStatus: [String: [CodeMemoryMemory]] = [:]
-    var memoryFilters: [CodeMemoryQueryFilter] = []
     var searchQueries: [String] = []
     var contextQueries: [String] = []
     var acceptedMemoryIDs: [String] = []
@@ -908,11 +794,6 @@ private final class FakeCodeMemoryBackend: CodeMemoryBackend, @unchecked Sendabl
     }
 
     func memories(filter: CodeMemoryQueryFilter) async throws -> [CodeMemoryMemory] {
-        memoryFilters.append(filter)
-        if !memoryResponsesByStatus.isEmpty {
-            guard let status = filter.statuses.first else { return [] }
-            return memoryResponsesByStatus[status] ?? []
-        }
         return memoryResponse
     }
 

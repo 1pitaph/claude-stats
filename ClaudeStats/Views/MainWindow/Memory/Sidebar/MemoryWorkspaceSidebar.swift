@@ -92,7 +92,6 @@ struct MemoryWorkspaceSidebar: View {
         switch section {
         case .search: "Search"
         case .memories: "Memories"
-        case .gantt: "Gantt"
         case .graph: "Graph"
         case .review: "Review"
         case .settings: "Settings"
@@ -103,7 +102,6 @@ struct MemoryWorkspaceSidebar: View {
         switch section {
         case .search: AppIcon.Action.search
         case .memories: AppIcon.Resource.folder
-        case .gantt: AppIcon.Leaderboard.week
         case .graph: AppIcon.Network.webSocket
         case .review: AppIcon.AIConfig.plan
         case .settings: AppIcon.Workspace.settings
@@ -117,9 +115,6 @@ struct MemoryWorkspaceSidebar: View {
             return total > 0 ? total : nil
         case .memories:
             return store.codeHealth?.memoryCount
-        case .gantt:
-            let count = store.gantt.items.count
-            return count > 0 ? count : nil
         case .graph:
             let count = store.graph.filteredChangeEvents.count
             return count > 0 ? count : nil
