@@ -3,6 +3,18 @@
 extension ReleaseHistoryCatalog {
     static let generatedEntries: [ReleaseHistoryEntry] = [
         ReleaseHistoryEntry(
+            version: "1.8.1",
+            date: "June 1, 2026",
+            headline: "实现了按日期范围查询Git提交的能力，添加了完整的每日报告Git详情sheet页面，支持生成基于提交元数据和差异内容的AI总结，并带有缓存机制，同时完善了相关测试用例。",
+            changes: [
+                "新增了每日报告工作区功能，包含完整的日历视图、项目统计面板和相关数据模型、视图模型与业务逻辑，支持按日/按月查看AI开发活动统计，包括项目时长、Token使用、会话数量和Git提交记录等数据。",
+                "新增单项目近7天活动甘特图面板，替换原有的通用图表面板",
+                "添加每日时长列与全天时间轴刻度，支持可视化展示当日活跃时段",
+                "新增本地化字符串，适配中英文界面显示",
+                "调整弹窗最小与理想尺寸以适配新的图表面板",
+            ]
+        ),
+        ReleaseHistoryEntry(
             version: "1.8.0",
             date: "June 1, 2026",
             headline: "新增overlay日志分类并添加焦点源切换日志",
