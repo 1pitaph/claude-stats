@@ -2835,6 +2835,23 @@
         }
       }
     },
+    "gantt.day.accessibility.active" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, %@ active"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@，活跃时长 %@"
+          }
+        }
+      }
+    },
     "ACTIVE TIME" : {
       "localizations" : {
         "zh-Hans" : {
@@ -3026,6 +3043,16 @@
       }
     },
     "RECENT 7 DAYS" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最近 7 天"
+          }
+        }
+      }
+    },
+    "Recent 7 days" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {

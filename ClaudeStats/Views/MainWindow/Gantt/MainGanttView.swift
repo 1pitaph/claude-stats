@@ -316,7 +316,7 @@ private struct GanttProjectDetailSheet: View {
             StxRule()
             content
         }
-        .frame(minWidth: 720, idealWidth: 860, minHeight: 540, idealHeight: 660)
+        .frame(minWidth: 1_040, idealWidth: 1_220, minHeight: 600, idealHeight: 740)
         .background(AppSurface.panelFill)
         .onAppear {
             vm.refreshPermissionState()
@@ -403,10 +403,9 @@ private struct GanttProjectDetailSheet: View {
                     }
                 } else {
                     GanttProjectDetailSummaryPanel(snapshot: vm.snapshot)
-                    GanttChartPanel(
+                    GanttProjectSevenDayChartPanel(
                         snapshot: vm.snapshot,
-                        title: "RECENT 7 DAYS",
-                        captionOverride: String(localized: "Single project activity for the last seven local days."),
+                        project: project,
                         emptyMessage: String(localized: "No activity for this project in the last seven days.")
                     )
                 }
@@ -495,6 +494,341 @@ private struct GanttProjectDetailSummaryPanel: View {
             value: snapshot.activityMode.label,
             animatesNumericValue: false
         )
+    }
+}
+
+private struct GanttProjectSevenDayChartPanel: View {
+    let snapshot: GanttTimelineSnapshot
+    let project: GanttProjectReference
+    let emptyMessage: String
+
+    private let leftColumnWidth: CGFloat = 210
+    private let headerHeight: CGFloat = 42
+    private let rowHeight: CGFloat = 54
+    private let preferredTimelineWidth: CGFloat = 940
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            panelHeader
+
+            if timeline == nil {
+                emptyState
+            } else {
+                chart
+            }
+        }
+        .mainWindowPanel(padding: 16)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(String(localized: "Recent 7 days"))
+    }
+
+    private var timeline: GanttProjectTimeline? {
+        snapshot.projects.first(where: { $0.id == project.id }) ?? snapshot.projects.first
+    }
+
+    private var rows: [GanttProjectDayTimelineRow] {
+        GanttProjectDayTimelineRow.makeRows(
+            domain: snapshot.domain,
+            segments: timeline?.segments.map(\.interval) ?? []
+        )
+    }
+
+    private var panelHeader: some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("RECENT 7 DAYS")
+                    .font(.sora(13, weight: .semibold))
+                    .tracking(1.0)
+                Text("Single project activity for the last seven local days.")
+                    .font(.sora(10))
+                    .foregroundStyle(Color.stxMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            Text(rangeLabel)
+                .font(.sora(10).monospacedDigit())
+                .foregroundStyle(Color.stxMuted)
+        }
+    }
+
+    private var rangeLabel: String {
+        "\(Format.day(snapshot.domain.start)) - \(Format.day(snapshot.domain.end.addingTimeInterval(-1)))"
+    }
+
+    private var emptyState: some View {
+        Text(emptyMessage)
+            .font(.sora(12))
+            .foregroundStyle(Color.stxMuted)
+            .frame(maxWidth: .infinity, minHeight: 280, alignment: .center)
+    }
+
+    private var chart: some View {
+        let rows = rows
+        let rowsHeight = CGFloat(rows.count) * rowHeight
+        let totalHeight = headerHeight + rowsHeight
+
+        return GeometryReader { proxy in
+            let timelineWidth = max(proxy.size.width - leftColumnWidth - 1, preferredTimelineWidth)
+
+            HStack(alignment: .top, spacing: 0) {
+                dayColumn(rows: rows)
+                    .frame(width: leftColumnWidth)
+
+                AppScrollView(.horizontal) {
+                    VStack(spacing: 0) {
+                        GanttDayTimelineHeader()
+                            .frame(width: timelineWidth, height: headerHeight)
+                        GanttDayTimelineCanvas(rows: rows, rowHeight: rowHeight)
+                            .frame(width: timelineWidth, height: rowsHeight)
+                    }
+                }
+            }
+        }
+        .frame(height: totalHeight)
+        .clipShape(.rect(cornerRadius: 6))
+        .overlay {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(Color.stxStroke.opacity(0.7), lineWidth: 1)
+        }
+    }
+
+    private func dayColumn(rows: [GanttProjectDayTimelineRow]) -> some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Day")
+                    .font(.sora(10, weight: .semibold))
+                    .tracking(0.5)
+                    .foregroundStyle(Color.stxMuted)
+                Spacer()
+                Text("Active")
+                    .font(.sora(10, weight: .semibold))
+                    .tracking(0.5)
+                    .foregroundStyle(Color.stxMuted)
+            }
+            .padding(.horizontal, 12)
+            .frame(height: headerHeight)
+            .background(Color.primary.opacity(0.035))
+
+            ForEach(rows) { row in
+                GanttProjectDayRow(row: row)
+                    .frame(height: rowHeight)
+
+                if row.id != rows.last?.id {
+                    StxRule()
+                }
+            }
+        }
+        .background(Color.primary.opacity(0.02))
+    }
+}
+
+private struct GanttProjectDayTimelineRow: Equatable, Identifiable, Sendable {
+    let id: String
+    let interval: DateInterval
+    let segments: [DateInterval]
+
+    var totalDuration: TimeInterval {
+        segments.reduce(0) { $0 + $1.duration }
+    }
+
+    static func makeRows(
+        domain: DateInterval,
+        segments: [DateInterval],
+        calendar: Calendar = .current
+    ) -> [GanttProjectDayTimelineRow] {
+        var cursor = calendar.startOfDay(for: domain.start)
+        var rows: [GanttProjectDayTimelineRow] = []
+
+        while cursor < domain.end {
+            let dayEnd = calendar.date(byAdding: .day, value: 1, to: cursor)
+                ?? cursor.addingTimeInterval(86_400)
+            let intervalEnd = min(dayEnd, domain.end)
+            guard intervalEnd > cursor else { break }
+
+            let dayInterval = DateInterval(start: cursor, end: intervalEnd)
+            let visibleSegments = segments.compactMap {
+                ActivityAnalyzer.clip($0, to: dayInterval)
+            }
+            rows.append(GanttProjectDayTimelineRow(
+                id: "\(cursor.timeIntervalSinceReferenceDate)",
+                interval: dayInterval,
+                segments: visibleSegments
+            ))
+            cursor = dayEnd
+        }
+
+        return rows
+    }
+}
+
+private struct GanttProjectDayRow: View {
+    let row: GanttProjectDayTimelineRow
+
+    var body: some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(Format.day(row.interval.start))
+                    .font(.sora(12, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text(row.interval.start.formatted(.dateTime.weekday(.wide)))
+                    .font(.sora(9))
+                    .foregroundStyle(Color.stxMuted)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            Text(Format.duration(row.totalDuration))
+                .font(.sora(11, weight: .medium).monospacedDigit())
+                .foregroundStyle(Color.stxMuted)
+                .lineLimit(1)
+                .frame(width: 64, alignment: .trailing)
+        }
+        .padding(.horizontal, 12)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(L10n.format(
+            "gantt.day.accessibility.active",
+            defaultValue: "%@, %@ active",
+            Format.day(row.interval.start),
+            Format.duration(row.totalDuration)
+        ))
+    }
+}
+
+private struct GanttDayTimelineHeader: View {
+    var body: some View {
+        Canvas { context, size in
+            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Color.primary.opacity(0.035)))
+
+            for tick in GanttDayTimelineScale.ticks {
+                let x = GanttDayTimelineScale.x(forHour: tick.hour, width: size.width)
+                var line = Path()
+                line.move(to: CGPoint(x: x, y: size.height - 12))
+                line.addLine(to: CGPoint(x: x, y: size.height))
+                context.stroke(line, with: .color(Color.stxStroke), lineWidth: 1)
+
+                let anchor: UnitPoint = tick.hour >= 24 ? .trailing : .leading
+                let labelX = tick.hour >= 24 ? size.width - 4 : min(max(x + 4, 4), size.width - 24)
+                context.draw(
+                    Text(tick.label)
+                        .font(.sora(9))
+                        .foregroundStyle(Color.stxMuted),
+                    at: CGPoint(x: labelX, y: 11),
+                    anchor: anchor
+                )
+            }
+
+            var bottom = Path()
+            bottom.move(to: CGPoint(x: 0, y: size.height - 0.5))
+            bottom.addLine(to: CGPoint(x: size.width, y: size.height - 0.5))
+            context.stroke(bottom, with: .color(Color.stxStroke.opacity(0.8)), lineWidth: 1)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+private struct GanttDayTimelineCanvas: View {
+    let rows: [GanttProjectDayTimelineRow]
+    let rowHeight: CGFloat
+
+    var body: some View {
+        Canvas { context, size in
+            drawGrid(context: &context, size: size)
+            drawBars(context: &context, size: size)
+            drawTodayLine(context: &context, size: size)
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func drawGrid(context: inout GraphicsContext, size: CGSize) {
+        for index in 0...rows.count {
+            let y = CGFloat(index) * rowHeight
+            var line = Path()
+            line.move(to: CGPoint(x: 0, y: y))
+            line.addLine(to: CGPoint(x: size.width, y: y))
+            context.stroke(line, with: .color(Color.stxStroke.opacity(0.55)), lineWidth: 1)
+        }
+
+        for hour in stride(from: 0, through: 24, by: 1) {
+            let x = GanttDayTimelineScale.x(forHour: hour, width: size.width)
+            var line = Path()
+            line.move(to: CGPoint(x: x, y: 0))
+            line.addLine(to: CGPoint(x: x, y: size.height))
+            let isMajor = hour % 6 == 0
+            context.stroke(
+                line,
+                with: .color(Color.stxStroke.opacity(isMajor ? 0.72 : 0.26)),
+                lineWidth: isMajor ? 1 : 0.5
+            )
+        }
+    }
+
+    private func drawBars(context: inout GraphicsContext, size: CGSize) {
+        for (index, row) in rows.enumerated() {
+            let y = CGFloat(index) * rowHeight + (rowHeight - 13) / 2
+
+            for segment in row.segments {
+                let startX = GanttDayTimelineScale.x(for: segment.start, in: row.interval, width: size.width)
+                let endX = GanttDayTimelineScale.x(for: segment.end, in: row.interval, width: size.width)
+                let width = min(size.width - startX, max(3, endX - startX))
+                guard width > 0 else { continue }
+
+                let rect = CGRect(x: startX, y: y, width: width, height: 13)
+                context.fill(Path(roundedRect: rect, cornerRadius: 4), with: .color(Color.stxAccent.opacity(0.86)))
+                context.stroke(Path(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), cornerRadius: 3.5), with: .color(Color.stxAccent), lineWidth: 1)
+            }
+        }
+    }
+
+    private func drawTodayLine(context: inout GraphicsContext, size: CGSize) {
+        let now = Date.now
+        guard let index = rows.firstIndex(where: { Calendar.current.isDate(now, inSameDayAs: $0.interval.start) }) else {
+            return
+        }
+        let row = rows[index]
+        let x = GanttDayTimelineScale.x(for: now, in: row.interval, width: size.width)
+        let startY = CGFloat(index) * rowHeight
+        let endY = startY + rowHeight
+        var line = Path()
+        line.move(to: CGPoint(x: x, y: startY))
+        line.addLine(to: CGPoint(x: x, y: endY))
+        context.stroke(line, with: .color(Color.stxAccent.opacity(0.72)), style: StrokeStyle(lineWidth: 1.2, dash: [4, 4]))
+    }
+}
+
+private struct GanttDayTick: Sendable {
+    let hour: Int
+    let label: String
+}
+
+private enum GanttDayTimelineScale {
+    static let ticks: [GanttDayTick] = [
+        GanttDayTick(hour: 0, label: "00"),
+        GanttDayTick(hour: 6, label: "06"),
+        GanttDayTick(hour: 12, label: "12"),
+        GanttDayTick(hour: 18, label: "18"),
+        GanttDayTick(hour: 24, label: "24"),
+    ]
+
+    static func x(forHour hour: Int, width: CGFloat) -> CGFloat {
+        min(width, max(0, width * CGFloat(hour) / 24))
+    }
+
+    static func x(for date: Date, in day: DateInterval, width: CGFloat, calendar: Calendar = .current) -> CGFloat {
+        if date <= day.start {
+            return 0
+        }
+        if date >= day.end {
+            return width
+        }
+
+        let components = calendar.dateComponents([.hour, .minute, .second, .nanosecond], from: day.start, to: date)
+        let seconds = Double(components.hour ?? 0) * 3_600
+            + Double(components.minute ?? 0) * 60
+            + Double(components.second ?? 0)
+            + Double(components.nanosecond ?? 0) / 1_000_000_000
+        return min(width, max(0, width * CGFloat(seconds / 86_400)))
     }
 }
 
