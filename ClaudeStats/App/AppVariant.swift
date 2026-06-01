@@ -1,0 +1,32 @@
+import Foundation
+
+enum AppFeature: CaseIterable, Sendable, Hashable {
+    case sessions
+    case memory
+    case localAI
+    case git
+    case dailyReport
+}
+
+enum AppVariant {
+    #if CLAUDE_STATS_LITE
+    static let isLite = true
+    static let productName = "Claude Stats Lite"
+    #else
+    static let isLite = false
+    static let productName = "Claude Stats"
+    #endif
+
+    static func isEnabled(_ feature: AppFeature) -> Bool {
+        #if CLAUDE_STATS_LITE
+        switch feature {
+        case .sessions, .memory, .localAI:
+            return false
+        case .git, .dailyReport:
+            return true
+        }
+        #else
+        return true
+        #endif
+    }
+}

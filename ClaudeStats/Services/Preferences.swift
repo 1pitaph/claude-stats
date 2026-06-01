@@ -546,7 +546,7 @@ final class Preferences {
             ? SystemMonitorModule.defaultVisible
             : Set(storedSystemMonitorModules)
         aiActivityAnalysisEnabled = defaults.bool(forKey: Keys.aiActivityAnalysisEnabled)
-        gitTrackingEnabled = defaults.bool(forKey: Keys.gitTrackingEnabled)
+        gitTrackingEnabled = (defaults.object(forKey: Keys.gitTrackingEnabled) as? Bool) ?? AppVariant.isLite
         gitOpensInWindow = defaults.bool(forKey: Keys.gitOpensInWindow)
         gitWorkspaceSourceIDs = GitWorkspaceSourceCatalog.decodeStoredSourceIDs(
             defaults.string(forKey: Keys.gitWorkspaceSourceIDs)

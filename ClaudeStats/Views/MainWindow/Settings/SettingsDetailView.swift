@@ -58,7 +58,7 @@ struct SettingsDetailView: View {
 
     @ViewBuilder
     private var sectionContent: some View {
-        switch section {
+        switch SettingsSection.availableCases.contains(section) ? section : .general {
         case .general: GeneralSettingsView()
         case .features: FeaturesSettingsView(onSelectSection: onSelectSection)
         case .menuBar: MenuBarSettingsView()
@@ -67,7 +67,12 @@ struct SettingsDetailView: View {
         case .tracking: TrackingSettingsView(onSelectSection: onSelectSection)
         case .dictionary: DictionarySettingsView()
         case .llm: AppLLMSettingsView()
-        case .localAI: LocalAIModelsSettingsView()
+        case .localAI:
+            #if CLAUDE_STATS_LITE
+            EmptyView()
+            #else
+            LocalAIModelsSettingsView()
+            #endif
         case .leaderboards: LeaderboardsSettingsView(onSelectSection: onSelectSection)
         case .github: GitHubSettingsView(onSelectSection: onSelectSection)
         case .linuxDo: LinuxDoSettingsView(store: env.linuxDo)

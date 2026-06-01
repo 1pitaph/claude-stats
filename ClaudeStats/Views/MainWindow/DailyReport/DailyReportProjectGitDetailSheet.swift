@@ -266,7 +266,7 @@ struct DailyReportProjectGitDetailSheet: View {
         generationTask = Task {
             await env.appLLMSettings.loadIfNeeded()
             do {
-                let endpoint = try env.appLLMSettings.generationEndpoint(localAI: env.localAI)
+                let endpoint = try env.generationEndpoint()
                 await vm.generate(
                     endpoint: endpoint,
                     language: outputLanguage,
@@ -282,7 +282,7 @@ struct DailyReportProjectGitDetailSheet: View {
     private func resolveEndpoint() async -> (endpoint: AppLLMGenerationEndpoint?, error: String?) {
         await env.appLLMSettings.loadIfNeeded()
         do {
-            return (try env.appLLMSettings.generationEndpoint(localAI: env.localAI), nil)
+            return (try env.generationEndpoint(), nil)
         } catch {
             return (nil, error.localizedDescription)
         }

@@ -154,7 +154,7 @@ struct GitAISummaryCard: View {
         Task {
             await env.appLLMSettings.loadIfNeeded()
             do {
-                let endpoint = try env.appLLMSettings.generationEndpoint(localAI: env.localAI)
+                let endpoint = try env.generationEndpoint()
                 await vm.generate(
                     repo: repo,
                     target: target,

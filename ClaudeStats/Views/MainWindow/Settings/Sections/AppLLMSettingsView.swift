@@ -5,7 +5,9 @@ struct AppLLMSettingsView: View {
 
     var body: some View {
         @Bindable var llm = env.appLLMSettings
+        #if !CLAUDE_STATS_LITE
         @Bindable var localAI = env.localAI
+        #endif
 
         VStack(alignment: .leading, spacing: 28) {
             SettingGroup(
@@ -17,27 +19,36 @@ struct AppLLMSettingsView: View {
                         AppSelect(
                             .localized("Mode"),
                             selection: $llm.mode,
-                            options: AppLLMMode.allCases.map { AppSelectOption(value: $0, title: .localized($0.title)) },
+                            options: AppLLMMode.availableCases.map { AppSelectOption(value: $0, title: .localized($0.title)) },
                             width: 190,
                             size: .small
                         )
                     }
                     SettingRowDivider()
                     SettingRow(title: "Status", description: "Current readiness for generation.") {
+                        #if CLAUDE_STATS_LITE
+                        let readiness = llm.readinessSummary()
+                        #else
+                        let readiness = llm.readinessSummary(localAI: env.localAI)
+                        #endif
                         AIConfigsBadge(
-                            text: llm.readinessSummary(localAI: env.localAI),
-                            color: llm.readinessSummary(localAI: env.localAI) == "Ready" ? Color.stxAccent : Color.orange
+                            text: readiness,
+                            color: readiness == "Ready" ? Color.stxAccent : Color.orange
                         )
                     }
                 }
                 .settingCard()
             }
 
+            #if CLAUDE_STATS_LITE
+            onlineProviderGroup(llm: llm)
+            #else
             if llm.mode == .online {
                 onlineProviderGroup(llm: llm)
             } else {
                 localProviderGroup(llm: llm, localAI: localAI)
             }
+            #endif
 
             if let message = llm.setupMessage {
                 Text(message)
@@ -115,6 +126,7 @@ struct AppLLMSettingsView: View {
         }
     }
 
+    #if !CLAUDE_STATS_LITE
     private func localProviderGroup(llm: AppLLMSettingsStore, localAI: LocalAIStore) -> some View {
         @Bindable var llm = llm
         @Bindable var localAI = localAI
@@ -170,6 +182,7 @@ struct AppLLMSettingsView: View {
             .settingCard()
         }
     }
+    #endif
 }
 
 #if DEBUG

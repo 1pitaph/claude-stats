@@ -69,8 +69,10 @@ struct MainWindowView: View {
     @SceneStorage("mainWindow.configsSearch") private var configsSearchText: String = ""
     @SceneStorage("mainWindow.configsProjectID") private var configsProjectIDRaw: String = ""
     @SceneStorage("mainWindow.configsDocumentID") private var configsDocumentIDRaw: String = ""
+    #if !CLAUDE_STATS_LITE
     @SceneStorage("mainWindow.sessionsDestination") private var sessionsDestinationRaw: String = SessionsDestination.overviewRawValue
     @SceneStorage("mainWindow.memorySection") private var memorySectionRaw: String = MemoryWorkspaceSection.search.rawValue
+    #endif
     @SceneStorage("mainWindow.networkSection") private var networkSectionRaw: String = NetworkSection.traffic.rawValue
     @SceneStorage("mainWindow.warpSection") private var warpSectionRaw: String = WarpWorkspaceSection.sessions.rawValue
     @SceneStorage("mainWindow.opsSection") private var opsSectionRaw: String = OpsSection.ports.rawValue
@@ -96,6 +98,7 @@ struct MainWindowView: View {
         SettingsSection(rawValue: settingsSectionRaw) ?? .general
     }
 
+    #if !CLAUDE_STATS_LITE
     private var sessionsDestination: SessionsDestination {
         SessionsDestination(rawValue: sessionsDestinationRaw)
     }
@@ -104,6 +107,7 @@ struct MainWindowView: View {
         guard case .session(let id) = sessionsDestination else { return nil }
         return env.store.sessions(for: env.preferences.selectedProvider).first { $0.id == id }
     }
+    #endif
 
     private var networkSection: NetworkSection {
         NetworkSection(storedRawValue: networkSectionRaw)
@@ -138,12 +142,14 @@ struct MainWindowView: View {
         )
     }
 
+    #if !CLAUDE_STATS_LITE
     private var sessionsDestinationBinding: Binding<SessionsDestination> {
         Binding(
             get: { sessionsDestination },
             set: { sessionsDestinationRaw = $0.rawValue }
         )
     }
+    #endif
 
     private var networkSectionBinding: Binding<NetworkSection> {
         Binding(
@@ -179,9 +185,9 @@ struct MainWindowView: View {
                     page: $page,
                     availablePages: availablePages,
                     isLinuxDoActive: mode == .linuxDo,
-                    isSessionsActive: mode == .sessions,
+                    isSessionsActive: AppVariant.isEnabled(.sessions) && mode == .sessions,
                     isConfigsActive: mode == .configs,
-                    isMemoryActive: mode == .memory,
+                    isMemoryActive: AppVariant.isEnabled(.memory) && mode == .memory,
                     isWarpActive: mode == .warp,
                     onOpenSettings: openSettings,
                     onOpenLinuxDo: openLinuxDo,
@@ -200,14 +206,22 @@ struct MainWindowView: View {
                     onSignIn: openLinuxDoSignIn
                 )
             } sessionsSidebar: {
+                #if CLAUDE_STATS_LITE
+                EmptyView()
+                #else
                 SessionSidebarColumn(
                     destination: sessionsDestinationBinding,
                     onExit: closeSessions
                 )
+                #endif
             } configsSidebar: {
                 ConfigWorkspaceSidebar(store: env.configWorkspace, onExit: closeConfigs)
             } memorySidebar: {
+                #if CLAUDE_STATS_LITE
+                EmptyView()
+                #else
                 MemoryWorkspaceSidebar(store: env.memory, onExit: closeMemory)
+                #endif
             } settingsSidebar: {
                 SettingsSidebarColumn(section: settingsSectionBinding, onExit: closeSettings)
             } networkSidebar: {
@@ -221,7 +235,11 @@ struct MainWindowView: View {
             } linuxDoDetail: {
                 LinuxDoWorkspaceView(store: env.linuxDo)
             } sessionsDetail: {
+                #if CLAUDE_STATS_LITE
+                EmptyView()
+                #else
                 sessionsDetail
+                #endif
             } configsDetail: {
                 ConfigWorkspaceView(
                     store: env.configWorkspace,
@@ -229,7 +247,11 @@ struct MainWindowView: View {
                     selectedDocumentID: configsDocumentIDBinding
                 )
             } memoryDetail: {
+                #if CLAUDE_STATS_LITE
+                EmptyView()
+                #else
                 MemoryWorkspaceView(store: env.memory)
+                #endif
             } settingsDetail: {
                 SettingsDetailView(section: settingsSection, onSelectSection: selectSettingsSection)
             } networkDetail: {
@@ -263,9 +285,13 @@ struct MainWindowView: View {
         })
         .onAppear {
             restoreConfigWorkspaceState()
+            #if !CLAUDE_STATS_LITE
             restoreMemoryWorkspaceState()
+            #endif
             normalizeNavigationState()
+            #if !CLAUDE_STATS_LITE
             if mode == .sessions { clearInvalidSessionSelection() }
+            #endif
             DockVisibilityCoordinator.shared.acquire()
             Log.app.info("Main window opened on page \(page.rawValue, privacy: .public)")
         }
@@ -293,6 +319,7 @@ struct MainWindowView: View {
         .onChange(of: env.configWorkspace.filesSearchText) { _, new in
             configsSearchText = new
         }
+        #if !CLAUDE_STATS_LITE
         .onChange(of: env.memory.section) { _, new in
             memorySectionRaw = new.rawValue
         }
@@ -304,6 +331,7 @@ struct MainWindowView: View {
                 sessionsDestinationRaw = SessionsDestination.overviewRawValue
             }
         }
+        #endif
         .onChange(of: env.preferences.aiActivityAnalysisEnabled) { _, on in
             if !on && page == .activity { page = .dashboard }
         }
@@ -373,6 +401,7 @@ struct MainWindowView: View {
         }
     }
 
+    #if !CLAUDE_STATS_LITE
     @ViewBuilder
     private var sessionsDetail: some View {
         switch sessionsDestination {
@@ -390,6 +419,7 @@ struct MainWindowView: View {
             }
         }
     }
+    #endif
 
     private func clearTextFocus() {
         NSApp.keyWindow?.makeFirstResponder(nil)
@@ -438,15 +468,23 @@ struct MainWindowView: View {
         transition(to: .configs)
     }
 
+    #if CLAUDE_STATS_LITE
+    private func openSessions() {}
+    #else
     private func openSessions() {
         sidebarVisible = true
         sessionsDestinationRaw = SessionsDestination.overviewRawValue
         transition(to: .sessions)
     }
+    #endif
 
+    #if CLAUDE_STATS_LITE
+    private func openMemory() {}
+    #else
     private func openMemory() {
         transition(to: .memory)
     }
+    #endif
 
     private func openNetwork() {
         transition(to: .network)
@@ -472,17 +510,25 @@ struct MainWindowView: View {
         transition(to: .app)
     }
 
+    #if CLAUDE_STATS_LITE
+    private func closeSessions() {}
+    #else
     private func closeSessions() {
         transition(to: .app)
     }
+    #endif
 
     private func closeConfigs() {
         transition(to: .app)
     }
 
+    #if CLAUDE_STATS_LITE
+    private func closeMemory() {}
+    #else
     private func closeMemory() {
         transition(to: .app)
     }
+    #endif
 
     private func closeNetwork() {
         transition(to: .app)
@@ -515,6 +561,7 @@ struct MainWindowView: View {
         }
     }
 
+    #if !CLAUDE_STATS_LITE
     private func clearInvalidSessionSelection() {
         guard case .session(let id) = sessionsDestination else { return }
         let sessions = env.store.sessions(for: env.preferences.selectedProvider)
@@ -522,6 +569,7 @@ struct MainWindowView: View {
             sessionsDestinationRaw = SessionsDestination.overviewRawValue
         }
     }
+    #endif
 
     private func transition(to nextMode: MainWindowMode) {
         clearTextFocus()
@@ -543,10 +591,17 @@ struct MainWindowView: View {
             pageRaw = MainPage.dailyReport.rawValue
         }
 
+        #if CLAUDE_STATS_LITE
+        if modeRaw == "sessions" || modeRaw == "memory" {
+            modeRaw = MainWindowMode.app.rawValue
+            sidebarVisible = true
+        }
+        #else
         if modeRaw == "sessions" {
             modeRaw = MainWindowMode.sessions.rawValue
             sidebarVisible = true
         }
+        #endif
 
         if modeRaw == "chat" {
             modeRaw = MainWindowMode.warp.rawValue
@@ -612,10 +667,12 @@ struct MainWindowView: View {
         configFilesSectionRaw = env.configWorkspace.filesSection.rawValue
     }
 
+    #if !CLAUDE_STATS_LITE
     private func restoreMemoryWorkspaceState() {
         env.memory.section = MemoryWorkspaceSection(rawValue: memorySectionRaw) ?? .search
         memorySectionRaw = env.memory.section.rawValue
     }
+    #endif
 }
 
 #if DEBUG

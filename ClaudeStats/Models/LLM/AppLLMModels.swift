@@ -4,6 +4,14 @@ enum AppLLMMode: String, Codable, CaseIterable, Identifiable, Sendable, Hashable
     case online
     case local
 
+    static var availableCases: [AppLLMMode] {
+        #if CLAUDE_STATS_LITE
+        [.online]
+        #else
+        allCases
+        #endif
+    }
+
     var id: String { rawValue }
 
     var title: String {

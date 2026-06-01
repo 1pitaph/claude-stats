@@ -26,6 +26,9 @@ struct ShareExportView: View {
 
     private var availablePanes: [StatsPane] {
         StatsPane.allCases.filter { pane in
+            AppVariant.isEnabled(.sessions) || pane != .sessions
+        }
+        .filter { pane in
             pane != .git && (pane != .activity || env.preferences.aiActivityAnalysisEnabled)
         }
     }

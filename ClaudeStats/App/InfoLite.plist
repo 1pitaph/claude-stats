@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSHumanReadableCopyright</key>
+	<string></string>
+	<key>RockxyBundledHelperVersion</key>
+	<string>$(ROCKXY_HELPER_VERSION)</string>
+	<key>RockxyBundledHelperBuild</key>
+	<string>$(ROCKXY_HELPER_BUILD)</string>
+	<key>RockxyDefaultsPrefix</key>
+	<string>$(ROCKXY_DEFAULTS_PREFIX)</string>
+	<key>RockxyFamilyNamespace</key>
+	<string>$(ROCKXY_FAMILY_NAMESPACE)</string>
+	<key>RockxyHelperBundleIdentifier</key>
+	<string>$(ROCKXY_HELPER_BUNDLE_ID)</string>
+	<key>RockxyHelperProtocolVersion</key>
+	<string>$(ROCKXY_HELPER_PROTOCOL_VERSION)</string>
+	<key>RockxyHelperMachServiceName</key>
+	<string>$(ROCKXY_HELPER_MACH_SERVICE_NAME)</string>
+	<key>RockxyHelperPlistName</key>
+	<string>$(ROCKXY_HELPER_PLIST_NAME)</string>
+	<key>RockxyAllowedCallerIdentifiers</key>
+	<string>$(ROCKXY_ALLOWED_CALLER_IDENTIFIERS)</string>
+	<key>RockxyLogSubsystem</key>
+	<string>$(ROCKXY_LOG_SUBSYSTEM)</string>
+	<key>RockxyNotificationPrefix</key>
+	<string>$(ROCKXY_NOTIFICATION_PREFIX)</string>
+	<key>RockxyAppSupportDirectoryName</key>
+	<string>$(ROCKXY_APP_SUPPORT_DIRECTORY_NAME)</string>
+	<key>RockxySharedSupportDirectoryName</key>
+	<string>$(ROCKXY_SHARED_SUPPORT_DIRECTORY_NAME)</string>
+	<key>RockxySharedCertificateLabelPrefix</key>
+	<string>$(ROCKXY_SHARED_CERTIFICATE_LABEL_PREFIX)</string>
+	<key>RockxySharedUTTypePrefix</key>
+	<string>$(ROCKXY_SHARED_UTTYPE_PREFIX)</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>A program running in the embedded terminal may request AppleScript access. Notch Island media controls may also use Apple Events for local music apps.</string>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>Notch Island can read local Apple Music playback metadata when the media module is enabled.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Notch Island can capture local audio levels for visualizer modules when audio features are enabled.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>A program running in the embedded terminal may request Bluetooth access. Notch Island can show Bluetooth audio device status when enabled.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>A program running in the embedded terminal may request calendar access.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>A program running in the embedded terminal may request camera access.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>A program running in the embedded terminal may request contacts access.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>A program running in the embedded terminal may request local network access.</string>
+	<key>NSLocationUsageDescription</key>
+	<string>A program running in the embedded terminal may request location access.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>A program running in the embedded terminal may request microphone access. Notch Island can show microphone privacy indicators when enabled.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>A program running in the embedded terminal may request photo library access.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>A program running in the embedded terminal may request reminders access.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>A program running in the embedded terminal may request speech recognition access.</string>
+	<key>NSSystemAdministrationUsageDescription</key>
+	<string>A program running in the embedded terminal may request elevated privileges.</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>Claude Stats Lite can use screen recording to read visible Claude Desktop usage limits when you choose Desktop usage capture. Notch Island can also use it for recording indicators and screen assistant modules when enabled.</string>
+	<key>SUFeedURL</key>
+	<string>https://1pitaph.github.io/claude-stats/appcast-lite.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>q08NR2AvmmN/WuX7o7jQmYMsaL/5bPmiX/xlo3flCZY=</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+</dict>
+</plist>

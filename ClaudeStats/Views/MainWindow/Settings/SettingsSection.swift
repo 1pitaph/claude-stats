@@ -19,6 +19,17 @@ enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
     case terminal
     case about
 
+    static var availableCases: [SettingsSection] {
+        allCases.filter { section in
+            switch section {
+            case .localAI:
+                AppVariant.isEnabled(.localAI)
+            default:
+                true
+            }
+        }
+    }
+
     var id: String { rawValue }
 
     var title: String {

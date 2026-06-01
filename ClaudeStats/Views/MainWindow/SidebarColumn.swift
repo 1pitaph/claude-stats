@@ -44,15 +44,17 @@ struct SidebarColumn: View {
                 clearTextFocus()
                 onOpenLinuxDo()
             }
-            SidebarRow(
-                title: "Sessions",
-                symbol: AppIcon.Resource.transcriptSearch,
-                isSelected: isSessionsActive,
-                trailingSymbol: "chevron.right",
-                showsTrailingOnHover: true
-            ) {
-                clearTextFocus()
-                onOpenSessions()
+            if AppVariant.isEnabled(.sessions) {
+                SidebarRow(
+                    title: "Sessions",
+                    symbol: AppIcon.Resource.transcriptSearch,
+                    isSelected: isSessionsActive,
+                    trailingSymbol: "chevron.right",
+                    showsTrailingOnHover: true
+                ) {
+                    clearTextFocus()
+                    onOpenSessions()
+                }
             }
 
             sectionHeader("STATS")
@@ -74,15 +76,17 @@ struct SidebarColumn: View {
                 clearTextFocus()
                 onOpenWarp()
             }
-            SidebarRow(
-                title: "Memory",
-                symbol: AppIcon.Workspace.memory,
-                isSelected: isMemoryActive,
-                trailingSymbol: "chevron.right",
-                showsTrailingOnHover: true
-            ) {
-                clearTextFocus()
-                onOpenMemory()
+            if AppVariant.isEnabled(.memory) {
+                SidebarRow(
+                    title: "Memory",
+                    symbol: AppIcon.Workspace.memory,
+                    isSelected: isMemoryActive,
+                    trailingSymbol: "chevron.right",
+                    showsTrailingOnHover: true
+                ) {
+                    clearTextFocus()
+                    onOpenMemory()
+                }
             }
             SidebarRow(
                 title: "Config",

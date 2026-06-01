@@ -179,6 +179,7 @@ targets:
     sources:
       - path: ClaudeStatsLocalAIHelper
       - path: ClaudeStats/Models/LocalAI
+      - path: ClaudeStats/Models/TranscriptAnalysis/EmbeddingEngineModels.swift
       - path: ClaudeStats/Utilities/Log.swift
       - path: ClaudeStats/Services/LocalAI/LocalAIPaths.swift
       - path: ClaudeStats/Services/LocalAI/LocalAIHelperRuntime.swift
@@ -409,6 +410,8 @@ targets:
     sources:
       - path: ClaudeStats
         excludes:
+          - App/InfoLite.plist
+          - App/ClaudeStatsLite.entitlements
           - Resources/GitTools
       - path: ClaudeStats/Resources/GitTools
         type: folder
@@ -461,7 +464,7 @@ targets:
       - sdk: WebKit.framework
       - sdk: libc++.tbd
       - sdk: libsqlite3.tbd
-    postBuildScripts:
+    postBuildScripts: &claudeStatsAppPostBuildScripts
       - name: Copy Atoll MediaRemote Runtime Resources
         inputFiles:
           - "$(SRCROOT)/ThirdParty/Atoll/mediaremote-adapter/mediaremote-adapter.pl"
@@ -607,6 +610,109 @@ targets:
           PROVISIONING_PROFILE: "$(CLAUDE_STATS_PROVISIONING_PROFILE)"
           PROVISIONING_PROFILE_SPECIFIER: "$(CLAUDE_STATS_PROVISIONING_PROFILE_SPECIFIER)"
 
+  ClaudeStatsLite:
+    type: application
+    platform: macOS
+    sources:
+      - path: ClaudeStats
+        excludes:
+          - App/Info.plist
+          - App/ClaudeStats.entitlements
+          - App/ClaudeStatsCloudKit.entitlements
+          - App/ClaudeStatsCloudKitDebug.entitlements
+          - Resources/GitTools
+          - Models/Chat
+          - Models/LocalAI
+          - Models/SessionsDestination.swift
+          - Services/ChatContextBuilder.swift
+          - Services/ChatPersistenceStore.swift
+          - Services/LocalAI
+          - Services/TranscriptAnalysis/Storage/TranscriptEmbeddingIndex.swift
+          - ViewModels/ChatStore.swift
+          - ViewModels/Memory
+          - ViewModels/SessionListViewModel.swift
+          - Views/MainWindow/Chat
+          - Views/MainWindow/Memory
+          - Views/MainWindow/Sessions
+          - Views/MainWindow/Settings/Sections/LocalAIModelsSettingsView.swift
+          - Views/Sessions
+      - path: ClaudeStats/Resources/GitTools
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - package: Sparkle
+      - target: OpenComputerUseKit
+      - target: RockxyBackendEmbed
+      - target: RockxyHelperTool
+        link: false
+        codeSign: true
+        copy:
+          destination: wrapper
+          subpath: Contents/Library/HelperTools
+      - target: WarpEmbed
+      - target: AtollEmbed
+      - package: Lottie
+      - package: SwiftCollections
+        product: Collections
+      - package: SwiftSoup
+      - framework: ThirdParty/Atoll/Frameworks/MediaRemoteAdapter.framework
+        embed: true
+        codeSign: true
+      - sdk: ApplicationServices.framework
+      - sdk: Accelerate.framework
+      - sdk: Metal.framework
+      - sdk: ScreenCaptureKit.framework
+      - sdk: Vision.framework
+      - sdk: IOKit.framework
+      - sdk: SystemConfiguration.framework
+      - sdk: CoreWLAN.framework
+      - sdk: WebKit.framework
+      - sdk: libc++.tbd
+      - sdk: libsqlite3.tbd
+    postBuildScripts: *claudeStatsAppPostBuildScripts
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.claudestats.ClaudeStatsLite
+        PRODUCT_NAME: "Claude Stats Lite"
+        PRODUCT_MODULE_NAME: ClaudeStats
+        INFOPLIST_FILE: ClaudeStats/App/InfoLite.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        COMBINE_HIDPI_IMAGES: YES
+        GENERATE_INFOPLIST_FILE: NO
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks"
+        SWIFT_OBJC_BRIDGING_HEADER: ClaudeStats/Bridging/ClaudeStats-Bridging-Header.h
+        HEADER_SEARCH_PATHS: "$(inherited) ThirdParty/CppJieba/include ThirdParty/CppJieba/deps/limonp/include"
+        CLANG_CXX_LANGUAGE_STANDARD: gnu++17
+        CLANG_CXX_LIBRARY: libc++
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) CLAUDE_STATS_LITE"
+        ROCKXY_ALLOWED_CALLER_IDENTIFIERS: com.claudestats.ClaudeStatsLite
+      configs:
+        Debug:
+          CODE_SIGN_ENTITLEMENTS: ClaudeStats/App/ClaudeStatsLite.entitlements
+          ENABLE_HARDENED_RUNTIME: NO
+          CODE_SIGN_IDENTITY: "-"
+          CODE_SIGN_STYLE: Automatic
+        DebugCloudKit:
+          CODE_SIGN_ENTITLEMENTS: ClaudeStats/App/ClaudeStatsLite.entitlements
+          ENABLE_HARDENED_RUNTIME: NO
+          CODE_SIGN_IDENTITY: Apple Development
+          CODE_SIGN_STYLE: Automatic
+          DEVELOPMENT_TEAM: 24XGLNT76L
+        Release:
+          CODE_SIGN_ENTITLEMENTS: ClaudeStats/App/ClaudeStatsLite.entitlements
+          ENABLE_HARDENED_RUNTIME: NO
+          CODE_SIGN_IDENTITY: "-"
+          CODE_SIGN_STYLE: Automatic
+        ReleaseSigned:
+          CODE_SIGN_ENTITLEMENTS: ClaudeStats/App/ClaudeStatsLite.entitlements
+          ENABLE_HARDENED_RUNTIME: YES
+          CODE_SIGN_IDENTITY: "$(SIGN_IDENTITY)"
+          CODE_SIGN_STYLE: Manual
+          DEVELOPMENT_TEAM: "$(APPLE_TEAM_ID)"
+          OTHER_CODE_SIGN_FLAGS: "--timestamp"
+          PROVISIONING_PROFILE: "$(CLAUDE_STATS_PROVISIONING_PROFILE)"
+          PROVISIONING_PROFILE_SPECIFIER: "$(CLAUDE_STATS_PROVISIONING_PROFILE_SPECIFIER)"
+
   OpenComputerUseKit:
     type: framework
     platform: macOS
@@ -679,6 +785,19 @@ schemes:
       config: Debug
       targets:
         - ClaudeStatsTests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+
+  ClaudeStats Lite:
+    build:
+      targets:
+        ClaudeStatsLite: all
+    run:
+      config: Debug
     profile:
       config: Release
     analyze:

@@ -19,7 +19,7 @@ struct SettingsSidebarColumn: View {
 
             sectionHeader("SETTINGS")
 
-            ForEach(SettingsSection.allCases) { s in
+            ForEach(SettingsSection.availableCases) { s in
                 SidebarRow(title: s.title,
                            symbol: s.symbol,
                            assetName: s.assetName,

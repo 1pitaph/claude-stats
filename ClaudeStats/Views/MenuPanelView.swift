@@ -75,7 +75,11 @@ struct StatsPanelBody: View {
     private var gitInWindow: Bool { env.preferences.gitTrackingEnabled && env.preferences.gitOpensInWindow }
 
     private var availablePanes: [StatsPane] {
-        var panes: [StatsPane] = [.sessions, .usage]
+        var panes: [StatsPane] = []
+        if AppVariant.isEnabled(.sessions) {
+            panes.append(.sessions)
+        }
+        panes.append(.usage)
         if env.preferences.aiActivityAnalysisEnabled { panes.append(.activity) }
         if gitInPanel { panes.append(.git) }
         return panes
@@ -100,7 +104,12 @@ struct StatsPanelBody: View {
 
             Group {
                 switch effectivePane {
-                case .sessions: SessionListView(mode: export.map { .export($0.usage.period) } ?? .interactive)
+                case .sessions:
+                    #if CLAUDE_STATS_LITE
+                    UsageView(mode: export.map { .export($0.usage) } ?? .interactive)
+                    #else
+                    SessionListView(mode: export.map { .export($0.usage.period) } ?? .interactive)
+                    #endif
                 case .usage: UsageView(mode: export.map { .export($0.usage) } ?? .interactive)
                 case .activity: AIActivityView(mode: export.map { .export($0.activity) } ?? .interactive)
                 case .git: GitActivityView()

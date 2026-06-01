@@ -125,29 +125,34 @@ final class AppLLMSettingsStore {
         store.resolvedProvider(from: editedSettings())
     }
 
+    func generationEndpoint() throws -> AppLLMGenerationEndpoint {
+        guard let resolved = resolvedOnlineProvider() else {
+            throw AppLLMSettingsStoreError.missingOnlineProvider
+        }
+        let base = resolved.provider.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: base), url.scheme != nil, url.host != nil else {
+            throw AppLLMSettingsStoreError.invalidBaseURL
+        }
+        let model = resolved.provider.model.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !model.isEmpty else { throw AppLLMSettingsStoreError.missingModel }
+        guard !resolved.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw AppLLMSettingsStoreError.missingAPIKey
+        }
+        return AppLLMGenerationEndpoint(
+            mode: .online,
+            protocol: resolved.provider.protocol,
+            baseURL: url,
+            apiKey: resolved.apiKey,
+            model: model,
+            displayName: resolved.provider.name
+        )
+    }
+
+    #if !CLAUDE_STATS_LITE
     func generationEndpoint(localAI: LocalAIStore) throws -> AppLLMGenerationEndpoint {
         switch mode {
         case .online:
-            guard let resolved = resolvedOnlineProvider() else {
-                throw AppLLMSettingsStoreError.missingOnlineProvider
-            }
-            let base = resolved.provider.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let url = URL(string: base), url.scheme != nil, url.host != nil else {
-                throw AppLLMSettingsStoreError.invalidBaseURL
-            }
-            let model = resolved.provider.model.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !model.isEmpty else { throw AppLLMSettingsStoreError.missingModel }
-            guard !resolved.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                throw AppLLMSettingsStoreError.missingAPIKey
-            }
-            return AppLLMGenerationEndpoint(
-                mode: .online,
-                protocol: resolved.provider.protocol,
-                baseURL: url,
-                apiKey: resolved.apiKey,
-                model: model,
-                displayName: resolved.provider.name
-            )
+            return try generationEndpoint()
 
         case .local:
             guard localAI.localLLMAvailable else {
@@ -166,19 +171,26 @@ final class AppLLMSettingsStore {
             )
         }
     }
+    #endif
 
+    func readinessSummary() -> String {
+        guard let resolved = resolvedOnlineProvider() else { return "Provider is missing" }
+        guard !resolved.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return "API key is missing" }
+        guard !resolved.provider.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return "Model is missing" }
+        return "Ready"
+    }
+
+    #if !CLAUDE_STATS_LITE
     func readinessSummary(localAI: LocalAIStore) -> String {
         switch mode {
         case .online:
-            guard let resolved = resolvedOnlineProvider() else { return "Provider is missing" }
-            guard !resolved.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return "API key is missing" }
-            guard !resolved.provider.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return "Model is missing" }
-            return "Ready"
+            return readinessSummary()
         case .local:
             guard localAI.localLLMAvailable else { return "Local LLM is missing" }
             return localAI.localAPIEndpoint == nil ? "Local endpoint stopped" : "Ready"
         }
     }
+    #endif
 
     private func saveModeOnly() async {
         guard !isLoading else { return }
@@ -219,6 +231,11 @@ final class AppLLMSettingsStore {
     private func apply(settings: AppLLMSettings) {
         var normalized = settings
         normalized.normalize()
+        #if CLAUDE_STATS_LITE
+        if normalized.mode == .local {
+            normalized.mode = .online
+        }
+        #endif
         self.settings = normalized
         mode = normalized.mode
         let provider = normalized.selectedProvider

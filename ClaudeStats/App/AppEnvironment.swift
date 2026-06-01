@@ -14,7 +14,9 @@ final class AppEnvironment {
     let providerRegistry: ProviderRegistry
     let store: SessionStore
     let technicalTerms: TechnicalTermDictionaryStore
+    #if !CLAUDE_STATS_LITE
     let localAI: LocalAIStore
+    #endif
     let transcriptAnalysis: TranscriptAnalysisStore
     let updater = UpdaterController()
     let floatingStatsPanel = FloatingStatsPanelController()
@@ -38,10 +40,14 @@ final class AppEnvironment {
     let aiConfigs: AIConfigsViewModel
     let skills: SkillsStore
     let configWorkspace: ConfigWorkspaceStore
+    #if !CLAUDE_STATS_LITE
     let memory: MemoryStore
+    #endif
     let appLLMSettings: AppLLMSettingsStore
+    #if !CLAUDE_STATS_LITE
     let memoryModelSettings: MemoryModelSettingsStore
     let chat: ChatStore
+    #endif
     let systemMonitor: SystemMonitorViewModel
     let networkDebugger: NetworkDebuggerStore
     let ops: OpsStore
@@ -66,17 +72,23 @@ final class AppEnvironment {
         self.store = store
         let technicalTermRepository = TechnicalTermDictionaryRepository()
         self.technicalTerms = TechnicalTermDictionaryStore(repository: technicalTermRepository)
+        #if !CLAUDE_STATS_LITE
         let localAI = LocalAIStore()
         self.localAI = localAI
+        #endif
         self.transcriptAnalysis = TranscriptAnalysisStore(
             service: TranscriptAnalysisService(
                 dictionaryResolver: { session in
                     await technicalTermRepository.snapshot(for: session)
                 },
                 embeddingStatusResolver: {
+                    #if CLAUDE_STATS_LITE
+                    .notConfigured
+                    #else
                     await MainActor.run {
                         localAI.selectedEmbeddingStatus
                     }
+                    #endif
                 }
             )
         )
@@ -114,10 +126,14 @@ final class AppEnvironment {
             skills: skills,
             configurationProfiles: self.configurationProfiles
         )
+        #if !CLAUDE_STATS_LITE
         self.memory = MemoryStore()
+        #endif
         self.appLLMSettings = AppLLMSettingsStore()
+        #if !CLAUDE_STATS_LITE
         self.memoryModelSettings = MemoryModelSettingsStore()
         self.chat = ChatStore()
+        #endif
     }
 
     convenience init() {
@@ -138,9 +154,11 @@ final class AppEnvironment {
         store.onRefresh = { [weak self] in
             guard let self else { return }
             self.leaderboards.scheduleSilentSyncAfterDataRefresh()
+            #if !CLAUDE_STATS_LITE
             Task { [weak self] in
                 await self?.syncMemorySourcesFromCurrentState()
             }
+            #endif
         }
         leaderboards.start()
         Task {
@@ -149,10 +167,12 @@ final class AppEnvironment {
             await store.refresh()
             await aiConfigs.reload(sessions: store.sessions)
             await appLLMSettings.loadIfNeeded()
+            #if !CLAUDE_STATS_LITE
             await memoryModelSettings.loadIfNeeded()
             await startCodeMemorySidecarFromCurrentModelSettings()
             await memory.syncAvailableSources(sessions: store.sessions, configProjects: aiConfigs.snapshot.projects)
             await drainMemoryCaptureQueueIfAllowed()
+            #endif
         }
         claudeStatus.start()
         openAIStatus.start()
@@ -170,6 +190,15 @@ final class AppEnvironment {
         store.startAutoRefresh(every: TimeInterval(preferences.autoRefreshMinutes) * 60)
     }
 
+    func generationEndpoint() throws -> AppLLMGenerationEndpoint {
+        #if CLAUDE_STATS_LITE
+        try appLLMSettings.generationEndpoint()
+        #else
+        try appLLMSettings.generationEndpoint(localAI: localAI)
+        #endif
+    }
+
+    #if !CLAUDE_STATS_LITE
     private func syncMemorySourcesFromCurrentState() async {
         await aiConfigs.reload(sessions: store.sessions)
         await memory.syncAvailableSources(sessions: store.sessions, configProjects: aiConfigs.snapshot.projects)
@@ -197,6 +226,7 @@ final class AppEnvironment {
         guard memoryModelSettings.hasRunnableAdapters(appLLMSettings: appLLMSettings, localAI: localAI) else { return }
         await memory.drainQueuedMemoryCaptures(limit: mode.backgroundDrainLimit)
     }
+    #endif
 
     private static var isRunningUnitTests: Bool {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
