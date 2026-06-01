@@ -17,10 +17,12 @@ struct MemoryGraphChangesView: View {
 }
 
 private struct MemoryKnowledgeGraphCanvasView: View {
+    @Environment(AppEnvironment.self) private var env
     @Bindable var store: MemoryStore
     @State private var dragStart = CGSize.zero
     @State private var isDragging = false
     @State private var hoveredEdgeID: String?
+    @State private var activeReadinessAction: MemoryKnowledgeGraphReadiness.Action?
 
     var body: some View {
         GeometryReader { proxy in
@@ -138,87 +140,87 @@ private struct MemoryKnowledgeGraphCanvasView: View {
     }
 
     private var knowledgeEmptyState: some View {
-        VStack(spacing: 14) {
+        let readiness = knowledgeReadiness
+        return VStack(spacing: 14) {
             MemoryEmptyState(
-                title: "Graphiti knowledge graph is not ready",
-                message: knowledgeEmptyMessage,
+                title: readiness.title,
+                message: readiness.message,
                 symbol: AppIcon.Network.webSocket
             )
-            if !knowledgeEmptyDiagnostics.isEmpty {
-                MemoryKnowledgeEmptyDiagnosticsView(diagnostics: knowledgeEmptyDiagnostics)
+            if !readiness.diagnostics.isEmpty {
+                MemoryKnowledgeEmptyDiagnosticsView(diagnostics: readiness.diagnostics)
             }
-            HStack(spacing: 8) {
-                Button {
-                    Task { await store.graph.loadGraph(projectID: store.codeSelectedProjectID ?? store.codeProjects.first?.projectID) }
-                } label: {
-                    Label("Refresh", systemImage: AppIcon.Action.refresh)
-                }
-                .controlSize(.small)
-
-                Button {
-                    Task {
-                        await store.reindexCodeMemory()
-                        await store.graph.loadGraph(projectID: store.codeSelectedProjectID ?? store.codeProjects.first?.projectID)
+            if !readiness.actions.isEmpty {
+                HStack(spacing: 8) {
+                    ForEach(readiness.actions) { action in
+                        Button {
+                            performReadinessAction(action)
+                        } label: {
+                            Label(action.title, systemImage: symbol(for: action))
+                        }
+                        .controlSize(.small)
+                        .disabled(action != .openSettings && activeReadinessAction != nil)
                     }
-                } label: {
-                    Label("Reindex Graphiti", systemImage: AppIcon.Action.sync)
                 }
-                .controlSize(.small)
-
-                Button {
-                    store.section = .settings
-                } label: {
-                    Label("Open Memory Settings", systemImage: AppIcon.Workspace.settings)
-                }
-                .controlSize(.small)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private var knowledgeEmptyMessage: String {
-        if let error = store.graph.knowledgeLastError {
-            return error
-        }
-        if let graphitiStatus = store.codeHealth?.adapters["graphiti"],
-           graphitiStatus.localizedCaseInsensitiveContains("disabled") {
-            return "The /graph endpoint returned data, but Graphiti memory model adapters are disabled, so no Graphiti entities or fact relationships can be rendered."
-        }
-        if let graph = store.graph.knowledgeGraph, !graph.nodes.isEmpty || !graph.edges.isEmpty {
-            return "The /graph endpoint returned raw project/module/memory data, but this view now only renders Graphiti entities and fact relationships."
-        }
-        return "No Graphiti entities or fact relationships are available for this project yet."
+    private var knowledgeReadiness: MemoryKnowledgeGraphReadiness {
+        let projectID = selectedGraphProjectID
+        return MemoryKnowledgeGraphReadiness.evaluate(
+            projectID: projectID,
+            health: store.codeHealth,
+            graph: store.graph.knowledgeGraph,
+            presentation: store.graph.knowledgePresentation,
+            hasRunnableAdapters: env.memoryModelSettings.hasRunnableAdapters(appLLMSettings: env.appLLMSettings, localAI: env.localAI),
+            settingsReadiness: env.memoryModelSettings.readinessSummary(appLLMSettings: env.appLLMSettings, localAI: env.localAI),
+            lastError: store.graph.knowledgeLastError,
+            lastReindexResult: store.codeLastReindexResult,
+            lastDrainResult: store.codeLastProjectionDrainResult
+        )
     }
 
-    private var knowledgeEmptyDiagnostics: [MemoryKnowledgeEmptyDiagnostic] {
-        var diagnostics: [MemoryKnowledgeEmptyDiagnostic] = []
-        if let projectID = store.codeSelectedProjectID ?? store.codeProjects.first?.projectID {
-            diagnostics.append(MemoryKnowledgeEmptyDiagnostic(label: "project", value: projectID.memoryAbbreviatingHomeDirectory))
+    private var selectedGraphProjectID: String? {
+        store.codeSelectedProjectID ?? store.codeProjects.first?.projectID
+    }
+
+    private func performReadinessAction(_ action: MemoryKnowledgeGraphReadiness.Action) {
+        if action == .openSettings {
+            store.section = .settings
+            return
         }
-        if let graphitiStatus = store.codeHealth?.adapters["graphiti"] {
-            diagnostics.append(MemoryKnowledgeEmptyDiagnostic(label: "graphiti", value: graphitiStatus))
-        }
-        if let graph = store.graph.knowledgeGraph {
-            diagnostics.append(MemoryKnowledgeEmptyDiagnostic(label: "raw graph", value: "\(graph.nodes.count) nodes, \(graph.edges.count) edges returned"))
-            let ignoredKinds = graph.nodes.reduce(into: [String: Int]()) { counts, node in
-                counts[node.kind, default: 0] += 1
+
+        activeReadinessAction = action
+        Task { @MainActor in
+            defer { activeReadinessAction = nil }
+            switch action {
+            case .refresh:
+                await store.graph.loadGraph(projectID: selectedGraphProjectID)
+            case .openSettings:
+                store.section = .settings
+            case .applyRestart:
+                await env.startCodeMemorySidecarFromCurrentModelSettings()
+                await store.graph.loadGraph(projectID: selectedGraphProjectID)
+            case .reindexDrain:
+                await store.reindexCodeMemory(drain: true, drainLimit: 25)
+                await store.graph.loadGraph(projectID: selectedGraphProjectID)
+            case .retryFailed:
+                await store.drainCodeMemoryProjections(includeFailed: true)
+                await store.graph.loadGraph(projectID: selectedGraphProjectID)
             }
-            let kindSummary = ignoredKinds
-                .sorted { lhs, rhs in
-                    if lhs.value == rhs.value { return lhs.key < rhs.key }
-                    return lhs.value > rhs.value
-                }
-                .prefix(4)
-                .map { "\($0.key) \($0.value)" }
-                .joined(separator: ", ")
-            if !kindSummary.isEmpty {
-                diagnostics.append(MemoryKnowledgeEmptyDiagnostic(label: "ignored", value: kindSummary))
-            }
         }
-        if let presentation = store.graph.knowledgePresentation {
-            diagnostics.append(MemoryKnowledgeEmptyDiagnostic(label: "knowledge", value: "\(presentation.totalEntityCount) Graphiti entities, \(presentation.totalFactCount) fact edges"))
+    }
+
+    private func symbol(for action: MemoryKnowledgeGraphReadiness.Action) -> String {
+        switch action {
+        case .refresh: AppIcon.Action.refresh
+        case .openSettings: AppIcon.Workspace.settings
+        case .applyRestart: AppIcon.Action.refresh
+        case .reindexDrain: AppIcon.Action.sync
+        case .retryFailed: AppIcon.Action.reset
         }
-        return diagnostics
     }
 
     private func drawEdges(_ edges: [MemoryKnowledgeGraphPresentation.Edge], positions: [String: CGPoint], in context: inout GraphicsContext) {
@@ -275,23 +277,14 @@ private struct MemoryKnowledgeGraphSummaryBadge: View {
     }
 }
 
-private struct MemoryKnowledgeEmptyDiagnostic: Identifiable, Hashable {
-    let label: String
-    let value: String
-
-    var id: String { "\(label):\(value)" }
-}
-
 private struct MemoryKnowledgeEmptyDiagnosticsView: View {
-    let diagnostics: [MemoryKnowledgeEmptyDiagnostic]
+    let diagnostics: [MemoryKnowledgeGraphReadinessDiagnostic]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            diagnosticRow(at: 0)
-            diagnosticRow(at: 1)
-            diagnosticRow(at: 2)
-            diagnosticRow(at: 3)
-            diagnosticRow(at: 4)
+            ForEach(diagnostics.prefix(7)) { item in
+                diagnosticRow(item)
+            }
         }
         .padding(12)
         .frame(maxWidth: 520, alignment: .leading)
@@ -299,14 +292,7 @@ private struct MemoryKnowledgeEmptyDiagnosticsView: View {
         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.stxStroke.opacity(0.7), lineWidth: 1))
     }
 
-    @ViewBuilder
-    private func diagnosticRow(at index: Int) -> some View {
-        if diagnostics.indices.contains(index) {
-            diagnosticRow(diagnostics[index])
-        }
-    }
-
-    private func diagnosticRow(_ item: MemoryKnowledgeEmptyDiagnostic) -> some View {
+    private func diagnosticRow(_ item: MemoryKnowledgeGraphReadinessDiagnostic) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(item.label)
                 .font(.sora(10, weight: .semibold))

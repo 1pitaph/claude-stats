@@ -27,6 +27,12 @@ struct GanttTimelineBuilderTests {
         return GanttPeriod(range: range, domain: domain, dataRange: domain)
     }
 
+    private func utcDate(_ year: Int, _ month: Int, _ day: Int, _ hour: Int = 0) -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return DateComponents(calendar: calendar, timeZone: calendar.timeZone, year: year, month: month, day: day, hour: hour).date!
+    }
+
     private func session(
         _ id: String,
         provider: ProviderKind = .claude,
@@ -145,6 +151,72 @@ struct GanttTimelineBuilderTests {
 
         #expect(snapshot.projects.first?.segments.map(\.interval) == [iv(2, 3), iv(4, 5)])
         #expect(abs((snapshot.projects.first?.totalDuration ?? 0) - 7_200) < 0.001)
+    }
+
+    @Test("Project id filter returns only the selected project")
+    func projectIDFilterReturnsOnlySelectedProject() {
+        let snapshot = GanttTimelineBuilder.build(
+            sessions: [
+                session("a", projectDirectoryName: "-Users-dev-app", cwd: "/Users/dev/app", intervals: [iv(1, 2)]),
+                session("b", projectDirectoryName: "-Users-dev-other", cwd: "/Users/dev/other", intervals: [iv(3, 5)]),
+            ],
+            period: period(),
+            activityMode: .aiActive,
+            projectIDFilter: "/Users/dev/app"
+        )
+
+        #expect(snapshot.projects.map(\.id) == ["/Users/dev/app"])
+        #expect(snapshot.projects.first?.segments.map(\.interval) == [iv(1, 2)])
+        #expect(snapshot.sourceSessionCount == 2)
+    }
+
+    @Test("Project id filter with no match keeps source session count")
+    func projectIDFilterNoMatchKeepsSourceSessionCount() {
+        let snapshot = GanttTimelineBuilder.build(
+            sessions: [
+                session("a", projectDirectoryName: "-Users-dev-app", cwd: "/Users/dev/app", intervals: [iv(1, 2)]),
+                session("b", projectDirectoryName: "-Users-dev-other", cwd: "/Users/dev/other", intervals: [iv(3, 5)]),
+            ],
+            period: period(),
+            activityMode: .aiActive,
+            projectIDFilter: "/Users/dev/missing"
+        )
+
+        #expect(snapshot.projects.isEmpty)
+        #expect(snapshot.sourceSessionCount == 2)
+    }
+
+    @Test("Recent seven days covers local natural days and clips data end to now")
+    func recentSevenDaysCoversLocalNaturalDays() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = utcDate(2026, 6, 1, 15)
+
+        let recent = GanttPeriod.recentSevenDays(endingAt: now, calendar: calendar)
+
+        #expect(recent.range == .week)
+        #expect(recent.domain.start == utcDate(2026, 5, 26))
+        #expect(recent.domain.end == utcDate(2026, 6, 2))
+        #expect(recent.dataRange.start == recent.domain.start)
+        #expect(recent.dataRange.end == now)
+        #expect(calendar.dateComponents([.day], from: recent.domain.start, to: recent.domain.end).day == 7)
+    }
+
+    @Test("Assisted focus project filter keeps only selected project intersections")
+    func assistedFocusProjectFilterKeepsSelectedIntersections() {
+        let snapshot = GanttTimelineBuilder.build(
+            sessions: [
+                session("a", projectDirectoryName: "-Users-dev-app", cwd: "/Users/dev/app", intervals: [iv(1, 5)]),
+                session("b", projectDirectoryName: "-Users-dev-other", cwd: "/Users/dev/other", intervals: [iv(2, 6)]),
+            ],
+            period: period(),
+            activityMode: .assistedFocus,
+            focusIntervals: [iv(3, 4)],
+            projectIDFilter: "/Users/dev/app"
+        )
+
+        #expect(snapshot.projects.map(\.id) == ["/Users/dev/app"])
+        #expect(snapshot.projects.first?.segments.map(\.interval) == [iv(3, 4)])
     }
 
     @Test("Projects sort by total duration then latest activity")

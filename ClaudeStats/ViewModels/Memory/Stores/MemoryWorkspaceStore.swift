@@ -230,8 +230,8 @@ final class MemoryWorkspaceStore {
         await refreshCodeMemoryStatus()
     }
 
-    func reindexCodeMemory() async {
-        await settings.reindex(projectID: selectedProjectID)
+    func reindexCodeMemory(drain: Bool = false, drainLimit: Int? = nil) async {
+        await settings.reindex(projectID: selectedProjectID, drain: drain, drainLimit: drainLimit)
         await refreshCodeMemoryStatus()
     }
 

@@ -224,9 +224,10 @@ struct MemorySettingsView: View {
                 Button {
                     Task { await store.reindexCodeMemory() }
                 } label: {
-                    Label("Refresh Cache", systemImage: AppIcon.Action.sync)
+                    Label("Reindex Graphiti", systemImage: AppIcon.Action.sync)
                 }
                 .controlSize(.small)
+                .help("Enqueue canonical memories for Graphiti projection. Use Drain Pending to run queued work.")
                 .disabled(store.isCodeMemoryLoading || store.codeHealth == nil)
 
                 Button {

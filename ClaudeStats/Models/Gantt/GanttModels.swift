@@ -80,6 +80,20 @@ struct GanttPeriod: Equatable, Sendable {
     let range: GanttRange
     let domain: DateInterval
     let dataRange: DateInterval
+
+    static func recentSevenDays(endingAt now: Date = .now, calendar: Calendar = .current) -> GanttPeriod {
+        let today = calendar.startOfDay(for: now)
+        let start = calendar.date(byAdding: .day, value: -6, to: today)
+            ?? today.addingTimeInterval(-6 * 86_400)
+        let end = calendar.date(byAdding: .day, value: 1, to: today)
+            ?? today.addingTimeInterval(86_400)
+        let domain = DateInterval(start: start, end: end)
+        return GanttPeriod(
+            range: .week,
+            domain: domain,
+            dataRange: DateInterval(start: start, end: max(start, min(end, now)))
+        )
+    }
 }
 
 struct GanttTimelineSnapshot: Equatable, Sendable {
@@ -126,6 +140,21 @@ struct GanttProjectTimeline: Equatable, Identifiable, Sendable {
     let segments: [GanttTimelineSegment]
     let totalDuration: TimeInterval
     let latestActivity: Date
+
+    var providerList: [ProviderKind] {
+        ProviderKind.allCases.filter { providers.contains($0) }
+    }
+
+    var reference: GanttProjectReference {
+        GanttProjectReference(id: id, displayName: displayName, path: path, providers: providers)
+    }
+}
+
+struct GanttProjectReference: Equatable, Identifiable, Sendable {
+    let id: String
+    let displayName: String
+    let path: String?
+    let providers: Set<ProviderKind>
 
     var providerList: [ProviderKind] {
         ProviderKind.allCases.filter { providers.contains($0) }

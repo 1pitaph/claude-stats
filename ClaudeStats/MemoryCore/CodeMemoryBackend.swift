@@ -23,6 +23,7 @@ protocol CodeMemoryBackend: Sendable {
     func drainProjections(includeFailed: Bool) async throws -> CodeMemoryProjectionDrainResponse
     func drainCaptures(limit: Int, includeFailed: Bool) async throws -> CodeMemoryProjectionDrainResponse
     func reindex(projectID: String?) async throws -> CodeMemoryProjectionDrainResponse
+    func reindex(projectID: String?, drain: Bool, drainLimit: Int?) async throws -> CodeMemoryProjectionDrainResponse
     func reinferSources(projectID: String?) async throws -> CodeMemoryReinferSourcesResponse
     func ingestSource(_ source: CodeMemorySourceInput) async throws -> CodeMemorySyncSourceResponse
     func recordEvent(_ event: CodeMemoryEventInput) async throws
@@ -89,7 +90,12 @@ extension CodeMemoryBackend {
     func drainCaptures(limit: Int, includeFailed: Bool) async throws -> CodeMemoryProjectionDrainResponse {
         try await drainProjections(includeFailed: includeFailed)
     }
-    func reindex(projectID: String?) async throws -> CodeMemoryProjectionDrainResponse { CodeMemoryProjectionDrainResponse() }
+    func reindex(projectID: String?) async throws -> CodeMemoryProjectionDrainResponse {
+        try await reindex(projectID: projectID, drain: false, drainLimit: nil)
+    }
+    func reindex(projectID: String?, drain: Bool, drainLimit: Int?) async throws -> CodeMemoryProjectionDrainResponse {
+        CodeMemoryProjectionDrainResponse()
+    }
     func reinferSources(projectID: String?) async throws -> CodeMemoryReinferSourcesResponse { CodeMemoryReinferSourcesResponse() }
     func ingestSource(_ source: CodeMemorySourceInput) async throws -> CodeMemorySyncSourceResponse {
         CodeMemorySyncSourceResponse(status: "unsupported", created: nil, proposed: nil)
@@ -260,7 +266,15 @@ struct CodeMemoryHTTPClient: CodeMemoryBackend {
     }
 
     func reindex(projectID: String?) async throws -> CodeMemoryProjectionDrainResponse {
-        try await post("/v1/reindex", body: CodeMemoryProjectRequest(projectID: projectID))
+        try await reindex(projectID: projectID, drain: false, drainLimit: nil)
+    }
+
+    func reindex(projectID: String?, drain: Bool, drainLimit: Int?) async throws -> CodeMemoryProjectionDrainResponse {
+        try await post(
+            "/v1/reindex",
+            body: CodeMemoryProjectRequest(projectID: projectID, drain: drain, drainLimit: drainLimit),
+            timeout: drain ? 300 : 8
+        )
     }
 
     func reinferSources(projectID: String?) async throws -> CodeMemoryReinferSourcesResponse {
@@ -384,9 +398,13 @@ struct CodeMemoryMemoryUpdate: Codable, Sendable, Hashable {
 
 private struct CodeMemoryProjectRequest: Encodable {
     var projectID: String?
+    var drain: Bool = false
+    var drainLimit: Int? = nil
 
     enum CodingKeys: String, CodingKey {
         case projectID = "project_id"
+        case drain
+        case drainLimit = "drain_limit"
     }
 }
 

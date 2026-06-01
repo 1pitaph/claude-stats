@@ -318,6 +318,22 @@ struct CodeMemoryStoreTests {
     }
 
     @MainActor
+    @Test("Graphiti reindex with drain passes drain request to backend")
+    func graphitiReindexWithDrainPassesRequestToBackend() async throws {
+        let backend = FakeCodeMemoryBackend()
+        let store = MemoryStore(codeBackend: backend)
+        store.codeSelectedProjectID = "claude-stats"
+
+        await store.reindexCodeMemory(drain: true, drainLimit: 25)
+
+        #expect(backend.reindexRequests.count == 1)
+        #expect(backend.reindexRequests.first?.projectID == "claude-stats")
+        #expect(backend.reindexRequests.first?.drain == true)
+        #expect(backend.reindexRequests.first?.drainLimit == 25)
+        #expect(store.codeLastReindexResult?.drained?.delivered == 1)
+    }
+
+    @MainActor
     @Test("Review reject update deprecate and failed projection retry call backend")
     func reviewActionsAndFailedProjectionRetryCallBackend() async throws {
         let backend = FakeCodeMemoryBackend()
@@ -761,6 +777,7 @@ private final class FakeCodeMemoryBackend: CodeMemoryBackend, @unchecked Sendabl
     var updatedMemoryIDs: [String] = []
     var drainIncludeFailed: [Bool] = []
     var projectionDrainCount = 0
+    var reindexRequests: [(projectID: String?, drain: Bool, drainLimit: Int?)] = []
     var proposalResponse: [CodeMemoryMemory] = []
     var unifiedSearchResponse: CodeMemoryUnifiedSearchResponse?
     var contextPackResponse: CodeMemoryContextPack?
@@ -874,6 +891,25 @@ private final class FakeCodeMemoryBackend: CodeMemoryBackend, @unchecked Sendabl
         drainIncludeFailed.append(includeFailed)
         projectionDrainCount += 1
         return CodeMemoryProjectionDrainResponse(delivered: 1, failed: 0, remaining: 0)
+    }
+
+    func reindex(projectID: String?) async throws -> CodeMemoryProjectionDrainResponse {
+        try await reindex(projectID: projectID, drain: false, drainLimit: nil)
+    }
+
+    func reindex(projectID: String?, drain: Bool, drainLimit: Int?) async throws -> CodeMemoryProjectionDrainResponse {
+        reindexRequests.append((projectID, drain, drainLimit))
+        return CodeMemoryProjectionDrainResponse(
+            delivered: drain ? 1 : nil,
+            failed: 0,
+            remaining: 0,
+            pending: 0,
+            failedTotal: 0,
+            enqueued: 1,
+            drained: drain ? CodeMemoryProjectionDrainStats(delivered: 1, failed: 0, remaining: 0) : nil,
+            skipped: false,
+            message: drain ? "Graphiti reindex enqueued and drained 1 projection job(s)." : "Graphiti reindex enqueued 1 projection job(s)."
+        )
     }
 
     func graph(projectID: String) async throws -> CodeMemoryGraph {

@@ -141,15 +141,19 @@ final class MemorySettingsStore {
         }
     }
 
-    func reindex(projectID: String?) async {
+    func reindex(projectID: String?, drain: Bool = false, drainLimit: Int? = nil) async {
         guard !isLoading else { return }
         isLoading = true
-        AppLivenessRescue.arm(reason: "code memory reindex")
+        AppLivenessRescue.arm(reason: drain ? "code memory graphiti reindex drain" : "code memory reindex")
         defer { isLoading = false }
 
         do {
-            lastReindexResult = try await backend.reindex(projectID: projectID)
-            lastError = nil
+            lastReindexResult = try await backend.reindex(projectID: projectID, drain: drain, drainLimit: drainLimit)
+            if lastReindexResult?.skipped == true {
+                lastError = lastReindexResult?.message ?? "Graphiti reindex skipped."
+            } else {
+                lastError = nil
+            }
         } catch {
             lastError = error.localizedDescription
         }

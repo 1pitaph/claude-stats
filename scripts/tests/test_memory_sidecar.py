@@ -1740,9 +1740,9 @@ class MemorySidecarTests(unittest.TestCase):
             skipped = store.drain_projection_jobs(limit=10)
             self.assertTrue(skipped["projection"]["skipped"])
             self.assertEqual(skipped["projection"]["delivered"], 0)
-            self.assertEqual(skipped["projection"]["failed"], 1)
-            self.assertEqual(skipped["projection"]["pending"], 0)
-            self.assertEqual(skipped["projection"]["failed_total"], 1)
+            self.assertEqual(skipped["projection"]["failed"], 0)
+            self.assertEqual(skipped["projection"]["pending"], 1)
+            self.assertEqual(skipped["projection"]["failed_total"], 0)
             self.assertIn("graphiti", skipped["projection"]["blockers"])
 
     def test_adapter_search_must_resolve_to_canonical_memory(self):

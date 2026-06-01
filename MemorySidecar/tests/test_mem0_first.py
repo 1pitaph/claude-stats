@@ -89,6 +89,33 @@ class FakeMem0Adapters:
         return {"nodes": [], "edges": []}
 
 
+class FakeGraphitiAdapters(FakeMem0Adapters):
+    def __init__(self) -> None:
+        super().__init__()
+        self.projected_events: list[str] = []
+
+    def names(self) -> list[str]:
+        return ["graphiti"]
+
+    def health(self) -> dict[str, str]:
+        return {"graphiti": "enabled: fake"}
+
+    def project_memory_event(self, memory: dict[str, Any], event: dict[str, Any]) -> dict[str, str]:
+        event_id = str(event.get("event_id") or "")
+        self.projected_events.append(event_id)
+        return {"graphiti": f"ok:episode:{len(self.projected_events)}"}
+
+
+class UnavailableGraphitiAdapters(FakeGraphitiAdapters):
+    def health(self) -> dict[str, str]:
+        return {"graphiti": "unavailable: endpoint unavailable"}
+
+
+class FailingGraphitiAdapters(FakeGraphitiAdapters):
+    def project_memory_event(self, memory: dict[str, Any], event: dict[str, Any]) -> dict[str, str]:
+        raise RuntimeError("projection exploded")
+
+
 class Mem0FirstStoreTests(unittest.TestCase):
     def test_claude_md_is_chunked_and_captured_with_inference(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -254,6 +281,90 @@ class Mem0FirstStoreTests(unittest.TestCase):
                 self.assertEqual(reopened.health()["migration_pending"], 0)
             finally:
                 reopened.close()
+
+    def test_reindex_reports_blocker_when_graphiti_projector_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = MemoryStore(Path(directory), adapters=FakeMem0Adapters())
+            try:
+                result = store.reindex(project_id="/repo")
+
+                self.assertTrue(result["skipped"])
+                self.assertEqual(result["enqueued"], 0)
+                self.assertIn("graphiti", result["blockers"])
+                self.assertIn("unavailable", result["message"])
+            finally:
+                store.close()
+
+    def test_reindex_with_drain_projects_enqueued_canonical_memories(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            adapters = FakeGraphitiAdapters()
+            store = MemoryStore(Path(directory), adapters=adapters)
+            try:
+                self._append_canonical_memory_event(store)
+
+                result = store.reindex(project_id="/repo", drain=True, drain_limit=5)
+
+                self.assertFalse(result["skipped"])
+                self.assertEqual(result["enqueued"], 1)
+                self.assertIsNotNone(result["drained"])
+                self.assertEqual(result["drained"]["delivered"], 1)
+                self.assertEqual(store.health()["projection_pending"], 0)
+                self.assertEqual(len(adapters.projected_events), 1)
+            finally:
+                store.close()
+
+    def test_projection_preflight_blocker_does_not_fail_pending_jobs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            adapters = UnavailableGraphitiAdapters()
+            store = MemoryStore(Path(directory), adapters=adapters)
+            try:
+                self._append_canonical_memory_event(store)
+                self.assertEqual(store.health()["projection_pending"], 1)
+
+                result = store.drain_projection_jobs(limit=5)
+
+                self.assertTrue(result["skipped"])
+                self.assertEqual(result["projection"]["failed"], 0)
+                self.assertEqual(store.health()["projection_pending"], 1)
+                self.assertEqual(store.health()["projection_failed"], 0)
+                self.assertEqual(adapters.projected_events, [])
+            finally:
+                store.close()
+
+    def test_projection_call_failure_marks_job_failed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = MemoryStore(Path(directory), adapters=FailingGraphitiAdapters())
+            try:
+                self._append_canonical_memory_event(store)
+
+                result = store.drain_projection_jobs(limit=5)
+
+                self.assertFalse(result["skipped"])
+                self.assertEqual(result["projection"]["failed"], 1)
+                self.assertEqual(store.health()["projection_pending"], 0)
+                self.assertEqual(store.health()["projection_failed"], 1)
+            finally:
+                store.close()
+
+    def _append_canonical_memory_event(self, store: MemoryStore) -> dict[str, Any]:
+        return store.append_event(
+            {
+                "project_id": "/repo",
+                "event_type": "memory.observed",
+                "after": {
+                    "id": "memory:graphiti",
+                    "project_id": "/repo",
+                    "type": "fact",
+                    "status": "active",
+                    "title": "Use Graphiti projection",
+                    "body": "Use Graphiti to project canonical memories into entity facts.",
+                    "normalized_claim": "graphiti projects canonical memories",
+                    "source_refs": [{"kind": "manual", "uri": "manual://graphiti"}],
+                    "metadata": {"provider": "mem0"},
+                    "extracted_by": "mem0",
+                },
+            }
+        )
 
 
 if __name__ == "__main__":

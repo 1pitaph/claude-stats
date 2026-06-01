@@ -4,6 +4,7 @@ import SwiftUI
 struct MainGanttView: View {
     @Environment(AppEnvironment.self) private var env
     @State private var vm = GanttViewModel()
+    @State private var selectedProject: GanttProjectReference?
 
     private struct ReloadKey: Equatable {
         let range: GanttRange
@@ -36,7 +37,9 @@ struct MainGanttView: View {
                     permissionGate
                 } else {
                     GanttOverviewPanel(snapshot: vm.snapshot)
-                    GanttChartPanel(snapshot: vm.snapshot)
+                    GanttChartPanel(snapshot: vm.snapshot) { project in
+                        selectedProject = project
+                    }
                 }
             }
             .padding(.horizontal, 20)
@@ -53,6 +56,16 @@ struct MainGanttView: View {
         .task(id: reloadKey(codingSurfaceBundleIDs: codingSurfaceBundleIDs, cliHostBundleIDs: cliHostBundleIDs)) {
             await vm.reload(
                 sessions: env.store.sessions,
+                codingSurfaceBundleIDs: codingSurfaceBundleIDs,
+                cliHostBundleIDs: cliHostBundleIDs
+            )
+        }
+        .sheet(item: $selectedProject) { project in
+            GanttProjectDetailSheet(
+                project: project,
+                initialMode: vm.activityMode,
+                sessions: env.store.sessions,
+                sourceRefreshedAt: env.store.lastRefreshedAt,
                 codingSurfaceBundleIDs: codingSurfaceBundleIDs,
                 cliHostBundleIDs: cliHostBundleIDs
             )
@@ -125,40 +138,10 @@ struct MainGanttView: View {
     }
 
     private var permissionGate: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("FULL DISK ACCESS REQUIRED")
-                    .font(.sora(13, weight: .semibold))
-                    .tracking(1.0)
-                Spacer()
-                Image(systemName: AppIcon.Status.lockShield)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color.stxMuted)
-                    .accessibilityHidden(true)
-            }
-
-            Text("Assisted Focus mode needs macOS Screen Time access to tell whether an editor or terminal was in front.")
-                .font(.sora(12))
-                .foregroundStyle(Color.stxMuted)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack(spacing: 8) {
-                Button("Open Full Disk Access settings") {
-                    openFullDiskAccessSettings()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-
-                Button("Re-check") {
-                    vm.refreshPermissionState()
-                    vm.bumpReload()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
-            .font(.sora(11))
+        GanttPermissionGate {
+            vm.refreshPermissionState()
+            vm.bumpReload()
         }
-        .mainWindowPanel(padding: 16)
     }
 
     private func reloadKey(
@@ -176,12 +159,6 @@ struct MainGanttView: View {
         )
     }
 
-    private func openFullDiskAccessSettings() {
-        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") else {
-            return
-        }
-        NSWorkspace.shared.open(url)
-    }
 }
 
 private struct GanttRangeChips: View {
@@ -295,8 +272,285 @@ private struct GanttOverviewPanel: View {
     }
 }
 
+private struct GanttProjectDetailSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let project: GanttProjectReference
+    let sessions: [Session]
+    let sourceRefreshedAt: Date?
+    let codingSurfaceBundleIDs: Set<String>
+    let cliHostBundleIDs: Set<String>
+
+    @State private var vm: GanttProjectDetailViewModel
+
+    private struct ReloadKey: Equatable {
+        let projectID: String
+        let mode: GanttActivityMode
+        let token: UInt64
+        let sourceRefreshedAt: Date?
+        let codingSurfaceBundleIDs: Set<String>
+        let cliHostBundleIDs: Set<String>
+    }
+
+    init(
+        project: GanttProjectReference,
+        initialMode: GanttActivityMode,
+        sessions: [Session],
+        sourceRefreshedAt: Date?,
+        codingSurfaceBundleIDs: Set<String>,
+        cliHostBundleIDs: Set<String>
+    ) {
+        self.project = project
+        self.sessions = sessions
+        self.sourceRefreshedAt = sourceRefreshedAt
+        self.codingSurfaceBundleIDs = codingSurfaceBundleIDs
+        self.cliHostBundleIDs = cliHostBundleIDs
+        _vm = State(initialValue: GanttProjectDetailViewModel(initialMode: initialMode))
+    }
+
+    var body: some View {
+        @Bindable var bvm = vm
+
+        VStack(spacing: 0) {
+            header(mode: $bvm.activityMode)
+            StxRule()
+            content
+        }
+        .frame(minWidth: 720, idealWidth: 860, minHeight: 540, idealHeight: 660)
+        .background(AppSurface.panelFill)
+        .onAppear {
+            vm.refreshPermissionState()
+        }
+        .onChange(of: vm.activityMode) { _, _ in
+            vm.refreshPermissionState()
+        }
+        .task(id: reloadKey) {
+            await vm.reload(
+                projectID: project.id,
+                sessions: sessions,
+                codingSurfaceBundleIDs: codingSurfaceBundleIDs,
+                cliHostBundleIDs: cliHostBundleIDs
+            )
+        }
+    }
+
+    private var reloadKey: ReloadKey {
+        ReloadKey(
+            projectID: project.id,
+            mode: vm.activityMode,
+            token: vm.reloadToken,
+            sourceRefreshedAt: sourceRefreshedAt,
+            codingSurfaceBundleIDs: codingSurfaceBundleIDs,
+            cliHostBundleIDs: cliHostBundleIDs
+        )
+    }
+
+    private func header(mode: Binding<GanttActivityMode>) -> some View {
+        HStack(spacing: 12) {
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: AppIcon.Action.close)
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.plain)
+            .help(String(localized: "Close project detail"))
+
+            Image(systemName: AppIcon.Workspace.gantt)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color.stxAccent)
+                .frame(width: 26, height: 26)
+                .background(Color.stxAccent.opacity(0.10), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(project.displayName)
+                    .font(.sora(14, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(project.displayName)
+
+                HStack(spacing: 6) {
+                    GanttProviderBadges(providers: project.providerList)
+                    Text(project.path ?? String(localized: "No project path"))
+                        .font(.sora(10))
+                        .foregroundStyle(Color.stxMuted)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(project.path ?? "")
+                }
+            }
+
+            Spacer(minLength: 12)
+
+            GanttModeChips(mode: mode)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        AppScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                detailIntro
+
+                if vm.activityMode == .assistedFocus && vm.permissionState == .needsFullDiskAccess {
+                    GanttPermissionGate {
+                        vm.refreshPermissionState()
+                        vm.bumpReload()
+                    }
+                } else {
+                    GanttProjectDetailSummaryPanel(snapshot: vm.snapshot)
+                    GanttChartPanel(
+                        snapshot: vm.snapshot,
+                        title: "RECENT 7 DAYS",
+                        captionOverride: String(localized: "Single project activity for the last seven local days."),
+                        emptyMessage: String(localized: "No activity for this project in the last seven days.")
+                    )
+                }
+            }
+            .padding(16)
+        }
+    }
+
+    private var detailIntro: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text("PROJECT DETAIL")
+                .font(.sora(11, weight: .semibold))
+                .tracking(1.0)
+                .foregroundStyle(Color.stxMuted)
+            Text(rangeLabel)
+                .font(.sora(11).monospacedDigit())
+                .foregroundStyle(Color.stxMuted)
+            Spacer(minLength: 0)
+            if vm.isLoading {
+                ProgressView()
+                    .controlSize(.small)
+                    .help(String(localized: "Loading gantt data"))
+            }
+        }
+    }
+
+    private var rangeLabel: String {
+        "\(Format.day(vm.period.domain.start)) - \(Format.day(vm.period.domain.end.addingTimeInterval(-1)))"
+    }
+}
+
+private struct GanttProjectDetailSummaryPanel: View {
+    let snapshot: GanttTimelineSnapshot
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 0) {
+                cards
+            }
+            .mainWindowPanel(padding: 0)
+
+            Grid(horizontalSpacing: 0, verticalSpacing: 0) {
+                GridRow {
+                    durationCard
+                    segmentCard
+                }
+                GridRow {
+                    latestCard
+                    modeCard
+                }
+            }
+            .mainWindowPanel(padding: 0)
+        }
+    }
+
+    @ViewBuilder
+    private var cards: some View {
+        durationCard
+        Divider().opacity(0.5)
+        segmentCard
+        Divider().opacity(0.5)
+        latestCard
+        Divider().opacity(0.5)
+        modeCard
+    }
+
+    private var durationCard: some View {
+        StatCard(label: String(localized: "ACTIVE TIME"), value: Format.duration(snapshot.totalDuration))
+    }
+
+    private var segmentCard: some View {
+        StatCard(label: String(localized: "SEGMENTS"), value: "\(snapshot.segmentCount)")
+    }
+
+    private var latestCard: some View {
+        StatCard(
+            label: String(localized: "LATEST ACTIVITY"),
+            value: snapshot.mostActiveProject.map { Format.shortDate($0.latestActivity) } ?? "--",
+            animatesNumericValue: false
+        )
+    }
+
+    private var modeCard: some View {
+        StatCard(
+            label: String(localized: "MODE"),
+            value: snapshot.activityMode.label,
+            animatesNumericValue: false
+        )
+    }
+}
+
+private struct GanttPermissionGate: View {
+    let onRecheck: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("FULL DISK ACCESS REQUIRED")
+                    .font(.sora(13, weight: .semibold))
+                    .tracking(1.0)
+                Spacer()
+                Image(systemName: AppIcon.Status.lockShield)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.stxMuted)
+                    .accessibilityHidden(true)
+            }
+
+            Text("Assisted Focus mode needs macOS Screen Time access to tell whether an editor or terminal was in front.")
+                .font(.sora(12))
+                .foregroundStyle(Color.stxMuted)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 8) {
+                Button("Open Full Disk Access settings") {
+                    openFullDiskAccessSettings()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+
+                Button("Re-check") {
+                    onRecheck()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+            .font(.sora(11))
+        }
+        .mainWindowPanel(padding: 16)
+    }
+
+    private func openFullDiskAccessSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") else {
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+}
+
 private struct GanttChartPanel: View {
     let snapshot: GanttTimelineSnapshot
+    var title: LocalizedStringKey = "PROJECT TIMELINE"
+    var captionOverride: String?
+    var emptyMessage: String?
+    var onSelectProject: ((GanttProjectReference) -> Void)?
 
     private let leftColumnWidth: CGFloat = 260
     private let headerHeight: CGFloat = 42
@@ -320,7 +574,7 @@ private struct GanttChartPanel: View {
     private var panelHeader: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("PROJECT TIMELINE")
+                Text(title)
                     .font(.sora(13, weight: .semibold))
                     .tracking(1.0)
                 Text(caption)
@@ -336,11 +590,14 @@ private struct GanttChartPanel: View {
     }
 
     private var caption: String {
+        if let captionOverride {
+            return captionOverride
+        }
         switch snapshot.activityMode {
         case .aiActive:
-            String(localized: "Each row merges project activity blocks from sessions across all providers.")
+            return String(localized: "Each row merges project activity blocks from sessions across all providers.")
         case .assistedFocus:
-            String(localized: "Assisted Focus = AI was active while an editor or terminal was in front. It is not precise Screen Time project attribution.")
+            return String(localized: "Assisted Focus = AI was active while an editor or terminal was in front. It is not precise Screen Time project attribution.")
         }
     }
 
@@ -349,7 +606,7 @@ private struct GanttChartPanel: View {
     }
 
     private var emptyState: some View {
-        Text(snapshot.sourceSessionCount == 0 ? String(localized: "No tracked project sessions yet.") : String(localized: "No project activity in this range."))
+        Text(emptyMessage ?? (snapshot.sourceSessionCount == 0 ? String(localized: "No tracked project sessions yet.") : String(localized: "No project activity in this range.")))
             .font(.sora(12))
             .foregroundStyle(Color.stxMuted)
             .frame(maxWidth: .infinity, minHeight: 220, alignment: .center)
@@ -413,8 +670,15 @@ private struct GanttChartPanel: View {
             .background(Color.primary.opacity(0.035))
 
             ForEach(snapshot.projects) { project in
-                GanttProjectRow(project: project)
-                    .frame(height: rowHeight)
+                Group {
+                    if let onSelectProject {
+                        GanttProjectSelectableRow(project: project, onSelect: onSelectProject)
+                    } else {
+                        GanttProjectRow(project: project)
+                    }
+                }
+                .frame(height: rowHeight)
+
                 if project.id != snapshot.projects.last?.id {
                     StxRule()
                 }
@@ -441,7 +705,7 @@ private struct GanttProjectRow: View {
                         .font(.sora(12, weight: .medium))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
-                    providerBadges
+                    GanttProviderBadges(providers: project.providerList)
                 }
 
                 Text(project.path ?? String(localized: "No project path"))
@@ -458,6 +722,7 @@ private struct GanttProjectRow: View {
                 .lineLimit(1)
                 .frame(width: 58, alignment: .trailing)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(L10n.format(
@@ -467,10 +732,37 @@ private struct GanttProjectRow: View {
             Format.duration(project.totalDuration)
         ))
     }
+}
 
-    private var providerBadges: some View {
+private struct GanttProjectSelectableRow: View {
+    let project: GanttProjectTimeline
+    let onSelect: (GanttProjectReference) -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button {
+            onSelect(project.reference)
+        } label: {
+            GanttProjectRow(project: project)
+                .background {
+                    if hovering {
+                        Color.primary.opacity(0.045)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help(String(localized: "Open project detail"))
+        .accessibilityHint(String(localized: "Open project detail"))
+    }
+}
+
+private struct GanttProviderBadges: View {
+    let providers: [ProviderKind]
+
+    var body: some View {
         HStack(spacing: 3) {
-            ForEach(project.providerList) { provider in
+            ForEach(providers) { provider in
                 Text(provider.shortName)
                     .font(.sora(8, weight: .semibold))
                     .foregroundStyle(.primary)

@@ -772,6 +772,21 @@ class MemoryStore:
         }
 
     def reindex(self, *, project_id: str | None = None, drain: bool = False, drain_limit: int | None = None) -> dict[str, Any]:
+        blockers = self._projection_adapter_blockers()
+        if blockers:
+            pending = self._projection_count("pending")
+            failed_total = self._projection_count("failed")
+            return {
+                "enqueued": 0,
+                "remaining": pending + failed_total,
+                "pending": pending,
+                "failed_total": failed_total,
+                "skipped": True,
+                "message": "Graphiti reindex skipped because graphiti is unavailable.",
+                "blockers": blockers,
+                "drained": None,
+            }
+
         event_types = sorted(MEMORY_VERSION_EVENT_TYPES)
         params: list[Any] = list(event_types)
         placeholders = ",".join("?" for _ in event_types)
@@ -2118,27 +2133,11 @@ class MemoryStore:
         ).fetchall()
         blockers = self._projection_adapter_blockers()
         if blockers:
-            now = time.time()
-            failed_ids = [str(row["id"]) for row in rows if row["status"] == "pending"]
-            if failed_ids:
-                placeholders = ",".join("?" for _ in failed_ids)
-                self.conn.execute(
-                    f"""
-                    UPDATE projection_jobs
-                    SET status = 'failed',
-                        attempt_count = attempt_count + 1,
-                        last_error = ?,
-                        updated_at = ?
-                    WHERE id IN ({placeholders})
-                    """,
-                    (next(iter(blockers.values())), now, *failed_ids),
-                )
-                self.conn.commit()
             pending_after = self._projection_count("pending")
             failed_after = self._projection_count("failed")
             return {
                 "delivered": 0,
-                "failed": len(failed_ids),
+                "failed": 0,
                 "remaining": pending_after + failed_after,
                 "pending": pending_after,
                 "failed_total": failed_after,

@@ -8,18 +8,23 @@ enum GanttTimelineBuilder {
         period: GanttPeriod,
         activityMode: GanttActivityMode,
         focusIntervals: [DateInterval] = [],
-        mergeGap: TimeInterval = Self.defaultMergeGap
+        mergeGap: TimeInterval = Self.defaultMergeGap,
+        projectIDFilter: String? = nil
     ) -> GanttTimelineSnapshot {
         var projects: [String: MutableProject] = [:]
 
         for session in sessions {
             guard let stats = session.stats else { continue }
+            let identity = projectIdentity(for: session)
+            if let projectIDFilter, identity.id != projectIDFilter {
+                continue
+            }
+
             let intervals = stats.activityIntervals.compactMap {
                 ActivityAnalyzer.clip($0, to: period.dataRange)
             }
             guard !intervals.isEmpty else { continue }
 
-            let identity = projectIdentity(for: session)
             var project = projects[identity.id] ?? MutableProject(
                 id: identity.id,
                 displayName: identity.displayName,

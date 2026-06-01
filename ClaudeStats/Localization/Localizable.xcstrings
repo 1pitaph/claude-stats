@@ -2808,6 +2808,16 @@
         }
       }
     },
+    "Close project detail" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭项目详情"
+          }
+        }
+      }
+    },
     "gantt.project.accessibility.active" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -2885,6 +2895,26 @@
         }
       }
     },
+    "LATEST ACTIVITY" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最近活动"
+          }
+        }
+      }
+    },
+    "MODE" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "模式"
+          }
+        }
+      }
+    },
     "Month" : {
       "localizations" : {
         "zh-Hans" : {
@@ -2935,6 +2965,16 @@
         }
       }
     },
+    "No activity for this project in the last seven days." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这个项目最近七天没有活动。"
+          }
+        }
+      }
+    },
     "Only show time when AI was active and an editor or terminal was in front." : {
       "localizations" : {
         "zh-Hans" : {
@@ -2955,12 +2995,42 @@
         }
       }
     },
+    "Open project detail" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开项目详情"
+          }
+        }
+      }
+    },
+    "PROJECT DETAIL" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "项目详情"
+          }
+        }
+      }
+    },
     "PROJECT TIMELINE" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "项目时间线"
+          }
+        }
+      }
+    },
+    "RECENT 7 DAYS" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最近 7 天"
           }
         }
       }
@@ -3031,6 +3101,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "显示周范围"
+          }
+        }
+      }
+    },
+    "Single project activity for the last seven local days." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "单个项目最近七个本地自然日的活动。"
           }
         }
       }
