@@ -6,9 +6,9 @@
     <description>Most recent updates to Claude Stats.</description>
     <language>en</language>
     <item>
-      <title>Version 1.8.0</title>
-      <sparkle:version>79</sparkle:version>
-      <sparkle:shortVersionString>1.8.0</sparkle:shortVersionString>
+      <title>Version 1.8.1</title>
+      <sparkle:version>80</sparkle:version>
+      <sparkle:shortVersionString>1.8.1</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0.0</sparkle:minimumSystemVersion>
       <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
       <description><![CDATA[
@@ -24,23 +24,23 @@
 <div style="margin: 0; color: #1f2937; font-size: 13px; line-height: 1.55;">
   <p style="margin: 0 0 10px; color: #172033; font-size: 15px; font-weight: 700;">更新内容</p>
   <div style="margin: 0; padding: 0;">
-<h2>本次更新<span class="cs-update-size-pills"><span class="cs-update-size-pill cs-update-size-full">89.5 MB</span></span></h2>
+<h2>本次更新<span class="cs-update-size-pills"><span class="cs-update-size-pill cs-update-size-full">89.9 MB</span></span></h2>
 <ul>
-<li>新增overlay日志分类并添加焦点源切换日志</li>
-<li>重构光标命令弹窗几何计算逻辑，新增屏幕封装类型</li>
-<li>优化焦点定位逻辑，增加候选范围处理和帧校验</li>
-<li>新增单元测试覆盖几何计算和边界处理场景</li>
-<li>清理AppIcon.swift中冗余、重复的图标定义，改用别名复用已有图标</li>
-<li>替换多处硬编码的系统图标名称为标准化枚举引用</li>
-<li>新增icons审计脚本用于检查重复图标和硬编码调用</li>
-<li>修复SkillsWorkspaceView中使用的重复图标资源名称</li>
+<li>实现了按日期范围查询Git提交的能力，添加了完整的每日报告Git详情sheet页面，支持生成基于提交元数据和差异内容的AI总结，并带有缓存机制，同时完善了相关测试用例。</li>
+<li>新增了每日报告工作区功能，包含完整的日历视图、项目统计面板和相关数据模型、视图模型与业务逻辑，支持按日/按月查看AI开发活动统计，包括项目时长、Token使用、会话数量和Git提交记录等数据。</li>
+<li>新增单项目近7天活动甘特图面板，替换原有的通用图表面板</li>
+<li>添加每日时长列与全天时间轴刻度，支持可视化展示当日活跃时段</li>
+<li>新增本地化字符串，适配中英文界面显示</li>
+<li>调整弹窗最小与理想尺寸以适配新的图表面板</li>
+<li>为每日条目添加无障碍朗读标签</li>
+<li>新增了项目详情甘特视图，支持单项目7天活动查看；重构了重索引接口支持drain模式，新增Graphiti健康状态检查与就绪状态判定；修复了Python端测试用例与内存侧车的投影作业处理逻辑；新增了多套本地化字符串与单元测试。</li>
 </ul>
   </div>
 </div>
 </div>
 ]]></description>
-      <pubDate>Mon, 01 Jun 2026 01:39:28 GMT</pubDate>
-      <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.8.0/ClaudeStats-1.8.0.dmg" sparkle:edSignature="WE6JblxYaF+t8D/pa5rAN2SGY0Z5L4wO+aWPBezs/k8Tlozk3TLX0e4ieZdmJYlIiSL7pZLYmt5HfwD2gDUVCA==" length="89511274" type="application/octet-stream"/>
+      <pubDate>Mon, 01 Jun 2026 10:17:28 GMT</pubDate>
+      <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.8.1/ClaudeStats-1.8.1.dmg" sparkle:edSignature="qGlhTGC7USAcuX0vR62yxrW+Xalt0+QdprGECV2ByunPjeZdH3vymw2KYsyBpMMkIu5pZhTap9q6T93kusUuDQ==" length="89873157" type="application/octet-stream"/>
     </item>
   </channel>
 </rss>
