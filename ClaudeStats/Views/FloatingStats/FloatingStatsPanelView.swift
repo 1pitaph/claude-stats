@@ -216,6 +216,7 @@ struct FloatingStatsPanelView: View {
                 )
             }
 
+            #if !CLAUDE_STATS_LITE
             FloatingStatsActionButton(symbol: AppIcon.Workspace.warp, label: "Open Warp") {
                 NotificationCenter.default.post(
                     name: .openMainWindowDestinationFromFloatingStats,
@@ -229,6 +230,7 @@ struct FloatingStatsPanelView: View {
                     object: FloatingStatsMainWindowDestination.network
                 )
             }
+            #endif
 
             FloatingStatsActionButton(symbol: AppIcon.Workspace.settings, label: "Open settings") {
                 NotificationCenter.default.post(name: .openSettingsFromFloatingStats, object: nil)

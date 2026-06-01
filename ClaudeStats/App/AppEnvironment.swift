@@ -1,6 +1,8 @@
 import Foundation
 import Observation
+#if !CLAUDE_STATS_LITE
 import WarpEmbed
+#endif
 
 /// Composition root. Constructs the pricing table, preferences, provider
 /// registry, and the shared ``SessionStore``, then hands itself to the view
@@ -21,25 +23,31 @@ final class AppEnvironment {
     let updater = UpdaterController()
     let floatingStatsPanel = FloatingStatsPanelController()
     let cursorCommandOverlay = CursorCommandOverlayController()
+    #if !CLAUDE_STATS_LITE
     let notchIsland = NotchIslandController()
     let warpSessionStore: WarpSessionStore
+    #endif
     /// View models live in the environment so the Settings window and the
     /// individual pages can share state — and so the VMs persist across
     /// main-window open/close cycles (reopening doesn't refire a fetch).
     let dashboard: DashboardViewModel
     let gitActivity: GitActivityViewModel
     let github = GitHubViewModel()
+    #if !CLAUDE_STATS_LITE
     let linuxDo: LinuxDoStore
+    #endif
     let claudeStatus: ClaudeStatusViewModel
     let openAIStatus: OpenAIStatusViewModel
     let leaderboards: LeaderboardSyncViewModel
     let usageLimits: UsageLimitStore
+    #if !CLAUDE_STATS_LITE
     let configurationProfiles: ConfigurationProfilesViewModel
     let apiProviders: APIProviderSwitcherViewModel
     let cliEnvironment: CLIEnvironmentViewModel
     let aiConfigs: AIConfigsViewModel
     let skills: SkillsStore
     let configWorkspace: ConfigWorkspaceStore
+    #endif
     #if !CLAUDE_STATS_LITE
     let memory: MemoryStore
     #endif
@@ -49,10 +57,52 @@ final class AppEnvironment {
     let chat: ChatStore
     #endif
     let systemMonitor: SystemMonitorViewModel
+    #if !CLAUDE_STATS_LITE
     let networkDebugger: NetworkDebuggerStore
     let ops: OpsStore
+    #endif
     let dailyReport: DailyReportViewModel
 
+    #if CLAUDE_STATS_LITE
+    init(
+        pricing: ModelPricing,
+        preferences: Preferences,
+        providerRegistry: ProviderRegistry,
+        store: SessionStore,
+        usageLimits: UsageLimitStore? = nil,
+        systemMonitor: SystemMonitorViewModel = SystemMonitorViewModel()
+    ) {
+        self.pricing = pricing
+        self.preferences = preferences
+        self.providerRegistry = providerRegistry
+        self.store = store
+        let technicalTermRepository = TechnicalTermDictionaryRepository()
+        self.technicalTerms = TechnicalTermDictionaryStore(repository: technicalTermRepository)
+        self.transcriptAnalysis = TranscriptAnalysisStore(
+            service: TranscriptAnalysisService(
+                dictionaryResolver: { session in
+                    await technicalTermRepository.snapshot(for: session)
+                },
+                embeddingStatusResolver: {
+                    .notConfigured
+                }
+            )
+        )
+        self.systemMonitor = systemMonitor
+        self.dailyReport = DailyReportViewModel()
+        self.dashboard = DashboardViewModel(pricing: pricing)
+        self.gitActivity = GitActivityViewModel()
+        self.claudeStatus = ClaudeStatusViewModel(preferences: preferences)
+        self.openAIStatus = OpenAIStatusViewModel(preferences: preferences)
+        self.leaderboards = LeaderboardSyncViewModel(
+            preferences: preferences,
+            store: store,
+            remoteNotificationRegistrar: Self.isRunningUnitTests ? nil : AppKitLeaderboardRemoteNotificationRegistrar()
+        )
+        self.usageLimits = usageLimits ?? UsageLimitStore(registry: providerRegistry)
+        self.appLLMSettings = AppLLMSettingsStore()
+    }
+    #else
     init(
         pricing: ModelPricing,
         preferences: Preferences,
@@ -72,23 +122,17 @@ final class AppEnvironment {
         self.store = store
         let technicalTermRepository = TechnicalTermDictionaryRepository()
         self.technicalTerms = TechnicalTermDictionaryStore(repository: technicalTermRepository)
-        #if !CLAUDE_STATS_LITE
         let localAI = LocalAIStore()
         self.localAI = localAI
-        #endif
         self.transcriptAnalysis = TranscriptAnalysisStore(
             service: TranscriptAnalysisService(
                 dictionaryResolver: { session in
                     await technicalTermRepository.snapshot(for: session)
                 },
                 embeddingStatusResolver: {
-                    #if CLAUDE_STATS_LITE
-                    .notConfigured
-                    #else
                     await MainActor.run {
                         localAI.selectedEmbeddingStatus
                     }
-                    #endif
                 }
             )
         )
@@ -126,15 +170,12 @@ final class AppEnvironment {
             skills: skills,
             configurationProfiles: self.configurationProfiles
         )
-        #if !CLAUDE_STATS_LITE
         self.memory = MemoryStore()
-        #endif
         self.appLLMSettings = AppLLMSettingsStore()
-        #if !CLAUDE_STATS_LITE
         self.memoryModelSettings = MemoryModelSettingsStore()
         self.chat = ChatStore()
-        #endif
     }
+    #endif
 
     convenience init() {
         let pricing = ModelPricing.loadDefault()
@@ -162,10 +203,14 @@ final class AppEnvironment {
         }
         leaderboards.start()
         Task {
+            #if !CLAUDE_STATS_LITE
             await apiProviders.loadIfNeeded(keyStorageMode: preferences.apiProviderKeyStorageMode)
             await configurationProfiles.loadIfNeeded()
+            #endif
             await store.refresh()
+            #if !CLAUDE_STATS_LITE
             await aiConfigs.reload(sessions: store.sessions)
+            #endif
             await appLLMSettings.loadIfNeeded()
             #if !CLAUDE_STATS_LITE
             await memoryModelSettings.loadIfNeeded()
@@ -176,14 +221,18 @@ final class AppEnvironment {
         }
         claudeStatus.start()
         openAIStatus.start()
+        #if !CLAUDE_STATS_LITE
         linuxDo.start()
+        #endif
         applyAutoRefreshSetting()
         updater.start()
         floatingStatsPanel.start(environment: self)
         cursorCommandOverlay.start(environment: self)
+        #if !CLAUDE_STATS_LITE
         if !Self.isRunningUnitTests {
             notchIsland.start(environment: self)
         }
+        #endif
     }
 
     func applyAutoRefreshSetting() {

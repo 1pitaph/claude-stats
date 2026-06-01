@@ -3,9 +3,11 @@ import SwiftUI
 
 enum FloatingStatsMainWindowDestination: Sendable {
     case page(MainPage)
+    #if !CLAUDE_STATS_LITE
     case network
     case warp
     case linuxDoTopic(LinuxDoTopicRoute)
+    #endif
 }
 
 extension Notification.Name {

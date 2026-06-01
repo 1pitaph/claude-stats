@@ -218,7 +218,7 @@ struct DailyReportProjectGitDetailSheet: View {
                 .foregroundStyle(Color.stxMuted)
             Spacer(minLength: 8)
             if let badge {
-                AIConfigsBadge(text: badge, color: Color.stxMuted)
+                StatusSeverityBadge(label: badge, indicatorTint: Color.stxMuted)
             }
         }
     }
@@ -415,10 +415,10 @@ private struct DailyReportGitSummaryBody: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             DailyReportGitSummaryFlowLayout(spacing: 5, rowSpacing: 5) {
-                AIConfigsBadge(text: summary.inputMode.title, color: Color.stxMuted)
-                AIConfigsBadge(text: summary.modelName, color: Color.stxMuted)
-                AIConfigsBadge(text: "\(summary.usage.totalTokens) tok", color: Color.stxMuted)
-                AIConfigsBadge(text: summary.generatedAt.formatted(.dateTime.hour().minute()), color: Color.stxMuted)
+                StatusSeverityBadge(label: summary.inputMode.title, indicatorTint: Color.stxMuted)
+                StatusSeverityBadge(label: summary.modelName, indicatorTint: Color.stxMuted)
+                StatusSeverityBadge(label: "\(summary.usage.totalTokens) tok", indicatorTint: Color.stxMuted)
+                StatusSeverityBadge(label: summary.generatedAt.formatted(.dateTime.hour().minute()), indicatorTint: Color.stxMuted)
             }
 
             Text(summary.summary)

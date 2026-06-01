@@ -9,7 +9,6 @@ cd "$(dirname "$0")/.."
 DERIVED=/tmp/Codex-stats-lite-build
 APP="$DERIVED/Build/Products/Debug/Claude Stats Lite.app"
 APP_PROCESS_PATTERN="Claude Stats Lite.app/Contents/MacOS/Claude Stats Lite"
-MEDIAREMOTE_HELPER_PATTERN="Codex-stats-lite-build/Build/Products/Debug/Claude Stats Lite.app/Contents/Resources/mediaremote-adapter.pl"
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 
 require_apple_silicon() {
@@ -23,28 +22,11 @@ running_app_pids() {
     pgrep -f "$APP_PROCESS_PATTERN" 2>/dev/null || true
 }
 
-running_mediaremote_helper_pids() {
-    pgrep -f "$MEDIAREMOTE_HELPER_PATTERN" 2>/dev/null || true
-}
-
 wait_until_stopped() {
     local pids
     local attempts="$1"
     for ((i = 0; i < attempts; i++)); do
         pids="$(running_app_pids)"
-        if [[ -z "$pids" ]]; then
-            return 0
-        fi
-        sleep 0.15
-    done
-    return 1
-}
-
-wait_until_mediaremote_helpers_stopped() {
-    local pids
-    local attempts="$1"
-    for ((i = 0; i < attempts; i++)); do
-        pids="$(running_mediaremote_helper_pids)"
         if [[ -z "$pids" ]]; then
             return 0
         fi
@@ -78,31 +60,6 @@ stop_running_app() {
     return 1
 }
 
-stop_running_mediaremote_helpers() {
-    local pids
-    pids="$(running_mediaremote_helper_pids)"
-    if [[ -z "$pids" ]]; then
-        return 0
-    fi
-
-    echo "==> Stopping stale Lite MediaRemote helper process(es): $(echo "$pids" | tr '\n' ' ')"
-    kill -TERM $pids 2>/dev/null || true
-    if wait_until_mediaremote_helpers_stopped 30; then
-        return 0
-    fi
-
-    pids="$(running_mediaremote_helper_pids)"
-    echo "==> Stale Lite MediaRemote helper ignored SIGTERM; forcing: $(echo "$pids" | tr '\n' ' ')"
-    kill -KILL $pids 2>/dev/null || true
-    if wait_until_mediaremote_helpers_stopped 30; then
-        return 0
-    fi
-
-    pids="$(running_mediaremote_helper_pids)"
-    echo "error: unable to stop stale Lite MediaRemote helper process(es): $(echo "$pids" | tr '\n' ' ')" >&2
-    return 1
-}
-
 unregister_bundle_if_present() {
     local bundle="$1"
     if [[ -d "$bundle" ]]; then
@@ -117,12 +74,10 @@ cleanup_stale_registrations() {
 }
 
 require_apple_silicon
-bash scripts/build-warp-embed.sh
 bash scripts/build-linguist-runtime.sh
 bash scripts/generate.sh
 
 stop_running_app
-stop_running_mediaremote_helpers
 cleanup_stale_registrations
 
 xcodebuild \

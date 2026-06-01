@@ -623,18 +623,50 @@ targets:
           - Resources/GitTools
           - Models/Chat
           - Models/LocalAI
+          - Models/Ops
           - Models/SessionsDestination.swift
+          - Models/Skills
+          - Models/WarpWorkspaceSection.swift
           - Services/ChatContextBuilder.swift
           - Services/ChatPersistenceStore.swift
+          - Services/AIConfigs
+          - Services/ConfigurationEditorService.swift
+          - Services/ConfigurationProfileStore.swift
+          - Services/LinuxDo
           - Services/LocalAI
+          - Services/NetworkDebugging
+          - Services/Ops
+          - Services/Skills
           - Services/TranscriptAnalysis/Storage/TranscriptEmbeddingIndex.swift
+          - Features/NotchIsland/NotchIslandController.swift
+          - Models/Configs
           - ViewModels/ChatStore.swift
+          - ViewModels/AIConfigsViewModel.swift
+          - ViewModels/CLIEnvironmentViewModel.swift
+          - ViewModels/ConfigWorkspaceStore.swift
+          - ViewModels/ConfigurationEditorViewModel.swift
+          - ViewModels/ConfigurationProfilesViewModel.swift
+          - ViewModels/LinuxDoStore.swift
           - ViewModels/Memory
+          - ViewModels/NetworkDebuggerStore.swift
+          - ViewModels/OpsStore.swift
           - ViewModels/SessionListViewModel.swift
+          - ViewModels/SkillsStore.swift
           - Views/MainWindow/Chat
+          - Views/MainWindow/Configs
+          - Views/MainWindow/Configurations
+          - Views/MainWindow/LinuxDo
           - Views/MainWindow/Memory
+          - Views/MainWindow/Network
+          - Views/MainWindow/Ops
           - Views/MainWindow/Sessions
+          - Views/MainWindow/Skills
+          - Views/MainWindow/Terminal
+          - Views/MainWindow/Warp
           - Views/MainWindow/Settings/Sections/LocalAIModelsSettingsView.swift
+          - Views/MainWindow/Settings/Sections/NotchIsland
+          - Views/MainWindow/Settings/Sections/NotchIslandSettingsView.swift
+          - Views/MainWindow/Settings/Sections/TerminalSettingsView.swift
           - Views/Sessions
       - path: ClaudeStats/Resources/GitTools
         type: folder
@@ -642,22 +674,10 @@ targets:
     dependencies:
       - package: Sparkle
       - target: OpenComputerUseKit
-      - target: RockxyBackendEmbed
-      - target: RockxyHelperTool
-        link: false
-        codeSign: true
-        copy:
-          destination: wrapper
-          subpath: Contents/Library/HelperTools
-      - target: WarpEmbed
-      - target: AtollEmbed
       - package: Lottie
       - package: SwiftCollections
         product: Collections
       - package: SwiftSoup
-      - framework: ThirdParty/Atoll/Frameworks/MediaRemoteAdapter.framework
-        embed: true
-        codeSign: true
       - sdk: ApplicationServices.framework
       - sdk: Accelerate.framework
       - sdk: Metal.framework
@@ -665,11 +685,9 @@ targets:
       - sdk: Vision.framework
       - sdk: IOKit.framework
       - sdk: SystemConfiguration.framework
-      - sdk: CoreWLAN.framework
       - sdk: WebKit.framework
       - sdk: libc++.tbd
       - sdk: libsqlite3.tbd
-    postBuildScripts: *claudeStatsAppPostBuildScripts
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.claudestats.ClaudeStatsLite
@@ -685,7 +703,6 @@ targets:
         CLANG_CXX_LANGUAGE_STANDARD: gnu++17
         CLANG_CXX_LIBRARY: libc++
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) CLAUDE_STATS_LITE"
-        ROCKXY_ALLOWED_CALLER_IDENTIFIERS: com.claudestats.ClaudeStatsLite
       configs:
         Debug:
           CODE_SIGN_ENTITLEMENTS: ClaudeStats/App/ClaudeStatsLite.entitlements

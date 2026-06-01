@@ -36,7 +36,10 @@ struct GitAISummaryCard: View {
                 ProgressView()
                     .controlSize(.mini)
             case .loaded(let result):
-                AIConfigsBadge(text: result.isCached ? "cached" : "generated", color: result.isCached ? Color.stxMuted : Color.stxAccent)
+                StatusSeverityBadge(
+                    label: result.isCached ? "cached" : "generated",
+                    indicatorTint: result.isCached ? Color.stxMuted : Color.stxAccent
+                )
             default:
                 EmptyView()
             }
@@ -99,11 +102,11 @@ struct GitAISummaryCard: View {
 
     private func metadata(_ result: GitAISummaryResult) -> some View {
         GitSummaryFlowLayout(spacing: 5, rowSpacing: 5) {
-            AIConfigsBadge(text: result.algorithm.title, color: Color.stxMuted)
-            AIConfigsBadge(text: result.modelName, color: Color.stxMuted)
-            AIConfigsBadge(text: "\(result.usage.totalTokens) tok", color: Color.stxMuted)
+            StatusSeverityBadge(label: result.algorithm.title, indicatorTint: Color.stxMuted)
+            StatusSeverityBadge(label: result.modelName, indicatorTint: Color.stxMuted)
+            StatusSeverityBadge(label: "\(result.usage.totalTokens) tok", indicatorTint: Color.stxMuted)
             ForEach(result.riskLabels.prefix(5)) { label in
-                AIConfigsBadge(text: label.title, color: label.score >= 6 ? Color.orange : Color.stxMuted)
+                StatusSeverityBadge(label: label.title, indicatorTint: label.score >= 6 ? Color.orange : Color.stxMuted)
             }
         }
     }

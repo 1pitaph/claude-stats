@@ -33,16 +33,18 @@ struct SidebarColumn: View {
             Color.clear.frame(height: 44)
 
             navRow(.dashboard)
-            SidebarRow(
-                title: MainPage.linuxDo.title,
-                symbol: MainPage.linuxDo.symbol,
-                assetName: MainPage.linuxDo.assetName,
-                isSelected: isLinuxDoActive,
-                trailingSymbol: "chevron.right",
-                showsTrailingOnHover: true
-            ) {
-                clearTextFocus()
-                onOpenLinuxDo()
+            if AppVariant.isEnabled(.linuxDo) {
+                SidebarRow(
+                    title: MainPage.linuxDo.title,
+                    symbol: MainPage.linuxDo.symbol,
+                    assetName: MainPage.linuxDo.assetName,
+                    isSelected: isLinuxDoActive,
+                    trailingSymbol: "chevron.right",
+                    showsTrailingOnHover: true
+                ) {
+                    clearTextFocus()
+                    onOpenLinuxDo()
+                }
             }
             if AppVariant.isEnabled(.sessions) {
                 SidebarRow(
@@ -66,15 +68,17 @@ struct SidebarColumn: View {
             sectionHeader("TOOLS")
             navRow(.dailyReport)
             navRow(.gantt)
-            SidebarRow(
-                title: "Warp",
-                symbol: AppIcon.Workspace.warp,
-                isSelected: isWarpActive,
-                trailingSymbol: "chevron.right",
-                showsTrailingOnHover: true
-            ) {
-                clearTextFocus()
-                onOpenWarp()
+            if AppVariant.isEnabled(.warp) {
+                SidebarRow(
+                    title: "Warp",
+                    symbol: AppIcon.Workspace.warp,
+                    isSelected: isWarpActive,
+                    trailingSymbol: "chevron.right",
+                    showsTrailingOnHover: true
+                ) {
+                    clearTextFocus()
+                    onOpenWarp()
+                }
             }
             if AppVariant.isEnabled(.memory) {
                 SidebarRow(
@@ -88,36 +92,42 @@ struct SidebarColumn: View {
                     onOpenMemory()
                 }
             }
-            SidebarRow(
-                title: "Config",
-                symbol: AppIcon.Workspace.configs,
-                isSelected: isConfigsActive,
-                trailingSymbol: "chevron.right",
-                showsTrailingOnHover: true
-            ) {
-                clearTextFocus()
-                onOpenConfigs()
+            if AppVariant.isEnabled(.config) {
+                SidebarRow(
+                    title: "Config",
+                    symbol: AppIcon.Workspace.configs,
+                    isSelected: isConfigsActive,
+                    trailingSymbol: "chevron.right",
+                    showsTrailingOnHover: true
+                ) {
+                    clearTextFocus()
+                    onOpenConfigs()
+                }
             }
             if env.preferences.gitTrackingEnabled { navRow(.git) }
-            SidebarRow(
-                title: "Ops",
-                symbol: AppIcon.Workspace.ops,
-                isSelected: false,
-                trailingSymbol: "chevron.right",
-                showsTrailingOnHover: true
-            ) {
-                clearTextFocus()
-                onOpenOps()
+            if AppVariant.isEnabled(.ops) {
+                SidebarRow(
+                    title: "Ops",
+                    symbol: AppIcon.Workspace.ops,
+                    isSelected: false,
+                    trailingSymbol: "chevron.right",
+                    showsTrailingOnHover: true
+                ) {
+                    clearTextFocus()
+                    onOpenOps()
+                }
             }
-            SidebarRow(
-                title: "Network",
-                symbol: AppIcon.Workspace.network,
-                isSelected: false,
-                trailingSymbol: "chevron.right",
-                showsTrailingOnHover: true
-            ) {
-                clearTextFocus()
-                onOpenNetwork()
+            if AppVariant.isEnabled(.network) {
+                SidebarRow(
+                    title: "Network",
+                    symbol: AppIcon.Workspace.network,
+                    isSelected: false,
+                    trailingSymbol: "chevron.right",
+                    showsTrailingOnHover: true
+                ) {
+                    clearTextFocus()
+                    onOpenNetwork()
+                }
             }
 
             Spacer(minLength: 0)

@@ -64,23 +64,25 @@ struct MainWindowView: View {
     @SceneStorage("mainWindow.sidebarVisible") private var sidebarVisible: Bool = true
     @SceneStorage("mainWindow.mode") private var modeRaw: String = MainWindowMode.app.rawValue
     @SceneStorage("mainWindow.settingsSection") private var settingsSectionRaw: String = SettingsSection.general.rawValue
+    #if !CLAUDE_STATS_LITE
     @SceneStorage("mainWindow.configSection") private var configSectionRaw: String = ""
     @SceneStorage("mainWindow.configsSection") private var configFilesSectionRaw: String = AIConfigsSection.overview.rawValue
     @SceneStorage("mainWindow.configsSearch") private var configsSearchText: String = ""
     @SceneStorage("mainWindow.configsProjectID") private var configsProjectIDRaw: String = ""
     @SceneStorage("mainWindow.configsDocumentID") private var configsDocumentIDRaw: String = ""
-    #if !CLAUDE_STATS_LITE
     @SceneStorage("mainWindow.sessionsDestination") private var sessionsDestinationRaw: String = SessionsDestination.overviewRawValue
     @SceneStorage("mainWindow.memorySection") private var memorySectionRaw: String = MemoryWorkspaceSection.search.rawValue
-    #endif
     @SceneStorage("mainWindow.networkSection") private var networkSectionRaw: String = NetworkSection.traffic.rawValue
     @SceneStorage("mainWindow.warpSection") private var warpSectionRaw: String = WarpWorkspaceSection.sessions.rawValue
     @SceneStorage("mainWindow.opsSection") private var opsSectionRaw: String = OpsSection.ports.rawValue
+    #endif
     @State private var page: MainPage = .dashboard
     @State private var toggleHovering = false
     @State private var trafficLights = TrafficLightPositioner()
+    #if !CLAUDE_STATS_LITE
     @State private var linuxDoWebLoginPresented = false
     @State private var linuxDoSignInEnabled = true
+    #endif
 
     private var availablePages: [MainPage] {
         var pages: [MainPage] = [.dashboard, .usage, .leaderboards, .dailyReport, .gantt]
@@ -107,7 +109,6 @@ struct MainWindowView: View {
         guard case .session(let id) = sessionsDestination else { return nil }
         return env.store.sessions(for: env.preferences.selectedProvider).first { $0.id == id }
     }
-    #endif
 
     private var networkSection: NetworkSection {
         NetworkSection(storedRawValue: networkSectionRaw)
@@ -120,6 +121,7 @@ struct MainWindowView: View {
     private var opsSection: OpsSection {
         OpsSection(storedRawValue: opsSectionRaw)
     }
+    #endif
 
     private var settingsSectionBinding: Binding<SettingsSection> {
         Binding(
@@ -128,6 +130,7 @@ struct MainWindowView: View {
         )
     }
 
+    #if !CLAUDE_STATS_LITE
     private var configsProjectIDBinding: Binding<String> {
         Binding(
             get: { configsProjectIDRaw },
@@ -142,14 +145,12 @@ struct MainWindowView: View {
         )
     }
 
-    #if !CLAUDE_STATS_LITE
     private var sessionsDestinationBinding: Binding<SessionsDestination> {
         Binding(
             get: { sessionsDestination },
             set: { sessionsDestinationRaw = $0.rawValue }
         )
     }
-    #endif
 
     private var networkSectionBinding: Binding<NetworkSection> {
         Binding(
@@ -171,6 +172,7 @@ struct MainWindowView: View {
             set: { opsSectionRaw = $0.rawValue }
         )
     }
+    #endif
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -199,12 +201,16 @@ struct MainWindowView: View {
                     onOpenOps: openOps
                 )
             } linuxDoSidebar: {
+                #if CLAUDE_STATS_LITE
+                EmptyView()
+                #else
                 LinuxDoSidebarColumn(
                     store: env.linuxDo,
                     signInEnabled: linuxDoSignInEnabled,
                     onExit: closeLinuxDo,
                     onSignIn: openLinuxDoSignIn
                 )
+                #endif
             } sessionsSidebar: {
                 #if CLAUDE_STATS_LITE
                 EmptyView()
@@ -215,7 +221,11 @@ struct MainWindowView: View {
                 )
                 #endif
             } configsSidebar: {
+                #if CLAUDE_STATS_LITE
+                EmptyView()
+                #else
                 ConfigWorkspaceSidebar(store: env.configWorkspace, onExit: closeConfigs)
+                #endif
             } memorySidebar: {
                 #if CLAUDE_STATS_LITE
                 EmptyView()
@@ -225,15 +235,31 @@ struct MainWindowView: View {
             } settingsSidebar: {
                 SettingsSidebarColumn(section: settingsSectionBinding, onExit: closeSettings)
             } networkSidebar: {
+                #if CLAUDE_STATS_LITE
+                EmptyView()
+                #else
                 NetworkSidebarColumn(store: env.networkDebugger, section: networkSectionBinding, onExit: closeNetwork)
+                #endif
             } warpSidebar: {
+                #if CLAUDE_STATS_LITE
+                EmptyView()
+                #else
                 WarpSidebarColumn(store: env.warpSessionStore, section: warpSectionBinding, onExit: closeWarp)
+                #endif
             } opsSidebar: {
+                #if CLAUDE_STATS_LITE
+                EmptyView()
+                #else
                 OpsSidebarColumn(section: opsSectionBinding, onExit: closeOps)
+                #endif
             } appDetail: {
                 detail
             } linuxDoDetail: {
+                #if CLAUDE_STATS_LITE
+                EmptyView()
+                #else
                 LinuxDoWorkspaceView(store: env.linuxDo)
+                #endif
             } sessionsDetail: {
                 #if CLAUDE_STATS_LITE
                 EmptyView()
@@ -241,11 +267,15 @@ struct MainWindowView: View {
                 sessionsDetail
                 #endif
             } configsDetail: {
+                #if CLAUDE_STATS_LITE
+                EmptyView()
+                #else
                 ConfigWorkspaceView(
                     store: env.configWorkspace,
                     selectedProjectID: configsProjectIDBinding,
                     selectedDocumentID: configsDocumentIDBinding
                 )
+                #endif
             } memoryDetail: {
                 #if CLAUDE_STATS_LITE
                 EmptyView()
@@ -255,16 +285,28 @@ struct MainWindowView: View {
             } settingsDetail: {
                 SettingsDetailView(section: settingsSection, onSelectSection: selectSettingsSection)
             } networkDetail: {
+                #if CLAUDE_STATS_LITE
+                EmptyView()
+                #else
                 NetworkDetailView(section: networkSection)
+                #endif
             } warpDetail: {
+                #if CLAUDE_STATS_LITE
+                EmptyView()
+                #else
                 WarpWorkspaceView(
                     section: warpSection,
                     store: env.warpSessionStore,
                     chromeMode: env.preferences.terminalChromeMode,
                     backgroundStyle: env.preferences.terminalBackgroundStyle
                 )
+                #endif
             } opsDetail: {
+                #if CLAUDE_STATS_LITE
+                EmptyView()
+                #else
                 OpsDetailView(store: env.ops, section: opsSection)
+                #endif
             }
             .background {
                 Color.clear
@@ -284,8 +326,8 @@ struct MainWindowView: View {
             trafficLights.attach(to: window)
         })
         .onAppear {
-            restoreConfigWorkspaceState()
             #if !CLAUDE_STATS_LITE
+            restoreConfigWorkspaceState()
             restoreMemoryWorkspaceState()
             #endif
             normalizeNavigationState()
@@ -299,9 +341,11 @@ struct MainWindowView: View {
             DockVisibilityCoordinator.shared.release()
             Log.app.info("Main window closed")
         }
+        #if !CLAUDE_STATS_LITE
         .sheet(isPresented: $linuxDoWebLoginPresented) {
             LinuxDoWebLoginSheet(store: env.linuxDo, isPresented: $linuxDoWebLoginPresented)
         }
+        #endif
         .onChange(of: page) { _, new in
             guard availablePages.contains(new) else {
                 page = .dashboard
@@ -310,6 +354,7 @@ struct MainWindowView: View {
             }
             pageRaw = new.rawValue
         }
+        #if !CLAUDE_STATS_LITE
         .onChange(of: env.configWorkspace.section) { _, new in
             configSectionRaw = new.rawValue
         }
@@ -319,7 +364,6 @@ struct MainWindowView: View {
         .onChange(of: env.configWorkspace.filesSearchText) { _, new in
             configsSearchText = new
         }
-        #if !CLAUDE_STATS_LITE
         .onChange(of: env.memory.section) { _, new in
             memorySectionRaw = new.rawValue
         }
@@ -397,7 +441,11 @@ struct MainWindowView: View {
         case .system:
             MainSystemMonitorView()
         case .terminal:
+            #if CLAUDE_STATS_LITE
+            DashboardView()
+            #else
             TerminalWorkspaceView(warpStore: env.warpSessionStore)
+            #endif
         }
     }
 
@@ -440,6 +488,9 @@ struct MainWindowView: View {
         settingsSectionRaw = section.rawValue
     }
 
+    #if CLAUDE_STATS_LITE
+    private func openLinuxDo() {}
+    #else
     private func openLinuxDo() {
         linuxDoSignInEnabled = false
         Task { @MainActor in
@@ -463,10 +514,15 @@ struct MainWindowView: View {
         Log.app.info("Opening LinuxDo web sign-in sheet")
         linuxDoWebLoginPresented = true
     }
+    #endif
 
+    #if CLAUDE_STATS_LITE
+    private func openConfigs() {}
+    #else
     private func openConfigs() {
         transition(to: .configs)
     }
+    #endif
 
     #if CLAUDE_STATS_LITE
     private func openSessions() {}
@@ -486,29 +542,45 @@ struct MainWindowView: View {
     }
     #endif
 
+    #if CLAUDE_STATS_LITE
+    private func openNetwork() {}
+    #else
     private func openNetwork() {
         transition(to: .network)
     }
+    #endif
 
+    #if CLAUDE_STATS_LITE
+    private func openWarp(resetToSessions: Bool = false) {}
+    #else
     private func openWarp(resetToSessions: Bool = false) {
         if resetToSessions {
             warpSectionRaw = WarpWorkspaceSection.sessions.rawValue
         }
         transition(to: .warp)
     }
+    #endif
 
+    #if CLAUDE_STATS_LITE
+    private func openOps() {}
+    #else
     private func openOps() {
         transition(to: .ops)
     }
+    #endif
 
     private func closeSettings() {
         transition(to: .app)
     }
 
+    #if CLAUDE_STATS_LITE
+    private func closeLinuxDo() {}
+    #else
     private func closeLinuxDo() {
         Log.app.info("Closing LinuxDo mode")
         transition(to: .app)
     }
+    #endif
 
     #if CLAUDE_STATS_LITE
     private func closeSessions() {}
@@ -518,9 +590,13 @@ struct MainWindowView: View {
     }
     #endif
 
+    #if CLAUDE_STATS_LITE
+    private func closeConfigs() {}
+    #else
     private func closeConfigs() {
         transition(to: .app)
     }
+    #endif
 
     #if CLAUDE_STATS_LITE
     private func closeMemory() {}
@@ -530,27 +606,46 @@ struct MainWindowView: View {
     }
     #endif
 
+    #if CLAUDE_STATS_LITE
+    private func closeNetwork() {}
+    #else
     private func closeNetwork() {
         transition(to: .app)
     }
+    #endif
 
+    #if CLAUDE_STATS_LITE
+    private func closeWarp() {}
+    #else
     private func closeWarp() {
         transition(to: .app)
     }
+    #endif
 
+    #if CLAUDE_STATS_LITE
+    private func closeOps() {}
+    #else
     private func closeOps() {
         transition(to: .app)
     }
+    #endif
 
     private func openFloatingStatsDestination(_ destination: FloatingStatsMainWindowDestination) {
         switch destination {
         case .page(let nextPage):
+            #if CLAUDE_STATS_LITE
+            let resolvedPage: MainPage = nextPage == .terminal ? .dashboard : nextPage
+            page = availablePages.contains(resolvedPage) ? resolvedPage : .dashboard
+            transition(to: .app)
+            #else
             if nextPage == .terminal {
                 openWarp(resetToSessions: true)
                 return
             }
             page = availablePages.contains(nextPage) ? nextPage : .dashboard
             transition(to: .app)
+            #endif
+        #if !CLAUDE_STATS_LITE
         case .network:
             transition(to: .network)
         case .warp:
@@ -558,6 +653,7 @@ struct MainWindowView: View {
         case .linuxDoTopic(let route):
             env.linuxDo.openTopic(route)
             openLinuxDo()
+        #endif
         }
     }
 
@@ -592,7 +688,14 @@ struct MainWindowView: View {
         }
 
         #if CLAUDE_STATS_LITE
-        if modeRaw == "sessions" || modeRaw == "memory" {
+        if modeRaw == "sessions"
+            || modeRaw == "memory"
+            || modeRaw == "linuxDo"
+            || modeRaw == "configs"
+            || modeRaw == "network"
+            || modeRaw == "warp"
+            || modeRaw == "ops"
+            || modeRaw == "chat" {
             modeRaw = MainWindowMode.app.rawValue
             sidebarVisible = true
         }
@@ -601,18 +704,19 @@ struct MainWindowView: View {
             modeRaw = MainWindowMode.sessions.rawValue
             sidebarVisible = true
         }
-        #endif
 
         if modeRaw == "chat" {
             modeRaw = MainWindowMode.warp.rawValue
             warpSectionRaw = WarpWorkspaceSection.sessions.rawValue
             sidebarVisible = true
         }
+        #endif
 
         if MainWindowMode(rawValue: modeRaw) == nil {
             modeRaw = MainWindowMode.app.rawValue
         }
 
+        #if !CLAUDE_STATS_LITE
         if env.configWorkspace.migrateLegacyMainPage(rawValue: pageRaw) {
             configSectionRaw = env.configWorkspace.section.rawValue
             configFilesSectionRaw = env.configWorkspace.filesSection.rawValue
@@ -622,14 +726,22 @@ struct MainWindowView: View {
             sidebarVisible = true
             return
         }
+        #endif
 
         let storedPage = MainPage(rawValue: pageRaw) ?? .dashboard
         if storedPage == .terminal {
+            #if CLAUDE_STATS_LITE
+            page = .dashboard
+            pageRaw = MainPage.dashboard.rawValue
+            modeRaw = MainWindowMode.app.rawValue
+            sidebarVisible = true
+            #else
             page = .dashboard
             pageRaw = MainPage.dashboard.rawValue
             warpSectionRaw = WarpWorkspaceSection.sessions.rawValue
             modeRaw = MainWindowMode.warp.rawValue
             sidebarVisible = true
+            #endif
             return
         }
 
@@ -646,6 +758,7 @@ struct MainWindowView: View {
         }
     }
 
+    #if !CLAUDE_STATS_LITE
     private func restoreConfigWorkspaceState() {
         if let section = ConfigWorkspaceSection(rawValue: configSectionRaw), !configSectionRaw.isEmpty {
             env.configWorkspace.section = section
@@ -666,6 +779,7 @@ struct MainWindowView: View {
         configSectionRaw = env.configWorkspace.section.rawValue
         configFilesSectionRaw = env.configWorkspace.filesSection.rawValue
     }
+    #endif
 
     #if !CLAUDE_STATS_LITE
     private func restoreMemoryWorkspaceState() {

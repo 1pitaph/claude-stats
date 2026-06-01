@@ -23,7 +23,9 @@ struct FeaturesSettingsView: View {
             leaderboardsCard(prefs: prefs)
             floatingTabCard(prefs: prefs)
             cursorCommandOverlayCard(prefs: prefs)
-            notchIslandCard(prefs: prefs)
+            if AppVariant.isEnabled(.notchIsland) {
+                notchIslandCard(prefs: prefs)
+            }
         }
     }
 

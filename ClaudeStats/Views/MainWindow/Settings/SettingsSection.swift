@@ -22,8 +22,14 @@ enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
     static var availableCases: [SettingsSection] {
         allCases.filter { section in
             switch section {
+            case .notchIsland:
+                AppVariant.isEnabled(.notchIsland)
             case .localAI:
                 AppVariant.isEnabled(.localAI)
+            case .linuxDo:
+                AppVariant.isEnabled(.linuxDo)
+            case .terminal:
+                AppVariant.isEnabled(.warp)
             default:
                 true
             }

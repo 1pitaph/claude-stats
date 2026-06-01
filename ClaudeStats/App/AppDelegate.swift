@@ -1,6 +1,8 @@
 import AppKit
 import Darwin
+#if !CLAUDE_STATS_LITE
 import UserNotifications
+#endif
 
 /// Owns the ``AppEnvironment`` and kicks off the first scan once AppKit has
 /// finished launching. `MenuBarExtra`'s label/window views don't run a normal
@@ -9,7 +11,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let automaticTerminationReason = "Claude Stats is a resident menu bar app."
 
     let env: AppEnvironment
+    #if !CLAUDE_STATS_LITE
     private let linuxDoNotificationDelegate = LinuxDoUserNotificationDelegate()
+    #endif
     private var residentStatusItem: NSStatusItem?
     private var terminationSignalSource: DispatchSourceSignal?
     private var automaticTerminationDisabled = false
@@ -28,7 +32,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         automaticTerminationDisabled = true
         ProcessInfo.processInfo.disableSuddenTermination()
         suddenTerminationDisabled = true
+        #if !CLAUDE_STATS_LITE
         UNUserNotificationCenter.current().delegate = linuxDoNotificationDelegate
+        #endif
         MainActor.assumeIsolated {
             installTerminationSignalHandler()
             installResidentStatusItem()
@@ -171,6 +177,7 @@ enum AppLivenessRescue {
     }
 }
 
+#if !CLAUDE_STATS_LITE
 private final class LinuxDoUserNotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
@@ -210,3 +217,4 @@ private final class LinuxDoUserNotificationDelegate: NSObject, UNUserNotificatio
         return LinuxDoTopicRoute(url: url)
     }
 }
+#endif

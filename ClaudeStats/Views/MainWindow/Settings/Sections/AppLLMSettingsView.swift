@@ -31,9 +31,9 @@ struct AppLLMSettingsView: View {
                         #else
                         let readiness = llm.readinessSummary(localAI: env.localAI)
                         #endif
-                        AIConfigsBadge(
-                            text: readiness,
-                            color: readiness == "Ready" ? Color.stxAccent : Color.orange
+                        StatusSeverityBadge(
+                            label: readiness,
+                            indicatorTint: readiness == "Ready" ? Color.stxAccent : Color.orange
                         )
                     }
                 }
@@ -158,13 +158,13 @@ struct AppLLMSettingsView: View {
                 SettingRowDivider()
                 SettingRow(title: "Selected model") {
                     HStack(spacing: 6) {
-                        AIConfigsBadge(
-                            text: localAI.localLLMAvailable ? localAI.modelStore.selectedLLMModel.displayName : "LLM missing",
-                            color: localAI.localLLMAvailable ? Color.stxAccent : Color.orange
+                        StatusSeverityBadge(
+                            label: localAI.localLLMAvailable ? localAI.modelStore.selectedLLMModel.displayName : "LLM missing",
+                            indicatorTint: localAI.localLLMAvailable ? Color.stxAccent : Color.orange
                         )
-                        AIConfigsBadge(
-                            text: localAI.semanticSearchAvailable ? "Embedding ready" : "Embedding missing",
-                            color: localAI.semanticSearchAvailable ? Color.stxAccent : Color.orange
+                        StatusSeverityBadge(
+                            label: localAI.semanticSearchAvailable ? "Embedding ready" : "Embedding missing",
+                            indicatorTint: localAI.semanticSearchAvailable ? Color.stxAccent : Color.orange
                         )
                     }
                 }
