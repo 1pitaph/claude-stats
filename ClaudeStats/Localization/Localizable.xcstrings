@@ -21,6 +21,16 @@
         }
       }
     },
+    "Assisted Focus" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "辅助焦点"
+          }
+        }
+      }
+    },
     "CHAT" : {
       "localizations" : {
         "zh-Hans" : {
@@ -901,6 +911,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "AI 编码工具"
+          }
+        }
+      }
+    },
+    "AI Active" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AI 活跃"
           }
         }
       }
@@ -2748,6 +2768,313 @@
         }
       }
     },
+    "Gantt" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "甘特图"
+          }
+        }
+      }
+    },
+    "Gantt activity mode" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "甘特图活动模式"
+          }
+        }
+      }
+    },
+    "Gantt range" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "甘特图范围"
+          }
+        }
+      }
+    },
+    "Gantt range navigation" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "甘特图范围导航"
+          }
+        }
+      }
+    },
+    "gantt.project.accessibility.active" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, %@ active"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@，活跃时长 %@"
+          }
+        }
+      }
+    },
+    "ACTIVE TIME" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "活跃时长"
+          }
+        }
+      }
+    },
+    "Active" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "活跃"
+          }
+        }
+      }
+    },
+    "Assisted Focus = AI was active while an editor or terminal was in front. It is not precise Screen Time project attribution." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "辅助焦点 = AI 活跃且编辑器/终端处于前台；不是精确的 Screen Time project 归因。"
+          }
+        }
+      }
+    },
+    "Assisted Focus mode needs macOS Screen Time access to tell whether an editor or terminal was in front." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "辅助焦点模式需要读取 macOS Screen Time，才能判断编辑器或终端是否处于前台。"
+          }
+        }
+      }
+    },
+    "Each row merges project activity blocks from sessions across all providers." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每一行是一组 project activity blocks，按所有 provider 的 session 归并。"
+          }
+        }
+      }
+    },
+    "Loading gantt data" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在加载甘特图数据"
+          }
+        }
+      }
+    },
+    "Month" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "月"
+          }
+        }
+      }
+    },
+    "Next range" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "下一段"
+          }
+        }
+      }
+    },
+    "No project activity in this range." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此范围内没有 project 活动。"
+          }
+        }
+      }
+    },
+    "No project path" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无项目路径"
+          }
+        }
+      }
+    },
+    "No tracked project sessions yet." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "还没有被追踪的 project sessions。"
+          }
+        }
+      }
+    },
+    "Only show time when AI was active and an editor or terminal was in front." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只展示 AI 活跃且编辑器或终端处于前台的时间。"
+          }
+        }
+      }
+    },
+    "Previous range" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上一段"
+          }
+        }
+      }
+    },
+    "PROJECT TIMELINE" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "项目时间线"
+          }
+        }
+      }
+    },
+    "PROJECTS" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "项目"
+          }
+        }
+      }
+    },
+    "Project" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "项目"
+          }
+        }
+      }
+    },
+    "SEGMENTS" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "片段"
+          }
+        }
+      }
+    },
+    "Selected range" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前范围"
+          }
+        }
+      }
+    },
+    "Show day range" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示日范围"
+          }
+        }
+      }
+    },
+    "Show month range" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示月范围"
+          }
+        }
+      }
+    },
+    "Show week range" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示周范围"
+          }
+        }
+      }
+    },
+    "TOP PROJECT" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最活跃项目"
+          }
+        }
+      }
+    },
+    "Track project AI session activity." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按项目展示 AI session 活跃时间。"
+          }
+        }
+      }
+    },
+    "Tracked project activity across all AI coding tools." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所有 AI 编码工具里被追踪 project 的活跃时间线。"
+          }
+        }
+      }
+    },
+    "Week" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "周"
+          }
+        }
+      }
+    },
     "GitHub Linguist + scc" : {
 
     },
@@ -3209,6 +3536,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Git"
+          }
+        }
+      }
+    },
+    "main_page.gantt" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gantt"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "甘特图"
           }
         }
       }

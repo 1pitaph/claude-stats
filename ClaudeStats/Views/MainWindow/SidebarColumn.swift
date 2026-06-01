@@ -62,6 +62,7 @@ struct SidebarColumn: View {
             if env.preferences.systemMonitorEnabled { navRow(.system) }
 
             sectionHeader("TOOLS")
+            navRow(.gantt)
             SidebarRow(
                 title: "Warp",
                 symbol: AppIcon.Workspace.warp,

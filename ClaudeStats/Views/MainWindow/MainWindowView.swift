@@ -4,7 +4,7 @@ import SwiftUI
 /// Top-level page shown in the main window's detail column. Settings live in
 /// their own main-window mode, not as a `MainPage`.
 enum MainPage: String, CaseIterable, Identifiable, Sendable {
-    case dashboard, linuxDo, usage, leaderboards, activity, git, system, terminal
+    case dashboard, linuxDo, usage, leaderboards, activity, gantt, git, system, terminal
     var id: String { rawValue }
 
     var title: String {
@@ -14,6 +14,7 @@ enum MainPage: String, CaseIterable, Identifiable, Sendable {
         case .usage: L10n.string("main_page.usage", defaultValue: "Usage")
         case .leaderboards: L10n.string("main_page.leaderboards", defaultValue: "Leaderboards")
         case .activity: L10n.string("main_page.activity", defaultValue: "Activity")
+        case .gantt: L10n.string("main_page.gantt", defaultValue: "Gantt")
         case .git: L10n.string("main_page.git", defaultValue: "Git")
         case .system: L10n.string("main_page.system", defaultValue: "System")
         case .terminal: L10n.string("main_page.terminal", defaultValue: "Terminal")
@@ -27,6 +28,7 @@ enum MainPage: String, CaseIterable, Identifiable, Sendable {
         case .usage: AppIcon.Workspace.usage
         case .leaderboards: AppIcon.Workspace.leaderboards
         case .activity: AppIcon.Workspace.activity
+        case .gantt: AppIcon.Workspace.gantt
         case .git: AppIcon.Workspace.git
         case .system: AppIcon.Workspace.system
         case .terminal: AppIcon.Workspace.terminal
@@ -77,7 +79,7 @@ struct MainWindowView: View {
     @State private var linuxDoSignInEnabled = true
 
     private var availablePages: [MainPage] {
-        var pages: [MainPage] = [.dashboard, .usage, .leaderboards]
+        var pages: [MainPage] = [.dashboard, .usage, .leaderboards, .gantt]
         if env.preferences.aiActivityAnalysisEnabled { pages.append(.activity) }
         if env.preferences.gitTrackingEnabled { pages.append(.git) }
         if env.preferences.systemMonitorEnabled { pages.append(.system) }
@@ -356,6 +358,8 @@ struct MainWindowView: View {
             LeaderboardsView()
         case .activity:
             MainActivityView()
+        case .gantt:
+            MainGanttView()
         case .git:
             MainGitActivityView()
         case .system:

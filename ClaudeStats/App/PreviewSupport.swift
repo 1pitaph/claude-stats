@@ -33,6 +33,12 @@ extension Session {
         let cal = Calendar.current
         func daysAgo(_ n: Int) -> Date { cal.date(byAdding: .day, value: -n, to: now) ?? now }
         func dayStart(_ n: Int) -> Date { cal.startOfDay(for: daysAgo(n)) }
+        func at(_ d: Int, _ hour: Double) -> Date {
+            dayStart(d).addingTimeInterval(hour * 3_600)
+        }
+        func interval(_ d: Int, _ startHour: Double, _ endHour: Double) -> DateInterval {
+            DateInterval(start: at(d, startHour), end: at(d, endHour))
+        }
         /// `(daysAgo, hour, model, usage)` → an hourly ``ModelBucket``.
         func bucket(_ d: Int, _ h: Int, _ name: String, _ u: TokenUsage) -> ModelBucket {
             let start = cal.date(byAdding: .hour, value: h, to: dayStart(d)) ?? dayStart(d)
@@ -62,6 +68,10 @@ extension Session {
                         bucket(0, 11, "claude-opus-4-7", usage(20_000, 6_000, 230_000, 13_000)),
                         bucket(0, 9, "claude-haiku-4-5", usage(2_000, 600, 14_000)),
                         bucket(0, 11, "claude-haiku-4-5", usage(3_000, 600, 18_000)),
+                    ],
+                    activityIntervals: [
+                        interval(1, 14, 16.25),
+                        interval(0, 9, 11.5),
                     ]
                 )
             ),
@@ -77,6 +87,9 @@ extension Session {
                     timeline: [
                         bucket(2, 13, "claude-sonnet-4-6", usage(16_000, 4_500, 100_000, 6_000)),
                         bucket(2, 14, "claude-sonnet-4-6", usage(18_000, 5_000, 110_000, 6_000)),
+                    ],
+                    activityIntervals: [
+                        interval(2, 13, 14.5),
                     ]
                 )
             ),
@@ -96,6 +109,10 @@ extension Session {
                         bucket(10, 17, "claude-opus-4-7", usage(30_000, 10_000, 380_000, 20_000)),
                         bucket(10, 18, "claude-sonnet-4-6", usage(12_000, 3_000, 60_000, 4_000)),
                         bucket(9, 10, "claude-opus-4-7", usage(40_000, 14_000, 500_000, 30_000)),
+                    ],
+                    activityIntervals: [
+                        interval(10, 17, 18.2),
+                        interval(9, 10, 11),
                     ]
                 )
             ),
@@ -111,6 +128,9 @@ extension Session {
                     timeline: [
                         bucket(1, 11, "gpt-5.1-codex", usage(22_000, 3_000, 70_000)),
                         bucket(1, 12, "gpt-5.1-codex", usage(18_000, 3_000, 50_000)),
+                    ],
+                    activityIntervals: [
+                        interval(1, 11, 12.4),
                     ]
                 )
             ),
