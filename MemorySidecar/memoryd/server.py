@@ -91,7 +91,7 @@ class MemoryHTTPRequestHandler(BaseHTTPRequestHandler):
         try:
             body = self._body()
             if parsed.path == "/v1/events":
-                self._json(self.store.append_event(body))
+                self._json(self.store.record_external_event(body))
             elif parsed.path == "/v1/sync/source":
                 self._json(self.store.ingest_source(body))
             elif parsed.path in {"/v1/sources/reinfer", "/v1/sync/reinfer"}:
@@ -188,7 +188,7 @@ class MemoryHTTPRequestHandler(BaseHTTPRequestHandler):
             elif name == "code_memory.propose_memory":
                 result = self.store.propose_memory(arguments)
             elif name == "code_memory.record_event":
-                result = self.store.append_event(arguments)
+                result = self.store.record_external_event(arguments)
             elif name == "code_memory.ingest_source":
                 result = self.store.ingest_source(arguments)
             elif name == "code_memory.reinfer_sources":

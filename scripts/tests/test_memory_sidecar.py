@@ -376,39 +376,35 @@ class MemorySidecarTests(unittest.TestCase):
         self.assertIn("mem0.add.start", logs)
         self.assertIn("mem0.add.end", logs)
 
-    def test_llm_extraction_diagnostics_are_recorded(self):
+    def test_mem0_managed_capture_diagnostics_are_recorded(self):
         from memoryd.adapters import Mem0Adapter
-        from memoryd.config import EmbeddingEndpointConfig, LLMEndpointConfig, MemoryModelConfig
         from memoryd.diagnostics import MemoryDiagnosticsLogger
+
+        class FakeClient:
+            def add(self, messages, *, user_id, metadata, infer, run_id=None, prompt=None):
+                return [{"id": "mem0:1", "memory": "Run tests after code changes.", "metadata": metadata, "user_id": user_id}]
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             logger = MemoryDiagnosticsLogger(root)
-            config = MemoryModelConfig(
-                llm=LLMEndpointConfig("openai_chat_completions", "http://127.0.0.1:18765/v1", "token", "llm"),
-                embedding=EmbeddingEndpointConfig("http://127.0.0.1:18765/v1", "token", "embed", 384),
-                mem0_enabled=True,
-                graphiti_enabled=False,
-                qdrant_path=root / "qdrant",
-                kuzu_path=root / "graphiti.kuzu",
-                adapter_timeout_seconds=20,
-            )
             adapter = Mem0Adapter.__new__(Mem0Adapter)
-            adapter.config = config
+            adapter.client = FakeClient()
             adapter.diagnostics = logger
-            adapter._call_extraction_llm = lambda prompt: '{"memories":[{"memory":"Run tests after code changes.","type":"workflow"}]}'
-
-            memories, raw_count = adapter._extract_chunk_memories(
-                "User: please remember the test command",
-                chunk={"project_id": "p", "run_id": "run:1", "chunk_index": 1},
+            adapter._add_to_mem0(
+                [{"role": "user", "content": "User: please remember the test command"}],
+                project_id="p",
+                metadata={"type": "workflow"},
+                run_id="run:1",
                 source={"id": "src:1", "kind": "codex_transcript"},
+                chunk_index=1,
+                infer=True,
+                prompt="Extract durable project memories.",
             )
             logs = "\n".join(path.read_text(encoding="utf-8") for path in (root / "diagnostics").glob("memory-capture-*.jsonl"))
 
-        self.assertEqual(raw_count, 1)
-        self.assertEqual(len(memories), 1)
-        self.assertIn("llm.extract.start", logs)
-        self.assertIn("llm.extract.end", logs)
+        self.assertIn("mem0.add.start", logs)
+        self.assertIn("mem0.add.end", logs)
+        self.assertNotIn("llm.extract.start", logs)
 
     def test_openai_responses_parser_extracts_text_and_function_calls(self):
         from memoryd.llm_providers import _parse_responses_output
@@ -431,7 +427,7 @@ class MemorySidecarTests(unittest.TestCase):
         from memoryd.store import MemoryStore
 
         with tempfile.TemporaryDirectory() as tmp:
-            store = MemoryStore(Path(tmp))
+            store = MemoryStore(Path(tmp), adapters=FakeMem0Adapters())
             first = store.append_event(
                 {
                     "project_id": "claude-stats",
@@ -457,7 +453,7 @@ class MemorySidecarTests(unittest.TestCase):
 
             self.assertIsNone(first["prev_hash"])
             self.assertEqual(second["prev_hash"], first["hash"])
-            self.assertEqual(store.health()["api_version"], 16)
+            self.assertEqual(store.health()["api_version"], 17)
 
             hits = store.search("run-debug", project_id="claude-stats")
             self.assertEqual(hits["results"], [])
@@ -501,11 +497,13 @@ class MemorySidecarTests(unittest.TestCase):
 
     def test_memory_versions_history_and_graphiti_projection_backfill(self):
         from memoryd.store import MemoryStore
+        from memoryd.adapters import CompositeAdapters
 
         with tempfile.TemporaryDirectory() as tmp:
-            adapters = FakeGraphitiAdapters()
+            graphiti = FakeGraphitiAdapters()
+            adapters = CompositeAdapters([FakeMem0Adapters(), graphiti])
             store = MemoryStore(Path(tmp), adapters=adapters)
-            created = store.append_event(
+            created = store.record_external_event(
                 {
                     "project_id": "p",
                     "event_type": "memory.observed",
@@ -528,14 +526,14 @@ class MemorySidecarTests(unittest.TestCase):
             self.assertEqual(reindex["enqueued"], 3)
             drained = store.drain_projection_jobs(limit=10)
             self.assertEqual(drained["projection"]["delivered"], 3)
-            self.assertEqual({item["adapter"] for item in adapters.indexed}, {"graphiti"})
-            self.assertEqual(adapters.indexed[0]["event"]["event_type"], "memory.observed")
+            self.assertEqual({item["adapter"] for item in graphiti.indexed}, {"graphiti"})
+            self.assertEqual(graphiti.indexed[0]["event"]["event_type"], "memory.observed")
 
     def test_projects_modules_and_health_count_active_only(self):
         from memoryd.store import MemoryStore
 
         with tempfile.TemporaryDirectory() as tmp:
-            store = MemoryStore(Path(tmp))
+            store = MemoryStore(Path(tmp), adapters=FakeMem0Adapters())
             store.append_event(
                 {
                     "project_id": "p",
@@ -742,7 +740,7 @@ class MemorySidecarTests(unittest.TestCase):
         from memoryd.store import MemoryStore
 
         with tempfile.TemporaryDirectory() as tmp:
-            store = MemoryStore(Path(tmp))
+            store = MemoryStore(Path(tmp), adapters=FakeMem0Adapters())
             proposed = store.propose_memory(
                 {
                     "project_id": "p",
@@ -1679,6 +1677,9 @@ class MemorySidecarTests(unittest.TestCase):
         from memoryd.store import MemoryStore
 
         class FakeAdapters:
+            def __init__(self):
+                self.memories = {}
+
             def names(self):
                 return []
 
@@ -1690,6 +1691,28 @@ class MemorySidecarTests(unittest.TestCase):
 
             def infer_memories(self, source):
                 return []
+
+            def capture_memory(self, memory):
+                captured = dict(memory)
+                captured["id"] = "mem0:promoted"
+                captured["status"] = captured.get("status") or "proposed"
+                captured["metadata"] = (captured.get("metadata") or {}) | {"adapter": "mem0", "provider": "mem0"}
+                captured["extracted_by"] = "mem0"
+                self.memories[captured["id"]] = captured
+                return captured
+
+            def list_memories(self, *, project_id, status, memory_type, limit):
+                return list(self.memories.values())[:limit]
+
+            def get_memory(self, memory_id):
+                return self.memories.get(memory_id)
+
+            def update_memory(self, memory_id, updates):
+                memory = self.memories.get(memory_id)
+                if memory is None:
+                    return None
+                memory.update(updates)
+                return memory
 
             def search(self, query, *, project_id, limit):
                 return [
@@ -1728,6 +1751,9 @@ class MemorySidecarTests(unittest.TestCase):
         from memoryd.store import MemoryStore
 
         class FakeAdapters:
+            def __init__(self):
+                self.memories = {}
+
             def names(self):
                 return []
 
@@ -1739,6 +1765,28 @@ class MemorySidecarTests(unittest.TestCase):
 
             def infer_memories(self, source):
                 return []
+
+            def capture_memory(self, memory):
+                captured = dict(memory)
+                captured["id"] = "mem0:promoted"
+                captured["status"] = captured.get("status") or "proposed"
+                captured["metadata"] = (captured.get("metadata") or {}) | {"adapter": "mem0", "provider": "mem0"}
+                captured["extracted_by"] = "mem0"
+                self.memories[captured["id"]] = captured
+                return captured
+
+            def list_memories(self, *, project_id, status, memory_type, limit):
+                return list(self.memories.values())[:limit]
+
+            def get_memory(self, memory_id):
+                return self.memories.get(memory_id)
+
+            def update_memory(self, memory_id, updates):
+                memory = self.memories.get(memory_id)
+                if memory is None:
+                    return None
+                memory.update(updates)
+                return memory
 
             def search(self, query, *, project_id, limit):
                 return [

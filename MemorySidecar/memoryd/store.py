@@ -13,6 +13,7 @@ from typing import Any
 from .adapters import MemoryAdapters, build_adapters
 from .config import load_local_ai_config
 from .diagnostics import MemoryDiagnosticsLogger, text_fingerprint
+from .memory_mirror import memory_content_changed
 from .models import DETERMINISTIC_SOURCE_KINDS, MEMORY_STATUSES, MemoryInput, Scope, string_map
 from .singleflight import SingleFlightGate
 
@@ -22,7 +23,7 @@ INSTRUCTION_SOURCE_KINDS = {"AGENTS.md", "CLAUDE.md"}
 CONFIG_SOURCE_ONLY_KINDS = {"ai_config", "provider_config", "plugin_config", "plan"}
 REINFER_SOURCE_KINDS = TRANSCRIPT_SOURCE_KINDS | {"terminal_capture", "manual", "user_instruction"}
 MEM0_CAPTURE_SOURCE_KINDS = TRANSCRIPT_SOURCE_KINDS | INSTRUCTION_SOURCE_KINDS | {"terminal_capture", "manual", "user_instruction"}
-MEM0_CAPTURE_VERSION = "mem0-direct-extract-v3"
+MEM0_CAPTURE_VERSION = "mem0-managed-v1"
 MEMORY_VERSION_EVENT_TYPES = {
     "memory.observed",
     "memory.created",
@@ -66,6 +67,11 @@ TRANSCRIPT_EXTRACTION_PROMPT = (
     "follow-up tasks. Skip chatter, one-off progress narration, raw logs, and secrets. "
     "Each memory must be concise, self-contained, and useful in a future coding session."
 )
+GENERAL_SOURCE_EXTRACTION_PROMPT = (
+    "Extract durable coding memories from this source. Keep only reusable project facts, "
+    "decisions, workflows, commands, risks, conventions, and follow-up tasks. Skip raw logs, "
+    "temporary chatter, secrets, and generic source metadata."
+)
 
 
 def canonical_json(value: Any) -> str:
@@ -73,8 +79,8 @@ def canonical_json(value: Any) -> str:
 
 
 class MemoryStore:
-    schema_version = 11
-    api_version = 16
+    schema_version = 12
+    api_version = 17
 
     def __init__(self, root: Path, adapters: MemoryAdapters | None = None):
         self.root = root
@@ -102,7 +108,6 @@ class MemoryStore:
         self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.execute("PRAGMA busy_timeout=2500")
         self._migrate()
-        self._enqueue_legacy_memories_for_mem0()
 
     def close(self) -> None:
         self.conn.close()
@@ -274,16 +279,53 @@ class MemoryStore:
                     self.conn.commit()
         return event | ({"memory": memory} if memory else {})
 
+    def record_external_event(self, payload: dict[str, Any]) -> dict[str, Any]:
+        payload = self._mem0_backed_event_payload(payload)
+        return self.append_event(payload)
+
+    def _mem0_backed_event_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        event_type = str(payload.get("event_type") or "memory.observed")
+        if event_type not in {"memory.observed", "memory.created", "memory.proposed", "memory.updated"}:
+            return payload
+        memory_payload = payload.get("after") if isinstance(payload.get("after"), dict) else payload.get("delta") if isinstance(payload.get("delta"), dict) else None
+        if not isinstance(memory_payload, dict):
+            return payload
+        metadata = memory_payload.get("metadata") if isinstance(memory_payload.get("metadata"), dict) else {}
+        if str(metadata.get("provider") or metadata.get("adapter") or "") == "mem0":
+            return payload
+        project_id = str(payload.get("project_id") or memory_payload.get("project_id") or "unknown")
+        default_status = "proposed" if event_type == "memory.proposed" else str(memory_payload.get("status") or "active")
+        memory = MemoryInput.from_json(memory_payload, project_id=project_id, default_status=default_status)
+        candidate = self._memory_input_json(memory)
+        if payload.get("source_refs") and not candidate.get("source_refs"):
+            candidate["source_refs"] = payload["source_refs"]
+        if event_type == "memory.updated" and payload.get("memory_id"):
+            captured = self.adapters.update_memory(str(payload["memory_id"]), candidate)
+        else:
+            captured = self.adapters.capture_memory(candidate)
+        if captured is None:
+            raise RuntimeError(f"mem0 is required to record {event_type} but returned no memory")
+        next_payload = dict(payload)
+        next_payload["project_id"] = captured.get("project_id") or project_id
+        next_payload["memory_id"] = captured.get("id")
+        next_payload["after"] = captured
+        next_payload["source_refs"] = captured.get("source_refs", payload.get("source_refs", []))
+        return next_payload
+
     def propose_memory(self, payload: dict[str, Any]) -> dict[str, Any]:
         project_id = str(payload.get("project_id") or "unknown")
         memory = MemoryInput.from_json(payload, project_id=project_id, default_status="proposed")
+        captured = self.adapters.capture_memory(self._memory_input_json(memory))
+        if captured is None:
+            raise RuntimeError("mem0 is required to propose memory but returned no memory")
         return self.append_event(
             {
-                "project_id": project_id,
+                "project_id": captured.get("project_id") or project_id,
                 "event_type": "memory.proposed",
                 "actor": payload.get("actor") or {"kind": "agent"},
-                "after": self._memory_input_json(memory),
-                "source_refs": memory.source_refs,
+                "memory_id": captured.get("id"),
+                "after": captured,
+                "source_refs": captured.get("source_refs", memory.source_refs),
             }
         )
 
@@ -291,7 +333,9 @@ class MemoryStore:
         before = self._lookup_memory(memory_id)
         if before is None:
             raise KeyError(memory_id)
-        after = self.adapters.update_memory(memory_id, {"status": "active"}) or (before | {"status": "active"})
+        after = self.adapters.update_memory(memory_id, {"status": "active"})
+        if after is None:
+            raise RuntimeError("mem0 is required to accept memory but update failed")
         self._cache_mem0_memory(after)
         result = self.append_event(
             {
@@ -310,7 +354,9 @@ class MemoryStore:
         before = self._lookup_memory(memory_id)
         if before is None:
             raise KeyError(memory_id)
-        after = self.adapters.update_memory(memory_id, {"status": "retracted", "invalid_at": time.time()}) or (before | {"status": "retracted", "invalid_at": time.time()})
+        after = self.adapters.update_memory(memory_id, {"status": "retracted", "invalid_at": time.time()})
+        if after is None:
+            raise RuntimeError("mem0 is required to reject memory but update failed")
         self._cache_mem0_memory(after)
         return self.append_event(
             {
@@ -328,7 +374,9 @@ class MemoryStore:
         before = self._lookup_memory(memory_id)
         if before is None:
             raise KeyError(memory_id)
-        after = self.adapters.update_memory(memory_id, {"status": "deprecated", "invalid_at": time.time()}) or (before | {"status": "deprecated", "invalid_at": time.time()})
+        after = self.adapters.update_memory(memory_id, {"status": "deprecated", "invalid_at": time.time()})
+        if after is None:
+            raise RuntimeError("mem0 is required to deprecate memory but update failed")
         self._cache_mem0_memory(after)
         return self.append_event(
             {
@@ -353,7 +401,9 @@ class MemoryStore:
         }}
         after["id"] = memory_id
         after["project_id"] = before["project_id"]
-        after = self.adapters.update_memory(memory_id, after) or after
+        after = self.adapters.update_memory(memory_id, after)
+        if after is None:
+            raise RuntimeError("mem0 is required to update memory but update failed")
         self._cache_mem0_memory(after)
         return self.append_event(
             {
@@ -1431,8 +1481,9 @@ class MemoryStore:
             base_chunk(
                 body,
                 title=str(source.get("title") or "Memory")[:160],
-                infer=False,
+                infer=True,
                 memory_type=_memory_type_for_source(kind),
+                prompt=GENERAL_SOURCE_EXTRACTION_PROMPT,
             )
         ]
         chunks[0]["chunk_index"] = 1
@@ -1592,20 +1643,15 @@ class MemoryStore:
                 memories = self.adapters.capture_source(inference_source, chunks)
                 accepted_memories: list[dict[str, Any]] = []
                 for memory in memories:
-                    cached = self._cache_mem0_memory(memory)
+                    cached = self._sync_mem0_memory_event(
+                        memory,
+                        actor={"kind": "background", "id": "mem0"},
+                        project_id=project_id,
+                        default_event_type="memory.observed",
+                    )
                     if cached is None:
                         continue
                     accepted_memories.append(cached)
-                    self.append_event(
-                        {
-                            "project_id": cached.get("project_id") or project_id,
-                            "event_type": "memory.observed",
-                            "actor": {"kind": "background", "id": "mem0"},
-                            "memory_id": cached.get("id"),
-                            "after": cached,
-                            "source_refs": cached.get("source_refs", []),
-                        }
-                    )
                 inference_errors = self._adapter_inference_errors()
                 if not memories and chunks:
                     mem0_health = self.adapters.health().get("mem0", "mem0 unavailable")
@@ -1763,12 +1809,63 @@ class MemoryStore:
             return None
         payload = dict(memory)
         metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
-        payload["metadata"] = metadata | {"adapter": "mem0", "cache_source": "mem0"}
+        now = time.time()
+        source_refs = payload.get("source_refs") if isinstance(payload.get("source_refs"), list) else []
+        source_hash = str(metadata.get("source_hash") or "")
+        if not source_hash:
+            for ref in source_refs:
+                if isinstance(ref, dict) and ref.get("content_hash"):
+                    source_hash = str(ref["content_hash"])
+                    break
+        provider_metadata = {
+            "adapter": "mem0",
+            "provider": "mem0",
+            "provider_id": str(payload.get("id") or ""),
+            "cache_source": "mem0",
+            "last_synced_at": str(now),
+            "capture_version": str(metadata.get("capture_version") or MEM0_CAPTURE_VERSION),
+        }
+        if source_hash:
+            provider_metadata["source_hash"] = source_hash
+        payload["metadata"] = metadata | provider_metadata
         payload["extracted_by"] = "mem0"
         memory_input = MemoryInput.from_json(payload, project_id=payload.get("project_id"), default_status=str(payload.get("status") or "active"))
         cached = self._upsert_memory(self._with_module_scope(memory_input), event_id=str(metadata.get("last_event_id") or f"cache:{payload['id']}"))
         self.conn.commit()
         return cached
+
+    def _sync_mem0_memory_event(
+        self,
+        memory: dict[str, Any],
+        *,
+        actor: dict[str, Any],
+        project_id: str | None = None,
+        default_event_type: str = "memory.observed",
+    ) -> dict[str, Any] | None:
+        memory_id = str(memory.get("id") or "").strip()
+        if not memory_id:
+            return None
+        before_row = self.conn.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)).fetchone()
+        before = self._memory_row(before_row) if before_row is not None else None
+        cached = self._cache_mem0_memory(memory)
+        if cached is None:
+            return None
+        if before is not None and not memory_content_changed(before, cached):
+            return cached
+        event_type = default_event_type if before is None else "memory.updated"
+        result = self.append_event(
+            {
+                "project_id": cached.get("project_id") or project_id or "unknown",
+                "event_type": event_type,
+                "actor": actor,
+                "memory_id": cached.get("id"),
+                "before": before,
+                "after": cached,
+                "source_refs": cached.get("source_refs", []),
+            }
+        )
+        event_memory = result.get("memory") if isinstance(result.get("memory"), dict) else None
+        return event_memory or cached
 
     def _lookup_memory(self, memory_id: str) -> dict[str, Any] | None:
         memory = self.adapters.get_memory(memory_id)

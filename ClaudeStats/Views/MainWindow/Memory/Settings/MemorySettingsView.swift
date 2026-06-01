@@ -180,7 +180,7 @@ struct MemorySettingsView: View {
 
     private var projectionCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Mem0 Capture")
+            Text("Mem0 Memory Engine")
                 .font(.sora(15, weight: .semibold))
             HStack(spacing: 10) {
                 AIConfigsMiniStat(value: "\(store.codeHealth?.capturePending ?? store.codeHealth?.projectionPending ?? 0)", label: "pending")

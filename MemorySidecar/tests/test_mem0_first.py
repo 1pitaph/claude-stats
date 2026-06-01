@@ -150,7 +150,7 @@ class Mem0FirstStoreTests(unittest.TestCase):
             finally:
                 store.close()
 
-    def test_terminal_capture_is_stored_raw_without_inference(self) -> None:
+    def test_terminal_capture_uses_mem0_managed_inference(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             adapters = FakeMem0Adapters()
             store = MemoryStore(Path(directory), adapters=adapters)
@@ -172,10 +172,88 @@ class Mem0FirstStoreTests(unittest.TestCase):
                 self.assertEqual(response["status"], "queued")
                 store.drain_projection_jobs(limit=5)
                 self.assertEqual(len(adapters.captured_chunks), 1)
-                self.assertFalse(adapters.captured_chunks[0]["infer"])
+                self.assertTrue(adapters.captured_chunks[0]["infer"])
+                self.assertIn("durable coding memories", adapters.captured_chunks[0]["prompt"])
                 self.assertEqual(adapters.captured_chunks[0]["type"], "workflow")
             finally:
                 store.close()
+
+    def test_duplicate_mem0_result_refreshes_mirror_without_duplicate_memory_event(self) -> None:
+        class StableMem0Adapters(FakeMem0Adapters):
+            def capture_source(self, source: dict[str, Any], chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+                self.captured_chunks.extend(chunks)
+                memory = {
+                    "id": "mem0:stable",
+                    "project_id": "/repo",
+                    "type": "workflow",
+                    "status": "active",
+                    "title": "Run tests",
+                    "body": "Run tests after code changes.",
+                    "normalized_claim": "run tests after code changes",
+                    "confidence": 0.82,
+                    "importance": 0.6,
+                    "scopes": [{"id": "project:/repo", "kind": "project", "key": "/repo", "title": "/repo", "metadata": {}}],
+                    "source_refs": [{"kind": "manual", "uri": "manual://stable"}],
+                    "metadata": {"adapter": "mem0", "provider": "mem0", "provider_id": "mem0:stable"},
+                    "created_at": 1,
+                    "updated_at": 1,
+                    "extracted_by": "mem0",
+                }
+                self.memories["mem0:stable"] = memory
+                return [memory]
+
+        with tempfile.TemporaryDirectory() as directory:
+            adapters = StableMem0Adapters()
+            store = MemoryStore(Path(directory), adapters=adapters)
+            try:
+                for index in range(2):
+                    store.ingest_source(
+                        {
+                            "id": f"src:manual:{index}",
+                            "project_id": "/repo",
+                            "title": f"Manual {index}",
+                            "kind": "manual",
+                            "uri": f"manual://{index}",
+                            "body": "Remember to run tests after code changes.",
+                            "content_hash": f"hash:{index}",
+                            "metadata": {},
+                        }
+                    )
+                    store.drain_projection_jobs(limit=5)
+
+                rows = store.conn.execute(
+                    "SELECT event_type FROM memory_events WHERE memory_id = 'mem0:stable' ORDER BY seq"
+                ).fetchall()
+                self.assertEqual([row["event_type"] for row in rows], ["memory.observed"])
+            finally:
+                store.close()
+
+    def test_startup_does_not_auto_enqueue_legacy_memories_for_mem0(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = MemoryStore(root, adapters=FakeMem0Adapters())
+            try:
+                store.append_event(
+                    {
+                        "project_id": "/repo",
+                        "event_type": "memory.observed",
+                        "after": {
+                            "title": "Legacy",
+                            "body": "Legacy sidecar memory.",
+                            "type": "fact",
+                            "status": "active",
+                            "extracted_by": "sidecar",
+                        },
+                    }
+                )
+            finally:
+                store.close()
+
+            reopened = MemoryStore(root, adapters=FakeMem0Adapters())
+            try:
+                self.assertEqual(reopened.health()["migration_pending"], 0)
+            finally:
+                reopened.close()
 
 
 if __name__ == "__main__":
