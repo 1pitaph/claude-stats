@@ -6,9 +6,9 @@
     <description>Most recent updates to Claude Stats.</description>
     <language>en</language>
     <item>
-      <title>Version 1.7.9</title>
-      <sparkle:version>78</sparkle:version>
-      <sparkle:shortVersionString>1.7.9</sparkle:shortVersionString>
+      <title>Version 1.8.0</title>
+      <sparkle:version>79</sparkle:version>
+      <sparkle:shortVersionString>1.8.0</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0.0</sparkle:minimumSystemVersion>
       <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
       <description><![CDATA[
@@ -26,21 +26,21 @@
   <div style="margin: 0; padding: 0;">
 <h2>本次更新<span class="cs-update-size-pills"><span class="cs-update-size-pill cs-update-size-full">89.5 MB</span></span></h2>
 <ul>
-<li>新增Cursor Command Overlay功能，支持在光标旁展示最近会话命令</li>
-<li>为Provider协议新增执行命令解析接口，适配Claude和Codex解析器</li>
-<li>重构侧边栏导航，将Chat替换为Warp并更新图标</li>
-<li>新增内存图谱的显示模式、密度选择与分组展开功能</li>
-<li>替换Warp相关图标从sparkles为terminal</li>
-<li>新增大量测试用例与工具类代码</li>
-<li>新增全局LLM设置页面，支持在线API与本地LLM两种模式</li>
-<li>重构内存模型设置，迁移至全局LLM配置</li>
+<li>新增overlay日志分类并添加焦点源切换日志</li>
+<li>重构光标命令弹窗几何计算逻辑，新增屏幕封装类型</li>
+<li>优化焦点定位逻辑，增加候选范围处理和帧校验</li>
+<li>新增单元测试覆盖几何计算和边界处理场景</li>
+<li>清理AppIcon.swift中冗余、重复的图标定义，改用别名复用已有图标</li>
+<li>替换多处硬编码的系统图标名称为标准化枚举引用</li>
+<li>新增icons审计脚本用于检查重复图标和硬编码调用</li>
+<li>修复SkillsWorkspaceView中使用的重复图标资源名称</li>
 </ul>
   </div>
 </div>
 </div>
 ]]></description>
-      <pubDate>Sun, 31 May 2026 11:14:43 GMT</pubDate>
-      <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.7.9/ClaudeStats-1.7.9.dmg" sparkle:edSignature="i/6wAbgWIJUItVqKLvqYnomCkJh+SBgbZiHyl/CXBo1B2KxFM80XEdcKVb8Mk1ILETQM9u4qZuldSGvgSmpiBQ==" length="89506129" type="application/octet-stream"/>
+      <pubDate>Mon, 01 Jun 2026 01:39:28 GMT</pubDate>
+      <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.8.0/ClaudeStats-1.8.0.dmg" sparkle:edSignature="WE6JblxYaF+t8D/pa5rAN2SGY0Z5L4wO+aWPBezs/k8Tlozk3TLX0e4ieZdmJYlIiSL7pZLYmt5HfwD2gDUVCA==" length="89511274" type="application/octet-stream"/>
     </item>
   </channel>
 </rss>
