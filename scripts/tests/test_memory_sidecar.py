@@ -1839,15 +1839,33 @@ class MemorySidecarTests(unittest.TestCase):
 
             def graph(self, project_id, *, limit=80):
                 return {
-                    "nodes": [{"id": "graphiti:entity:one", "kind": "graphiti_entity", "title": "One"}],
-                    "edges": [{"source": "project:p", "target": "graphiti:entity:one", "kind": "HAS_GRAPHITI_ENTITY"}],
+                    "nodes": [
+                        {"id": "graphiti:entity:one", "kind": "graphiti_entity", "title": "One"},
+                        {"id": "graphiti:entity:two", "kind": "graphiti_entity", "title": "Two"},
+                    ],
+                    "edges": [
+                        {
+                            "source": "graphiti:entity:one",
+                            "target": "graphiti:entity:two",
+                            "kind": "RELATES_TO",
+                            "metadata": {
+                                "adapter": "graphiti",
+                                "episodes": "[\"episode:one\"]",
+                                "expired_at": "",
+                                "reference_time": "2026-06-01T00:00:00Z",
+                            },
+                        }
+                    ],
                 }
 
         with tempfile.TemporaryDirectory() as tmp:
             store = MemoryStore(Path(tmp), adapters=FakeAdapters())
             graph = store.graph("p")
             self.assertIn("graphiti:entity:one", {node["id"] for node in graph["nodes"]})
-            self.assertIn("HAS_GRAPHITI_ENTITY", {edge["kind"] for edge in graph["edges"]})
+            graphiti_edge = next(edge for edge in graph["edges"] if edge["kind"] == "RELATES_TO")
+            self.assertEqual(graphiti_edge["metadata"]["episodes"], "[\"episode:one\"]")
+            self.assertIn("expired_at", graphiti_edge["metadata"])
+            self.assertEqual(graphiti_edge["metadata"]["reference_time"], "2026-06-01T00:00:00Z")
 
 
 if __name__ == "__main__":

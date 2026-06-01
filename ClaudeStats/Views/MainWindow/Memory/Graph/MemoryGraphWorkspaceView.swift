@@ -9,16 +9,15 @@ struct MemoryGraphWorkspaceView: View {
             StxRule()
             MemoryGraphChangesView(store: store)
         }
-        .task(id: store.codeSelectedProjectID) {
-            await loadChangesIfNeeded()
+        .task(id: selectedGraphProjectID) {
+            await loadGraphIfNeeded()
         }
     }
 
     private var toolbar: some View {
         HStack(spacing: 10) {
             searchField
-            displayModePicker
-            densityPicker
+            factVisibilityPicker
 
             Menu {
                 ForEach(store.codeProjects) { project in
@@ -27,8 +26,7 @@ struct MemoryGraphWorkspaceView: View {
                     }
                 }
             } label: {
-                let projectID = store.codeSelectedProjectID ?? store.codeProjects.first?.projectID
-                Label(projectID?.memoryAbbreviatingHomeDirectory ?? "Project", systemImage: AppIcon.Resource.folder)
+                Label(selectedGraphProjectID?.memoryAbbreviatingHomeDirectory ?? "Project", systemImage: AppIcon.Resource.folder)
             }
             .menuStyle(.button)
             .controlSize(.small)
@@ -66,44 +64,29 @@ struct MemoryGraphWorkspaceView: View {
             .help("Reset View")
 
             Button {
-                Task { await store.graph.loadChanges(projectID: store.codeSelectedProjectID ?? store.codeProjects.first?.projectID) }
+                Task { await store.graph.loadGraph(projectID: selectedGraphProjectID) }
             } label: {
                 Label("Refresh", systemImage: AppIcon.Action.refresh)
             }
             .controlSize(.small)
-            .disabled((store.codeSelectedProjectID ?? store.codeProjects.first?.projectID) == nil || store.graph.isLoadingChanges)
+            .disabled(selectedGraphProjectID == nil || store.graph.isLoadingKnowledgeGraph)
         }
         .padding(14)
     }
 
-    private var displayModePicker: some View {
-        Picker("Mode", selection: Binding(
-            get: { store.graph.displayMode },
-            set: { store.graph.displayMode = $0 }
+    private var factVisibilityPicker: some View {
+        Picker("Facts", selection: Binding(
+            get: { store.graph.factVisibility },
+            set: { store.graph.factVisibility = $0 }
         )) {
-            ForEach(MemoryGraphDisplayMode.allCases) { mode in
-                Text(mode.label).tag(mode)
+            ForEach(MemoryKnowledgeFactVisibility.allCases) { visibility in
+                Text(visibility.label).tag(visibility)
             }
         }
         .pickerStyle(.segmented)
         .controlSize(.small)
-        .frame(width: 220)
-        .help("Graph Reading Mode")
-    }
-
-    private var densityPicker: some View {
-        Picker("Density", selection: Binding(
-            get: { store.graph.density },
-            set: { store.graph.density = $0 }
-        )) {
-            ForEach(MemoryGraphDensity.allCases) { density in
-                Text(density.label).tag(density)
-            }
-        }
-        .pickerStyle(.segmented)
-        .controlSize(.small)
-        .frame(width: 132)
-        .help("Graph Density")
+        .frame(width: 124)
+        .help("Fact Visibility")
     }
 
     private var searchField: some View {
@@ -111,15 +94,15 @@ struct MemoryGraphWorkspaceView: View {
             Image(systemName: AppIcon.Action.search)
                 .font(.system(size: 12))
                 .foregroundStyle(Color.stxMuted)
-            TextField("Event, field, source, or memory", text: Binding(
-                get: { store.graph.changeSearchText },
-                set: { store.graph.changeSearchText = $0 }
+            TextField("Entity, fact, relation, or source", text: Binding(
+                get: { store.graph.knowledgeSearchText },
+                set: { store.graph.knowledgeSearchText = $0 }
             ))
                 .textFieldStyle(.plain)
                 .font(.sora(12))
-            if !store.graph.changeSearchText.isEmpty {
+            if !store.graph.knowledgeSearchText.isEmpty {
                 Button {
-                    store.graph.changeSearchText = ""
+                    store.graph.knowledgeSearchText = ""
                 } label: {
                     Image(systemName: AppIcon.Action.clear)
                 }
@@ -134,13 +117,17 @@ struct MemoryGraphWorkspaceView: View {
         .frame(width: 280)
     }
 
-    private func loadChangesIfNeeded() async {
-        guard let projectID = store.codeSelectedProjectID ?? store.codeProjects.first?.projectID else { return }
+    private var selectedGraphProjectID: String? {
+        store.codeSelectedProjectID ?? store.codeProjects.first?.projectID
+    }
+
+    private func loadGraphIfNeeded() async {
+        guard let projectID = selectedGraphProjectID else { return }
         if store.codeSelectedProjectID == nil {
             store.codeSelectedProjectID = projectID
         }
-        if store.graph.changeGraph?.projectID != projectID {
-            await store.graph.loadChanges(projectID: projectID)
+        if store.graph.knowledgeGraph?.projectID != projectID {
+            await store.graph.loadGraph(projectID: projectID)
         }
     }
 }

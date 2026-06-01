@@ -188,6 +188,139 @@ enum MemoryGraphLayout {
         guard let source = positions[edge.source], let target = positions[edge.target] else { return nil }
         return CGPoint(x: (source.x + target.x) / 2, y: (source.y + target.y) / 2)
     }
+
+    static func midpoint(for edge: MemoryKnowledgeGraphPresentation.Edge, positions: [String: CGPoint]) -> CGPoint? {
+        guard let source = positions[edge.source], let target = positions[edge.target] else { return nil }
+        return CGPoint(x: (source.x + target.x) / 2, y: (source.y + target.y) / 2)
+    }
+}
+
+enum MemoryKnowledgeGraphLayout {
+    static func positions(
+        for nodes: [MemoryKnowledgeGraphPresentation.Node],
+        edges: [MemoryKnowledgeGraphPresentation.Edge],
+        in size: CGSize,
+        pan: CGSize,
+        zoom: CGFloat
+    ) -> [String: CGPoint] {
+        guard !nodes.isEmpty else { return [:] }
+
+        let canvasWidth = max(size.width, 360)
+        let canvasHeight = max(size.height, 300)
+        let nodeIDs = Set(nodes.map(\.id))
+        let adjacency = adjacencyMap(nodeIDs: nodeIDs, edges: edges)
+        let components = connectedComponents(nodes: nodes, adjacency: adjacency)
+        let columns = max(1, Int(ceil(sqrt(Double(components.count)))))
+        let rows = max(1, Int(ceil(Double(components.count) / Double(columns))))
+        let cellWidth = canvasWidth / CGFloat(columns)
+        let cellHeight = canvasHeight / CGFloat(rows)
+        var positions: [String: CGPoint] = [:]
+
+        for (componentIndex, component) in components.enumerated() {
+            let column = componentIndex % columns
+            let row = componentIndex / columns
+            let center = CGPoint(
+                x: CGFloat(column) * cellWidth + cellWidth / 2 + pan.width,
+                y: CGFloat(row) * cellHeight + cellHeight / 2 + pan.height
+            )
+            place(component: component, adjacency: adjacency, center: center, cellSize: CGSize(width: cellWidth, height: cellHeight), zoom: zoom, positions: &positions)
+        }
+
+        return positions.mapValues { point in
+            CGPoint(
+                x: min(max(point.x, 125), canvasWidth - 125),
+                y: min(max(point.y, 58), canvasHeight - 58)
+            )
+        }
+    }
+
+    private static func adjacencyMap(
+        nodeIDs: Set<String>,
+        edges: [MemoryKnowledgeGraphPresentation.Edge]
+    ) -> [String: Set<String>] {
+        var adjacency = Dictionary(uniqueKeysWithValues: nodeIDs.map { ($0, Set<String>()) })
+        for edge in edges where nodeIDs.contains(edge.source) && nodeIDs.contains(edge.target) {
+            adjacency[edge.source, default: []].insert(edge.target)
+            adjacency[edge.target, default: []].insert(edge.source)
+        }
+        return adjacency
+    }
+
+    private static func connectedComponents(
+        nodes: [MemoryKnowledgeGraphPresentation.Node],
+        adjacency: [String: Set<String>]
+    ) -> [[MemoryKnowledgeGraphPresentation.Node]] {
+        let nodesByID = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
+        var visited = Set<String>()
+        var components: [[MemoryKnowledgeGraphPresentation.Node]] = []
+
+        for node in nodes.sorted(by: nodePrecedes) where !visited.contains(node.id) {
+            var queue = [node.id]
+            var componentIDs: [String] = []
+            visited.insert(node.id)
+            while let current = queue.first {
+                queue.removeFirst()
+                componentIDs.append(current)
+                for neighbor in (adjacency[current] ?? []).sorted() where !visited.contains(neighbor) {
+                    visited.insert(neighbor)
+                    queue.append(neighbor)
+                }
+            }
+            components.append(componentIDs.compactMap { nodesByID[$0] }.sorted(by: nodePrecedes))
+        }
+
+        return components.sorted { lhs, rhs in
+            if lhs.count != rhs.count {
+                return lhs.count > rhs.count
+            }
+            return (lhs.first?.id ?? "") < (rhs.first?.id ?? "")
+        }
+    }
+
+    private static func place(
+        component: [MemoryKnowledgeGraphPresentation.Node],
+        adjacency: [String: Set<String>],
+        center: CGPoint,
+        cellSize: CGSize,
+        zoom: CGFloat,
+        positions: inout [String: CGPoint]
+    ) {
+        guard let hub = component.max(by: { lhs, rhs in
+            let leftDegree = adjacency[lhs.id]?.count ?? 0
+            let rightDegree = adjacency[rhs.id]?.count ?? 0
+            if leftDegree != rightDegree {
+                return leftDegree < rightDegree
+            }
+            return lhs.id > rhs.id
+        }) else { return }
+
+        positions[hub.id] = center
+        let leaves = component.filter { $0.id != hub.id }.sorted(by: nodePrecedes)
+        guard !leaves.isEmpty else { return }
+
+        let radius = max(150 * zoom, min(cellSize.width, cellSize.height) * 0.34 * zoom)
+        let total = leaves.count
+        for (index, node) in leaves.enumerated() {
+            let angle = (CGFloat(index) / CGFloat(max(total, 1))) * CGFloat.pi * 2 - CGFloat.pi / 2
+            let ring = CGFloat(index / max(total, 1) + 1)
+            let ringRadius = radius * ring
+            positions[node.id] = CGPoint(
+                x: center.x + cos(angle) * ringRadius,
+                y: center.y + sin(angle) * ringRadius
+            )
+        }
+    }
+
+    private static func nodePrecedes(_ lhs: MemoryKnowledgeGraphPresentation.Node, _ rhs: MemoryKnowledgeGraphPresentation.Node) -> Bool {
+        if lhs.degree != rhs.degree {
+            return lhs.degree > rhs.degree
+        }
+        let titleComparison = lhs.displayTitle.localizedStandardCompare(rhs.displayTitle)
+        if titleComparison != .orderedSame {
+            return titleComparison == .orderedAscending
+        }
+        return lhs.id < rhs.id
+    }
 }
 
 enum MemoryChangeGraphLayout {

@@ -687,6 +687,40 @@ struct CodeMemoryStoreTests {
     }
 
     @MainActor
+    @Test("Knowledge graph store loads project graph without event feed")
+    func knowledgeGraphStoreLoadsProjectGraphWithoutEvents() async throws {
+        let backend = FakeCodeMemoryBackend()
+        backend.graphResponse = CodeMemoryGraph(
+            projectID: "claude-stats",
+            nodes: [
+                CodeMemoryGraphNode(id: "graphiti:entity:one", kind: "graphiti_entity", title: "One", type: nil, status: nil, seq: nil, body: "One summary", sourceRefs: nil, metadata: ["adapter": "graphiti"]),
+                CodeMemoryGraphNode(id: "graphiti:entity:two", kind: "graphiti_entity", title: "Two", type: nil, status: nil, seq: nil, body: "Two summary", sourceRefs: nil, metadata: ["adapter": "graphiti"]),
+            ],
+            edges: [
+                CodeMemoryGraphEdge(
+                    source: "graphiti:entity:one",
+                    target: "graphiti:entity:two",
+                    kind: "RELATES_TO",
+                    primary: nil,
+                    fact: "One relates to two.",
+                    validAt: nil,
+                    invalidAt: nil,
+                    metadata: ["adapter": "graphiti"]
+                ),
+            ]
+        )
+        let graphStore = MemoryGraphStore(backend: backend)
+
+        await graphStore.loadGraph(projectID: "claude-stats")
+
+        #expect(backend.graphProjectIDs == ["claude-stats"])
+        #expect(backend.eventRequests.isEmpty)
+        #expect(graphStore.knowledgePresentation?.totalEntityCount == 2)
+        #expect(graphStore.knowledgePresentation?.totalFactCount == 1)
+        #expect(graphStore.changeGraph == nil)
+    }
+
+    @MainActor
     @Test("Memory history store loads without disturbing change event selection")
     func memoryHistoryStoreLoadsWithoutDisturbingSelection() async throws {
         let backend = FakeCodeMemoryBackend()
@@ -845,7 +879,9 @@ private final class FakeCodeMemoryBackend: CodeMemoryBackend, @unchecked Sendabl
     var unifiedSearchResponse: CodeMemoryUnifiedSearchResponse?
     var contextPackResponse: CodeMemoryContextPack?
     var graphResponse: CodeMemoryGraph?
+    var graphProjectIDs: [String] = []
     var eventResponse: [CodeMemoryEvent] = []
+    var eventRequests: [(projectID: String?, afterSeq: Int?, limit: Int)] = []
     var historyResponses: [String: CodeMemoryMemoryHistory] = [:]
     var historyMemoryIDs: [String] = []
     var ingestedSources: [CodeMemorySourceInput] = []
@@ -960,11 +996,13 @@ private final class FakeCodeMemoryBackend: CodeMemoryBackend, @unchecked Sendabl
     }
 
     func graph(projectID: String) async throws -> CodeMemoryGraph {
-        graphResponse ?? CodeMemoryGraph(projectID: projectID, nodes: [], edges: [])
+        graphProjectIDs.append(projectID)
+        return graphResponse ?? CodeMemoryGraph(projectID: projectID, nodes: [], edges: [])
     }
 
     func events(projectID: String?, afterSeq: Int?, limit: Int) async throws -> [CodeMemoryEvent] {
-        eventResponse
+        eventRequests.append((projectID, afterSeq, limit))
+        return eventResponse
     }
 
     func memoryHistory(memoryID: String, limit: Int) async throws -> CodeMemoryMemoryHistory {

@@ -6,18 +6,25 @@ import Observation
 @Observable
 final class MemoryGraphStore {
     var changeSearchText = ""
+    var knowledgeSearchText = ""
     var selectedChangeNodeID: String?
     var selectedChangeEdgeID: String?
     var selectedChangeGroupID: String?
+    var selectedKnowledgeNodeID: String?
+    var selectedKnowledgeEdgeID: String?
     var displayMode: MemoryGraphDisplayMode = .sourceCentric
     var density: MemoryGraphDensity = .grouped
+    var factVisibility: MemoryKnowledgeFactVisibility = .active
     var expandedGroupIDs: Set<String> = []
     var zoom: Double = 1
     var pan = CGSize.zero
+    private(set) var knowledgeGraph: CodeMemoryGraph?
     private(set) var changeGraph: CodeMemoryGraph?
     private(set) var events: [CodeMemoryEvent] = []
     private(set) var histories: [String: CodeMemoryMemoryHistory] = [:]
+    private(set) var isLoadingKnowledgeGraph = false
     private(set) var isLoadingChanges = false
+    private(set) var knowledgeLastError: String?
     private(set) var changeLastError: String?
     private(set) var historyLastError: String?
     private(set) var loadingHistoryMemoryIDs: Set<String> = []
@@ -64,6 +71,25 @@ final class MemoryGraphStore {
     var selectedChangeEdge: CodeMemoryGraphEdge? {
         guard let selectedChangeEdgeID else { return nil }
         return changeGraph?.edges.first { $0.id == selectedChangeEdgeID }
+    }
+
+    var knowledgePresentation: MemoryKnowledgeGraphPresentation? {
+        guard let knowledgeGraph else { return nil }
+        return MemoryKnowledgeGraphPresentation.build(
+            graph: knowledgeGraph,
+            factVisibility: factVisibility,
+            searchText: knowledgeSearchText
+        )
+    }
+
+    var selectedKnowledgeNode: MemoryKnowledgeGraphPresentation.Node? {
+        guard let selectedKnowledgeNodeID else { return nil }
+        return knowledgePresentation?.node(id: selectedKnowledgeNodeID)
+    }
+
+    var selectedKnowledgeEdge: MemoryKnowledgeGraphPresentation.Edge? {
+        guard let selectedKnowledgeEdgeID else { return nil }
+        return knowledgePresentation?.edge(id: selectedKnowledgeEdgeID)
     }
 
     var changePresentation: MemoryGraphPresentation? {
@@ -120,6 +146,34 @@ final class MemoryGraphStore {
     private var selectedChangeSourceNodeID: String? {
         guard let node = selectedChangeNode, node.kind == "source" || node.kind == "episode" else { return nil }
         return node.id
+    }
+
+    func loadGraph(projectID: String?) async {
+        guard let projectID, !projectID.isEmpty else {
+            knowledgeGraph = nil
+            selectedKnowledgeNodeID = nil
+            selectedKnowledgeEdgeID = nil
+            return
+        }
+
+        isLoadingKnowledgeGraph = true
+        defer { isLoadingKnowledgeGraph = false }
+
+        do {
+            knowledgeGraph = try await backend.graph(projectID: projectID)
+            selectedKnowledgeNodeID = selectedKnowledgeNodeID.flatMap { id in
+                knowledgePresentation?.nodes.contains { $0.id == id } == true ? id : nil
+            }
+            selectedKnowledgeEdgeID = selectedKnowledgeEdgeID.flatMap { id in
+                knowledgePresentation?.edges.contains { $0.id == id } == true ? id : nil
+            }
+            knowledgeLastError = nil
+        } catch {
+            knowledgeGraph = nil
+            selectedKnowledgeNodeID = nil
+            selectedKnowledgeEdgeID = nil
+            knowledgeLastError = error.localizedDescription
+        }
     }
 
     func loadChanges(projectID: String?) async {
@@ -206,6 +260,16 @@ final class MemoryGraphStore {
 
     func history(for memoryID: String) -> CodeMemoryMemoryHistory? {
         histories[memoryID]
+    }
+
+    func selectKnowledgeNode(_ id: String?) {
+        selectedKnowledgeNodeID = id
+        selectedKnowledgeEdgeID = nil
+    }
+
+    func selectKnowledgeEdge(_ id: String?) {
+        selectedKnowledgeEdgeID = id
+        selectedKnowledgeNodeID = nil
     }
 
     func resetViewport() {

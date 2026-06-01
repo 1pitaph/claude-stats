@@ -91,7 +91,7 @@ struct MemoryWorkspaceView: View {
         case .search: "Canonical memory, graph facts, sources, and trace provenance."
         case .memories: "Active project and module memory library."
         case .gantt: "Memory validity intervals by project."
-        case .graph: "Memory change timeline, version diffs, and local event context."
+        case .graph: "Temporal knowledge graph of entities, facts, and provenance."
         case .review: "Human gate for proposals, conflicts, and low-confidence facts."
         case .settings: "Local sidecar, adapters, projection jobs, and shell capture."
         }

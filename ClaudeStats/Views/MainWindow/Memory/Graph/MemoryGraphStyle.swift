@@ -17,6 +17,8 @@ enum MemoryGraphStyle {
             Color(red: 0.76, green: 0.48, blue: 0.86)
         case "group":
             Color(red: 0.36, green: 0.54, blue: 0.9)
+        case "graphiti_entity":
+            Color(red: 0.18, green: 0.62, blue: 0.58)
         default:
             isGraphitiKind(kind) ? Color(red: 0.94, green: 0.37, blue: 0.46) : Color.stxMuted
         }
@@ -58,6 +60,8 @@ enum MemoryGraphStyle {
             "doc.text.magnifyingglass"
         case "group":
             "rectangle.stack"
+        case "graphiti_entity":
+            "point.3.connected.trianglepath.dotted"
         default:
             isGraphitiKind(kind) ? "point.3.connected.trianglepath.dotted" : "circle.hexagongrid"
         }
@@ -70,6 +74,10 @@ enum MemoryGraphStyle {
         default:
             color(for: node.kind)
         }
+    }
+
+    static func color(for node: MemoryKnowledgeGraphPresentation.Node) -> Color {
+        color(for: node.rawNode.kind)
     }
 
     static func edgeColor(for kind: String) -> Color {
@@ -85,6 +93,10 @@ enum MemoryGraphStyle {
         default:
             Color.stxStroke
         }
+    }
+
+    static func edgeColor(for edge: MemoryKnowledgeGraphPresentation.Edge) -> Color {
+        edge.isActive ? Color(red: 0.18, green: 0.62, blue: 0.58) : Color.stxMuted
     }
 
     static func edgeLabel(for kind: String) -> String {

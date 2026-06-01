@@ -1099,6 +1099,10 @@ class GraphitiAdapter:
                     }
             valid_at = getattr(edge, "valid_at", None)
             invalid_at = getattr(edge, "invalid_at", None)
+            expired_at = getattr(edge, "expired_at", None)
+            reference_time = getattr(edge, "reference_time", None)
+            raw_episodes = getattr(edge, "episodes", []) or []
+            episodes = [raw_episodes] if isinstance(raw_episodes, str) else list(raw_episodes)
             edges.append(
                 {
                     "source": f"graphiti:entity:{source_uuid}",
@@ -1108,8 +1112,11 @@ class GraphitiAdapter:
                         "adapter": "graphiti",
                         "uuid": edge_uuid,
                         "fact": str(getattr(edge, "fact", "") or ""),
+                        "episodes": json.dumps(episodes, sort_keys=True, ensure_ascii=False),
                         "valid_at": valid_at.isoformat() if hasattr(valid_at, "isoformat") else str(valid_at or ""),
                         "invalid_at": invalid_at.isoformat() if hasattr(invalid_at, "isoformat") else str(invalid_at or ""),
+                        "expired_at": expired_at.isoformat() if hasattr(expired_at, "isoformat") else str(expired_at or ""),
+                        "reference_time": reference_time.isoformat() if hasattr(reference_time, "isoformat") else str(reference_time or ""),
                     },
                 }
             )
