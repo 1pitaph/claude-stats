@@ -3,6 +3,18 @@
 extension ReleaseHistoryCatalog {
     static let generatedEntries: [ReleaseHistoryEntry] = [
         ReleaseHistoryEntry(
+            version: "1.8.0",
+            date: "June 1, 2026",
+            headline: "新增overlay日志分类并添加焦点源切换日志",
+            changes: [
+                "重构光标命令弹窗几何计算逻辑，新增屏幕封装类型",
+                "优化焦点定位逻辑，增加候选范围处理和帧校验",
+                "新增单元测试覆盖几何计算和边界处理场景",
+                "清理AppIcon.swift中冗余、重复的图标定义，改用别名复用已有图标",
+                "替换多处硬编码的系统图标名称为标准化枚举引用",
+            ]
+        ),
+        ReleaseHistoryEntry(
             version: "1.7.9",
             date: "May 31, 2026",
             headline: "新增Cursor Command Overlay功能，支持在光标旁展示最近会话命令",
