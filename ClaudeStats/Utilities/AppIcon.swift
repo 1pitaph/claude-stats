@@ -109,6 +109,7 @@ enum AppIcon {
     enum Workspace {
         static let activity = "waveform"
         static let configs = "slider.horizontal.3"
+        static let dailyReport = "calendar"
         static let dashboard = "square.grid.2x2"
         static let gantt = "timeline.selection"
         static let git = "arrow.triangle.branch"

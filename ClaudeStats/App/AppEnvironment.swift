@@ -45,6 +45,7 @@ final class AppEnvironment {
     let systemMonitor: SystemMonitorViewModel
     let networkDebugger: NetworkDebuggerStore
     let ops: OpsStore
+    let dailyReport: DailyReportViewModel
 
     init(
         pricing: ModelPricing,
@@ -84,6 +85,7 @@ final class AppEnvironment {
         self.systemMonitor = systemMonitor
         self.networkDebugger = networkDebugger ?? NetworkDebuggerStore(preferences: preferences)
         self.ops = ops
+        self.dailyReport = DailyReportViewModel()
         let linuxDoCredentials: any LinuxDoCredentialStoring = Self.isRunningUnitTests
             ? InMemoryLinuxDoCredentialStore()
             : LinuxDoKeychainStore.shared

@@ -62,6 +62,7 @@ struct SidebarColumn: View {
             if env.preferences.systemMonitorEnabled { navRow(.system) }
 
             sectionHeader("TOOLS")
+            navRow(.dailyReport)
             navRow(.gantt)
             SidebarRow(
                 title: "Warp",
@@ -239,7 +240,7 @@ struct SidebarRow: View {
     @Previewable @State var page: MainPage = .dashboard
     return SidebarColumn(
         page: $page,
-        availablePages: [.dashboard, .usage, .activity, .git],
+        availablePages: [.dashboard, .usage, .activity, .dailyReport, .git],
         isLinuxDoActive: false,
         isSessionsActive: false,
         isConfigsActive: false,
