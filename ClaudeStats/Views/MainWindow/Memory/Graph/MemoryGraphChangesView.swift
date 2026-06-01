@@ -141,28 +141,35 @@ private struct MemoryKnowledgeGraphCanvasView: View {
 
     private var knowledgeEmptyState: some View {
         let readiness = knowledgeReadiness
-        return VStack(spacing: 14) {
-            MemoryEmptyState(
+        return ZStack(alignment: .topLeading) {
+            MemoryKnowledgeEmptyHeaderView(
                 title: readiness.title,
                 message: readiness.message,
                 symbol: AppIcon.Network.webSocket
             )
-            if !readiness.diagnostics.isEmpty {
-                MemoryKnowledgeEmptyDiagnosticsView(diagnostics: readiness.diagnostics)
-            }
-            if !readiness.actions.isEmpty {
-                HStack(spacing: 8) {
-                    ForEach(readiness.actions) { action in
-                        Button {
-                            performReadinessAction(action)
-                        } label: {
-                            Label(action.title, systemImage: symbol(for: action))
+            .padding(16)
+
+            VStack(spacing: 14) {
+                if !readiness.diagnostics.isEmpty {
+                    MemoryKnowledgeEmptyDiagnosticsView(diagnostics: readiness.diagnostics)
+                }
+                if !readiness.actions.isEmpty {
+                    HStack(spacing: 8) {
+                        ForEach(readiness.actions) { action in
+                            Button {
+                                performReadinessAction(action)
+                            } label: {
+                                Label(action.title, systemImage: symbol(for: action))
+                            }
+                            .controlSize(.small)
+                            .disabled(action != .openSettings && activeReadinessAction != nil)
                         }
-                        .controlSize(.small)
-                        .disabled(action != .openSettings && activeReadinessAction != nil)
                     }
                 }
             }
+            .frame(maxWidth: 720)
+            .padding(.horizontal, 28)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -274,6 +281,28 @@ private struct MemoryKnowledgeGraphSummaryBadge: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
             .background(Color.primary.opacity(0.055), in: Capsule())
+    }
+}
+
+private struct MemoryKnowledgeEmptyHeaderView: View {
+    let title: String
+    let message: String
+    let symbol: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Image(systemName: symbol)
+                .font(.system(size: 24, weight: .medium))
+                .foregroundStyle(Color.stxMuted)
+            Text(title)
+                .font(.sora(15, weight: .semibold))
+            Text(message)
+                .font(.sora(11))
+                .foregroundStyle(Color.stxMuted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: 620, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
 }
 

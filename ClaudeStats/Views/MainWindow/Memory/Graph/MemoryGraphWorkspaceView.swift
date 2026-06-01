@@ -21,15 +21,19 @@ struct MemoryGraphWorkspaceView: View {
 
             Menu {
                 ForEach(store.codeProjects) { project in
-                    Button(project.projectID) {
+                    Button(project.folderDisplayName) {
                         Task { await store.selectCodeProject(project.projectID) }
                     }
                 }
             } label: {
-                Label(selectedGraphProjectID?.memoryAbbreviatingHomeDirectory ?? "Project", systemImage: AppIcon.Resource.folder)
+                Label(selectedProjectDisplayName, systemImage: AppIcon.Resource.folder)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
             .menuStyle(.button)
             .controlSize(.small)
+            .frame(width: 180)
+            .help(selectedGraphProjectID ?? "Project")
 
             Spacer(minLength: 8)
 
@@ -75,17 +79,27 @@ struct MemoryGraphWorkspaceView: View {
     }
 
     private var factVisibilityPicker: some View {
-        Picker("Facts", selection: Binding(
-            get: { store.graph.factVisibility },
-            set: { store.graph.factVisibility = $0 }
-        )) {
-            ForEach(MemoryKnowledgeFactVisibility.allCases) { visibility in
-                Text(visibility.label).tag(visibility)
+        HStack(spacing: 7) {
+            Text("Facts")
+                .font(.sora(12, weight: .semibold))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+
+            Picker("", selection: Binding(
+                get: { store.graph.factVisibility },
+                set: { store.graph.factVisibility = $0 }
+            )) {
+                ForEach(MemoryKnowledgeFactVisibility.allCases) { visibility in
+                    Text(visibility.label).tag(visibility)
+                }
             }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .controlSize(.small)
+            .frame(width: 176)
         }
-        .pickerStyle(.segmented)
-        .controlSize(.small)
-        .frame(width: 124)
+        .frame(width: 222, alignment: .leading)
+        .layoutPriority(1)
         .help("Fact Visibility")
     }
 
@@ -119,6 +133,20 @@ struct MemoryGraphWorkspaceView: View {
 
     private var selectedGraphProjectID: String? {
         store.codeSelectedProjectID ?? store.codeProjects.first?.projectID
+    }
+
+    private var selectedProjectDisplayName: String {
+        guard let projectID = selectedGraphProjectID else { return "Project" }
+        return store.codeProjects.first { $0.projectID == projectID }?.folderDisplayName
+            ?? Self.projectDisplayName(for: projectID)
+    }
+
+    private static func projectDisplayName(for projectID: String) -> String {
+        let trimmedProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedProjectID.isEmpty else { return "Project" }
+        let expandedPath = (trimmedProjectID as NSString).expandingTildeInPath
+        let lastPathComponent = (expandedPath as NSString).lastPathComponent
+        return lastPathComponent.isEmpty ? trimmedProjectID.memoryAbbreviatingHomeDirectory : lastPathComponent
     }
 
     private func loadGraphIfNeeded() async {
