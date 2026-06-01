@@ -45,7 +45,7 @@ struct MainGanttView: View {
             .padding(.horizontal, 20)
             .padding(.top, 52)
             .padding(.bottom, 22)
-            .frame(minWidth: 760, maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .onAppear {
             vm.refreshPermissionState()
@@ -108,6 +108,7 @@ struct MainGanttView: View {
                 loadingIndicator(isLoading)
                 GanttRangeChips(range: range)
             }
+            .fixedSize(horizontal: true, vertical: false)
 
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 12) {
@@ -126,6 +127,7 @@ struct MainGanttView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
@@ -534,20 +536,33 @@ private struct GanttProjectSevenDayChartPanel: View {
     }
 
     private var panelHeader: some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("RECENT 7 DAYS")
-                    .font(.sora(13, weight: .semibold))
-                    .tracking(1.0)
-                Text("Single project activity for the last seven local days.")
-                    .font(.sora(10))
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline) {
+                recentSevenDayTitle
+                Spacer(minLength: 12)
+                Text(rangeLabel)
+                    .font(.sora(10).monospacedDigit())
                     .foregroundStyle(Color.stxMuted)
-                    .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer()
-            Text(rangeLabel)
-                .font(.sora(10).monospacedDigit())
+
+            VStack(alignment: .leading, spacing: 6) {
+                recentSevenDayTitle
+                Text(rangeLabel)
+                    .font(.sora(10).monospacedDigit())
+                    .foregroundStyle(Color.stxMuted)
+            }
+        }
+    }
+
+    private var recentSevenDayTitle: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("RECENT 7 DAYS")
+                .font(.sora(13, weight: .semibold))
+                .tracking(1.0)
+            Text("Single project activity for the last seven local days.")
+                .font(.sora(10))
                 .foregroundStyle(Color.stxMuted)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -582,6 +597,7 @@ private struct GanttProjectSevenDayChartPanel: View {
                             .frame(width: timelineWidth, height: rowsHeight)
                     }
                 }
+                .frame(minWidth: 0, maxWidth: .infinity)
             }
         }
         .frame(height: totalHeight)
@@ -906,20 +922,33 @@ private struct GanttChartPanel: View {
     }
 
     private var panelHeader: some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.sora(13, weight: .semibold))
-                    .tracking(1.0)
-                Text(caption)
-                    .font(.sora(10))
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline) {
+                chartTitle
+                Spacer(minLength: 12)
+                Text(rangeLabel)
+                    .font(.sora(10).monospacedDigit())
                     .foregroundStyle(Color.stxMuted)
-                    .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer()
-            Text(rangeLabel)
-                .font(.sora(10).monospacedDigit())
+
+            VStack(alignment: .leading, spacing: 6) {
+                chartTitle
+                Text(rangeLabel)
+                    .font(.sora(10).monospacedDigit())
+                    .foregroundStyle(Color.stxMuted)
+            }
+        }
+    }
+
+    private var chartTitle: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.sora(13, weight: .semibold))
+                .tracking(1.0)
+            Text(caption)
+                .font(.sora(10))
                 .foregroundStyle(Color.stxMuted)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -965,6 +994,7 @@ private struct GanttChartPanel: View {
                             .frame(width: timelineWidth, height: rowsHeight)
                     }
                 }
+                .frame(minWidth: 0, maxWidth: .infinity)
             }
         }
         .frame(height: totalHeight)
