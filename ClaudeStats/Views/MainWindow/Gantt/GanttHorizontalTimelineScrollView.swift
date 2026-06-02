@@ -4,6 +4,7 @@ import SwiftUI
 struct GanttHorizontalTimelineScrollView<Content: View>: NSViewRepresentable {
     let contentWidth: CGFloat
     let contentHeight: CGFloat
+    let contentRevisionID: String
     @Binding var viewport: GanttTimelineViewport
     @ViewBuilder var content: () -> Content
 
@@ -25,6 +26,7 @@ struct GanttHorizontalTimelineScrollView<Content: View>: NSViewRepresentable {
         scrollView.contentView.postsBoundsChangedNotifications = true
 
         context.coordinator.hostingView = hostingView
+        context.coordinator.markContentRevision(contentRevisionID, documentSize: documentSize)
         context.coordinator.observe(scrollView)
         return scrollView
     }
@@ -35,8 +37,13 @@ struct GanttHorizontalTimelineScrollView<Content: View>: NSViewRepresentable {
 
         let size = documentSize
         let hostingView = context.coordinator.hostingView ?? NSHostingView(rootView: framedContent())
-        hostingView.rootView = framedContent()
-        hostingView.frame = CGRect(origin: .zero, size: size)
+        context.coordinator.updateHostingViewIfNeeded(
+            hostingView,
+            documentSize: size,
+            contentRevisionID: contentRevisionID
+        ) {
+            framedContent()
+        }
         if scrollView.documentView !== hostingView {
             scrollView.documentView = hostingView
             context.coordinator.hostingView = hostingView
@@ -63,10 +70,36 @@ struct GanttHorizontalTimelineScrollView<Content: View>: NSViewRepresentable {
         var viewport: Binding<GanttTimelineViewport>
         var hostingView: NSHostingView<AnyView>?
         private weak var observedScrollView: NSScrollView?
+        private var contentRevisionID: String?
+        private var documentSize: CGSize = .zero
         private var isApplyingOffset = false
 
         init(viewport: Binding<GanttTimelineViewport>) {
             self.viewport = viewport
+        }
+
+        func markContentRevision(_ contentRevisionID: String, documentSize: CGSize) {
+            self.contentRevisionID = contentRevisionID
+            self.documentSize = documentSize
+        }
+
+        func updateHostingViewIfNeeded(
+            _ hostingView: NSHostingView<AnyView>,
+            documentSize: CGSize,
+            contentRevisionID: String,
+            makeRootView: () -> AnyView
+        ) {
+            if self.contentRevisionID != contentRevisionID
+                || !Self.approximatelyEqual(self.documentSize, documentSize)
+            {
+                hostingView.rootView = makeRootView()
+                self.contentRevisionID = contentRevisionID
+            }
+
+            if !Self.approximatelyEqual(hostingView.frame.size, documentSize) {
+                hostingView.setFrameSize(documentSize)
+            }
+            self.documentSize = documentSize
         }
 
         func observe(_ scrollView: NSScrollView) {
@@ -118,7 +151,7 @@ struct GanttHorizontalTimelineScrollView<Content: View>: NSViewRepresentable {
                 let next = self.viewport.wrappedValue
                     .withDimensions(contentWidth: documentWidth, viewportWidth: visibleWidth)
                     .withOffset(offset)
-                guard self.viewport.wrappedValue != next else { return }
+                guard self.shouldPublishViewportChange(from: self.viewport.wrappedValue, to: next) else { return }
                 self.viewport.wrappedValue = next
             }
 
@@ -134,6 +167,22 @@ struct GanttHorizontalTimelineScrollView<Content: View>: NSViewRepresentable {
         @objc private func boundsDidChange(_ notification: Notification) {
             guard let scrollView = observedScrollView else { return }
             reportViewport(from: scrollView, asynchronously: isApplyingOffset)
+        }
+
+        private func shouldPublishViewportChange(
+            from current: GanttTimelineViewport,
+            to next: GanttTimelineViewport
+        ) -> Bool {
+            guard current != next else { return false }
+            guard current.contentWidth > 0, next.contentWidth > 0 else { return true }
+            if abs(current.contentWidth - next.contentWidth) > 0.5 { return true }
+            if abs(current.offsetX - next.offsetX) > 0.5 { return true }
+            if current.isScrollable != next.isScrollable { return true }
+            return abs(current.viewportWidth - next.viewportWidth) >= GanttTimelineViewportMetrics.widthStep / 2
+        }
+
+        private static func approximatelyEqual(_ lhs: CGSize, _ rhs: CGSize) -> Bool {
+            abs(lhs.width - rhs.width) <= 0.5 && abs(lhs.height - rhs.height) <= 0.5
         }
     }
 }
