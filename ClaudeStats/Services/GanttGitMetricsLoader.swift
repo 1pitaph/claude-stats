@@ -23,7 +23,7 @@ actor GanttGitMetricsLoader: GanttGitMetricsLoading {
     private var missingCwds = Set<String>()
     private var userEmailLoaded = false
     private var userEmail: String?
-    private var commitCountCache: [CommitCountKey: Int] = [:]
+    private var commitActivityCache: [CommitActivityKey: CachedCommitActivity] = [:]
 
     init(git: GitAnalyzer = GitAnalyzer()) {
         self.git = git
@@ -35,27 +35,46 @@ actor GanttGitMetricsLoader: GanttGitMetricsLoading {
         projectIDFilter: String? = nil
     ) async -> GanttExternalMetrics {
         guard !Task.isCancelled, git.isAvailable else { return .zero }
-        let cwds = Self.scopedCwds(
+        let projectCwds = Self.scopedCwds(
             sessions: sessions,
             during: interval,
             projectIDFilter: projectIDFilter
         )
-        guard !cwds.isEmpty else { return .zero }
+        guard !projectCwds.isEmpty else { return .zero }
 
-        let repos = resolvedRepos(for: cwds)
-        guard !Task.isCancelled, !repos.isEmpty else { return .zero }
+        let repoScopes = resolvedRepoScopes(for: projectCwds)
+        guard !Task.isCancelled, !repoScopes.isEmpty else { return .zero }
 
         let email = currentUserEmail()
         var commitCount = 0
-        for repo in repos {
+        var commitMarkers: [GanttCommitMarker] = []
+        var countedRepoIDs = Set<String>()
+        for scope in repoScopes {
             guard !Task.isCancelled else { return .zero }
-            commitCount += cachedCommitCount(in: repo, during: interval, authorEmail: email)
+            let activity = cachedCommitActivity(in: scope.repo, during: interval, authorEmail: email)
+            if countedRepoIDs.insert(scope.repo.id).inserted {
+                commitCount += activity.commitCount
+            }
+            commitMarkers.append(contentsOf: activity.commits.map { commit in
+                GanttCommitMarker(
+                    id: commit.id,
+                    projectID: scope.projectID,
+                    date: commit.date,
+                    repoName: scope.repo.displayName,
+                    shortHash: commit.shortHash,
+                    subject: commit.subject
+                )
+            })
         }
 
         return GanttExternalMetrics(
             commitCount: commitCount,
             failureSignals: 0,
-            retrySignals: 0
+            retrySignals: 0,
+            commitMarkers: Array(commitMarkers.sorted { lhs, rhs in
+                if lhs.date != rhs.date { return lhs.date > rhs.date }
+                return lhs.id < rhs.id
+            }.prefix(48))
         )
     }
 
@@ -63,19 +82,22 @@ actor GanttGitMetricsLoader: GanttGitMetricsLoading {
         sessions: [Session],
         during interval: DateInterval,
         projectIDFilter: String?
-    ) -> [String] {
-        var cwds = Set<String>()
+    ) -> [ProjectCwdScope] {
+        var scopesByKey: [String: ProjectCwdScope] = [:]
         for session in sessions {
             guard !Task.isCancelled else { return [] }
-            if let projectIDFilter,
-               GanttTimelineBuilder.projectIdentity(for: session).id != projectIDFilter {
+            let identity = GanttTimelineBuilder.projectIdentity(for: session)
+            if let projectIDFilter, identity.id != projectIDFilter {
                 continue
             }
             guard sessionIntersects(session, interval: interval),
                   let cwd = GanttTimelineBuilder.normalizedPath(session.cwd) else { continue }
-            cwds.insert(cwd)
+            scopesByKey["\(identity.id)\u{1f}\(cwd)"] = ProjectCwdScope(projectID: identity.id, cwd: cwd)
         }
-        return cwds.sorted()
+        return scopesByKey.values.sorted {
+            if $0.projectID != $1.projectID { return $0.projectID < $1.projectID }
+            return $0.cwd < $1.cwd
+        }
     }
 
     private static func sessionIntersects(_ session: Session, interval: DateInterval) -> Bool {
@@ -83,27 +105,36 @@ actor GanttGitMetricsLoader: GanttGitMetricsLoading {
         return stats.activityIntervals.contains { ActivityAnalyzer.clip($0, to: interval) != nil }
     }
 
-    private func resolvedRepos(for cwds: [String]) -> [GitRepo] {
-        var seenRepos = Set<String>()
-        var repos: [GitRepo] = []
+    private func resolvedRepoScopes(for projectCwds: [ProjectCwdScope]) -> [ProjectRepoScope] {
+        var seenScopes = Set<String>()
+        var scopes: [ProjectRepoScope] = []
 
-        for cwd in cwds {
+        for projectCwd in projectCwds {
             guard !Task.isCancelled else { return [] }
-            if let cached = cwdRepoCache[cwd] {
-                if seenRepos.insert(cached.rootPath).inserted { repos.append(cached) }
+            if let cached = cwdRepoCache[projectCwd.cwd] {
+                let key = "\(projectCwd.projectID)\u{1f}\(cached.id)"
+                if seenScopes.insert(key).inserted {
+                    scopes.append(ProjectRepoScope(projectID: projectCwd.projectID, repo: cached))
+                }
                 continue
             }
-            if missingCwds.contains(cwd) { continue }
-            guard FileManager.default.fileExists(atPath: cwd),
-                  let repo = git.repo(forCwd: cwd) else {
-                missingCwds.insert(cwd)
+            if missingCwds.contains(projectCwd.cwd) { continue }
+            guard FileManager.default.fileExists(atPath: projectCwd.cwd),
+                  let repo = git.repo(forCwd: projectCwd.cwd) else {
+                missingCwds.insert(projectCwd.cwd)
                 continue
             }
-            cwdRepoCache[cwd] = repo
-            if seenRepos.insert(repo.rootPath).inserted { repos.append(repo) }
+            cwdRepoCache[projectCwd.cwd] = repo
+            let key = "\(projectCwd.projectID)\u{1f}\(repo.id)"
+            if seenScopes.insert(key).inserted {
+                scopes.append(ProjectRepoScope(projectID: projectCwd.projectID, repo: repo))
+            }
         }
 
-        return repos.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+        return scopes.sorted {
+            if $0.projectID != $1.projectID { return $0.projectID < $1.projectID }
+            return $0.repo.displayName.localizedCaseInsensitiveCompare($1.repo.displayName) == .orderedAscending
+        }
     }
 
     private func currentUserEmail() -> String? {
@@ -113,15 +144,32 @@ actor GanttGitMetricsLoader: GanttGitMetricsLoading {
         return userEmail
     }
 
-    private func cachedCommitCount(in repo: GitRepo, during interval: DateInterval, authorEmail: String?) -> Int {
-        let key = CommitCountKey(repoID: repo.id, interval: interval, authorEmail: authorEmail)
-        if let cached = commitCountCache[key] { return cached }
-        let count = git.commitCount(in: repo, during: interval, authorEmail: authorEmail)
-        commitCountCache[key] = count
-        return count
+    private func cachedCommitActivity(in repo: GitRepo, during interval: DateInterval, authorEmail: String?) -> CachedCommitActivity {
+        let key = CommitActivityKey(repoID: repo.id, interval: interval, authorEmail: authorEmail)
+        if let cached = commitActivityCache[key] { return cached }
+        let commits = git.commits(in: repo, during: interval, authorEmail: authorEmail)
+        let activity = CachedCommitActivity(commits: commits)
+        commitActivityCache[key] = activity
+        return activity
     }
 
-    private struct CommitCountKey: Hashable {
+    private struct CachedCommitActivity: Sendable {
+        let commits: [GitCommit]
+
+        var commitCount: Int { commits.count }
+    }
+
+    private struct ProjectCwdScope: Sendable {
+        let projectID: String
+        let cwd: String
+    }
+
+    private struct ProjectRepoScope: Sendable {
+        let projectID: String
+        let repo: GitRepo
+    }
+
+    private struct CommitActivityKey: Hashable {
         let repoID: String
         let start: Date
         let end: Date

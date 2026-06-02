@@ -7,9 +7,24 @@ import Testing
 struct GanttViewModelTests {
     @Test("AI active publishes current snapshot before git and baseline enrichment")
     func aiActivePublishesCurrentSnapshotBeforeEnrichment() async {
+        let markerDate = pastDay().addingTimeInterval(4 * 3_600)
         let gitLoader = DelayedGanttGitMetricsLoader(
             delay: .milliseconds(80),
-            metrics: GanttExternalMetrics(commitCount: 4, failureSignals: 0, retrySignals: 0)
+            metrics: GanttExternalMetrics(
+                commitCount: 4,
+                failureSignals: 0,
+                retrySignals: 0,
+                commitMarkers: [
+                    GanttCommitMarker(
+                        id: "repo|abcdef123",
+                        projectID: "/Users/dev/app",
+                        date: markerDate,
+                        repoName: "app",
+                        shortHash: "abcdef1",
+                        subject: "Ship gantt markers"
+                    ),
+                ]
+            )
         )
         let viewModel = GanttViewModel(gitMetricsLoader: gitLoader)
         viewModel.selectedDate = pastDay()
@@ -25,6 +40,7 @@ struct GanttViewModelTests {
         #expect(viewModel.isEnriching)
         #expect(viewModel.snapshot.projects.count == 1)
         #expect(viewModel.snapshot.metrics.commitCount == 0)
+        #expect(viewModel.snapshot.commitMarkers.isEmpty)
         #expect(viewModel.snapshot.baselineComparison == nil)
 
         let enriched = await eventually {
@@ -32,6 +48,8 @@ struct GanttViewModelTests {
         }
         #expect(enriched)
         #expect(viewModel.snapshot.metrics.commitCount == 4)
+        #expect(viewModel.snapshot.commitMarkers.map(\.shortHash) == ["abcdef1"])
+        #expect(viewModel.snapshot.commitMarkers.map(\.projectID) == ["/Users/dev/app"])
         #expect(!viewModel.isEnriching)
     }
 

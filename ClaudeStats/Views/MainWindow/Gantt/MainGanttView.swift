@@ -1531,13 +1531,14 @@ private struct GanttChartPanel: View {
     private let rowHeight: CGFloat = 46
 
     var body: some View {
-        let renderPlanKey = GanttTimelineRenderPlan.Key(revisionID: snapshot.renderRevisionID)
+        let renderPlanKey = GanttTimelineRenderPlan.Key(snapshot: snapshot)
         let renderPlan = cachedRenderPlanKey == renderPlanKey
             ? (cachedRenderPlan ?? makeRenderPlan(key: renderPlanKey))
             : makeRenderPlan(key: renderPlanKey)
 
         return VStack(alignment: .leading, spacing: 12) {
             panelHeader
+            GanttTimelineLegend(renderPlan: renderPlan, hasSelection: selectedSegment != nil)
 
             if snapshot.isEmpty {
                 emptyState
@@ -1635,10 +1636,14 @@ private struct GanttChartPanel: View {
                         viewport: $viewport
                     ) {
                         VStack(spacing: 0) {
-                            GanttTimelineHeader(ticks: renderPlan.ticks)
+                            GanttTimelineHeader(renderPlan: renderPlan)
                                 .frame(width: timelineWidth, height: headerHeight)
                             ZStack(alignment: .topLeading) {
-                                GanttTimelineCanvas(renderPlan: renderPlan, rowHeight: rowHeight)
+                                GanttTimelineCanvas(
+                                    renderPlan: renderPlan,
+                                    rowHeight: rowHeight,
+                                    selectedSegmentID: selectedSegment?.segmentID
+                                )
                                 GanttTimelineHitLayer(
                                     renderPlan: renderPlan,
                                     rowHeight: rowHeight,
@@ -1709,6 +1714,35 @@ private struct GanttChartPanel: View {
 private struct GanttTimelineRenderPlan {
     struct Key: Equatable {
         let revisionID: String
+        let annotationID: String
+
+        init(snapshot: GanttTimelineSnapshot) {
+            self.revisionID = snapshot.renderRevisionID
+            self.annotationID = Self.annotationID(for: snapshot)
+        }
+
+        private static func annotationID(for snapshot: GanttTimelineSnapshot) -> String {
+            let peak = snapshot.load.summary.highestTokenWindow.map {
+                "peak:\(timeID($0.start))-\(timeID($0.end)):\(snapshot.load.summary.highestTokenWindowTokens)"
+            } ?? "peak:none"
+            let usage = snapshot.load.groups
+                .first { $0.kind == .usageLimit }?
+                .lanes
+                .flatMap { lane in
+                    lane.segments.map {
+                        "\(lane.id):\(timeID($0.interval.start))-\(timeID($0.interval.end)):\(Int(($0.intensity * 100).rounded()))"
+                    }
+                }
+                .joined(separator: ",") ?? "usage:none"
+            let commits = snapshot.commitMarkers
+                .map { "\($0.projectID):\($0.id):\(timeID($0.date))" }
+                .joined(separator: ",")
+            return [peak, usage, commits].joined(separator: "|")
+        }
+
+        private static func timeID(_ date: Date) -> String {
+            String(Int((date.timeIntervalSinceReferenceDate * 1_000).rounded()))
+        }
     }
 
     struct Tick {
@@ -1721,6 +1755,8 @@ private struct GanttTimelineRenderPlan {
         let id: String
         let startRatio: CGFloat
         let endRatio: CGFloat
+        let tokenIntensity: Double
+        let focusRatio: Double
         let detail: SegmentDetail
     }
 
@@ -1741,6 +1777,26 @@ private struct GanttTimelineRenderPlan {
         var duration: TimeInterval { interval.duration }
     }
 
+    struct TokenPeak {
+        let startRatio: CGFloat
+        let endRatio: CGFloat
+        let tokens: Int
+    }
+
+    struct UsageLimitBand: Identifiable {
+        let id: String
+        let title: String
+        let startRatio: CGFloat
+        let endRatio: CGFloat
+        let intensity: Double
+    }
+
+    struct CommitMarker: Identifiable {
+        let id: String
+        let ratio: CGFloat
+        let label: String
+    }
+
     struct Row: Identifiable {
         let id: String
         let displayName: String
@@ -1752,6 +1808,7 @@ private struct GanttTimelineRenderPlan {
         let colorProvider: ProviderKind?
         let fallbackColorIndex: Int
         let segments: [Segment]
+        let commitMarkers: [CommitMarker]
     }
 
     let key: Key
@@ -1759,6 +1816,9 @@ private struct GanttTimelineRenderPlan {
     let domain: DateInterval
     let ticks: [Tick]
     let rows: [Row]
+    let providers: [ProviderKind]
+    let tokenPeak: TokenPeak?
+    let usageLimitBands: [UsageLimitBand]
 
     init(key: Key, snapshot: GanttTimelineSnapshot) {
         self.key = key
@@ -1771,14 +1831,60 @@ private struct GanttTimelineRenderPlan {
                 isMajor: tick.isMajor
             )
         }
+        self.providers = ProviderKind.allCases.filter { provider in
+            snapshot.projects.contains { $0.providers.contains(provider) }
+        }
+        let maxSegmentTokens = max(
+            1,
+            snapshot.projects.flatMap(\.segments).map { $0.usage.total }.max() ?? 0
+        )
+        self.tokenPeak = snapshot.load.summary.highestTokenWindow.map {
+            TokenPeak(
+                startRatio: GanttTimelineScale.ratio(for: $0.start, domain: snapshot.domain),
+                endRatio: GanttTimelineScale.ratio(for: $0.end, domain: snapshot.domain),
+                tokens: snapshot.load.summary.highestTokenWindowTokens
+            )
+        }
+        self.usageLimitBands = snapshot.load.groups
+            .first { $0.kind == .usageLimit }?
+            .lanes
+            .flatMap { lane in
+                lane.segments.map { segment in
+                    UsageLimitBand(
+                        id: "\(lane.id)|\(segment.id)",
+                        title: lane.title,
+                        startRatio: GanttTimelineScale.ratio(for: segment.interval.start, domain: snapshot.domain),
+                        endRatio: GanttTimelineScale.ratio(for: segment.interval.end, domain: snapshot.domain),
+                        intensity: segment.intensity
+                    )
+                }
+            } ?? []
+        let commitMarkersByProjectID = Dictionary(grouping: snapshot.commitMarkers, by: \.projectID)
         self.rows = snapshot.projects.enumerated().map { index, project in
             let providerList = project.providerList
             let durationText = Format.duration(project.totalDuration)
+            let commitMarkers = (commitMarkersByProjectID[project.id] ?? [])
+                .sorted { lhs, rhs in
+                    if lhs.date != rhs.date { return lhs.date > rhs.date }
+                    return lhs.id < rhs.id
+                }
+                .map {
+                    CommitMarker(
+                        id: $0.id,
+                        ratio: GanttTimelineScale.ratio(for: $0.date, domain: snapshot.domain),
+                        label: "\($0.shortHash) \($0.subject)"
+                    )
+                }
             let segments = project.segments.map { segment in
-                Segment(
+                let focusRatio = segment.duration > 0
+                    ? min(1, max(0, segment.focusOverlapDuration / segment.duration))
+                    : 0
+                return Segment(
                     id: segment.id,
                     startRatio: GanttTimelineScale.ratio(for: segment.interval.start, domain: snapshot.domain),
                     endRatio: GanttTimelineScale.ratio(for: segment.interval.end, domain: snapshot.domain),
+                    tokenIntensity: min(1, max(0.12, Double(segment.usage.total) / Double(maxSegmentTokens))),
+                    focusRatio: focusRatio,
                     detail: SegmentDetail(
                         id: segment.id,
                         projectName: project.displayName,
@@ -1810,7 +1916,8 @@ private struct GanttTimelineRenderPlan {
                 reference: project.reference,
                 colorProvider: providerList.first,
                 fallbackColorIndex: index,
-                segments: segments
+                segments: segments,
+                commitMarkers: commitMarkers
             )
         }
     }
@@ -2029,14 +2136,155 @@ private struct GanttProviderBadges: View {
     }
 }
 
+private struct GanttTimelineLegend: View {
+    let renderPlan: GanttTimelineRenderPlan
+    let hasSelection: Bool
+
+    var body: some View {
+        LazyVGrid(
+            columns: [GridItem(.adaptive(minimum: 118), spacing: 6, alignment: .leading)],
+            alignment: .leading,
+            spacing: 6
+        ) {
+            ForEach(renderPlan.providers) { provider in
+                GanttLegendChip(
+                    title: provider.displayName,
+                    sample: .provider(provider == .codex ? Color.stxAccent : provider.accentColor)
+                )
+            }
+            GanttLegendChip(title: String(localized: "Active time"), sample: .activeBar)
+            GanttLegendChip(title: String(localized: "Token intensity"), sample: .tokenIntensity)
+            GanttLegendChip(title: String(localized: "Now"), sample: .nowLine)
+            GanttLegendChip(title: String(localized: "Focus overlap"), sample: .focusOverlap)
+            GanttLegendChip(title: String(localized: "Token peak"), sample: .tokenPeak)
+            GanttLegendChip(title: String(localized: "Usage limit"), sample: .usageLimit)
+            GanttLegendChip(title: String(localized: "Commit"), sample: .commit)
+            GanttLegendChip(title: String(localized: "Selected"), sample: .selected)
+                .opacity(hasSelection ? 1 : 0.62)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color.primary.opacity(0.018), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(String(localized: "Gantt visual encoding legend"))
+    }
+}
+
+private struct GanttLegendChip: View {
+    let title: String
+    let sample: GanttLegendSample
+
+    var body: some View {
+        HStack(spacing: 6) {
+            GanttLegendSampleView(sample: sample)
+                .frame(width: 24, height: 14)
+            Text(title)
+                .font(.sora(9, weight: .medium))
+                .foregroundStyle(Color.stxMuted)
+                .lineLimit(1)
+                .minimumScaleFactor(0.78)
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 4)
+        .background(Color.primary.opacity(0.024), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private enum GanttLegendSample {
+    case provider(Color)
+    case activeBar
+    case tokenIntensity
+    case nowLine
+    case focusOverlap
+    case tokenPeak
+    case usageLimit
+    case commit
+    case selected
+}
+
+private struct GanttLegendSampleView: View {
+    let sample: GanttLegendSample
+
+    var body: some View {
+        Canvas { context, size in
+            switch sample {
+            case .provider(let color):
+                let rect = CGRect(x: 1, y: 3, width: size.width - 2, height: size.height - 6)
+                context.fill(Path(roundedRect: rect, cornerRadius: 3), with: .color(color.opacity(0.86)))
+                context.stroke(Path(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), cornerRadius: 2.5), with: .color(color), lineWidth: 1)
+            case .activeBar:
+                let rect = CGRect(x: 1, y: 4, width: size.width - 2, height: size.height - 8)
+                context.fill(Path(roundedRect: rect, cornerRadius: 3), with: .color(Color.stxAccent.opacity(0.78)))
+            case .tokenIntensity:
+                let low = CGRect(x: 1, y: 5, width: 8, height: size.height - 10)
+                let high = CGRect(x: 11, y: 2, width: size.width - 12, height: size.height - 4)
+                context.fill(Path(roundedRect: low, cornerRadius: 2), with: .color(Color.stxAccent.opacity(0.34)))
+                context.fill(Path(roundedRect: high, cornerRadius: 3), with: .color(Color.stxAccent.opacity(0.92)))
+            case .nowLine:
+                drawVerticalLine(context: &context, size: size, x: size.width / 2, color: Color.stxAccent, dash: [3, 3])
+            case .focusOverlap:
+                let rect = CGRect(x: 1, y: 3, width: size.width - 2, height: size.height - 6)
+                context.fill(Path(roundedRect: rect, cornerRadius: 3), with: .color(Color.stxAccent.opacity(0.30)))
+                drawFocusHatch(context: &context, rect: rect, color: Color.primary.opacity(0.44))
+            case .tokenPeak:
+                let rect = CGRect(x: 5, y: 1, width: size.width - 10, height: size.height - 2)
+                context.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(Color.yellow.opacity(0.28)))
+                context.stroke(Path(roundedRect: rect, cornerRadius: 2), with: .color(Color.yellow.opacity(0.90)), lineWidth: 1)
+            case .usageLimit:
+                let rect = CGRect(x: 4, y: 1, width: size.width - 8, height: size.height - 2)
+                context.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(Color.red.opacity(0.22)))
+                context.stroke(Path(roundedRect: rect, cornerRadius: 2), with: .color(Color.red.opacity(0.74)), style: StrokeStyle(lineWidth: 1, dash: [2, 2]))
+            case .commit:
+                var path = Path()
+                let center = CGPoint(x: size.width / 2, y: size.height / 2)
+                path.move(to: CGPoint(x: center.x, y: 1))
+                path.addLine(to: CGPoint(x: size.width - 6, y: center.y))
+                path.addLine(to: CGPoint(x: center.x, y: size.height - 1))
+                path.addLine(to: CGPoint(x: 6, y: center.y))
+                path.closeSubpath()
+                context.fill(path, with: .color(Color.green.opacity(0.82)))
+            case .selected:
+                let rect = CGRect(x: 2, y: 3, width: size.width - 4, height: size.height - 6)
+                context.stroke(Path(roundedRect: rect, cornerRadius: 3), with: .color(Color.primary.opacity(0.86)), lineWidth: 1.5)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func drawVerticalLine(
+        context: inout GraphicsContext,
+        size: CGSize,
+        x: CGFloat,
+        color: Color,
+        dash: [CGFloat] = []
+    ) {
+        var path = Path()
+        path.move(to: CGPoint(x: x, y: 0))
+        path.addLine(to: CGPoint(x: x, y: size.height))
+        context.stroke(path, with: .color(color.opacity(0.82)), style: StrokeStyle(lineWidth: 1.2, dash: dash))
+    }
+
+    private func drawFocusHatch(context: inout GraphicsContext, rect: CGRect, color: Color) {
+        var x = rect.minX - rect.height
+        while x < rect.maxX {
+            var line = Path()
+            line.move(to: CGPoint(x: x, y: rect.maxY))
+            line.addLine(to: CGPoint(x: x + rect.height, y: rect.minY))
+            context.stroke(line, with: .color(color), lineWidth: 1)
+            x += 5
+        }
+    }
+}
+
 private struct GanttTimelineHeader: View {
-    let ticks: [GanttTimelineRenderPlan.Tick]
+    let renderPlan: GanttTimelineRenderPlan
 
     var body: some View {
         Canvas { context, size in
             context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Color.primary.opacity(0.035)))
 
-            for tick in ticks where tick.isMajor {
+            for tick in renderPlan.ticks where tick.isMajor {
                 let x = tick.ratio * size.width
                 var line = Path()
                 line.move(to: CGPoint(x: x, y: size.height - 12))
@@ -2052,12 +2300,63 @@ private struct GanttTimelineHeader: View {
                 )
             }
 
+            if let tokenPeak = renderPlan.tokenPeak {
+                let midX = ((tokenPeak.startRatio + tokenPeak.endRatio) / 2) * size.width
+                drawMarkerLabel(
+                    text: String(localized: "Peak"),
+                    x: midX,
+                    y: 29,
+                    color: Color.yellow,
+                    context: &context,
+                    size: size
+                )
+            }
+
+            let now = Date.now
+            if renderPlan.domain.contains(now) {
+                let x = renderPlan.ratio(for: now) * size.width
+                drawMarkerLabel(
+                    text: String(localized: "Now"),
+                    x: x,
+                    y: 29,
+                    color: Color.stxAccent,
+                    context: &context,
+                    size: size
+                )
+            }
+
             var bottom = Path()
             bottom.move(to: CGPoint(x: 0, y: size.height - 0.5))
             bottom.addLine(to: CGPoint(x: size.width, y: size.height - 0.5))
             context.stroke(bottom, with: .color(Color.stxStroke.opacity(0.8)), lineWidth: 1)
         }
         .accessibilityHidden(true)
+    }
+
+    private func drawMarkerLabel(
+        text: String,
+        x: CGFloat,
+        y: CGFloat,
+        color: Color,
+        context: inout GraphicsContext,
+        size: CGSize
+    ) {
+        let width: CGFloat = text == String(localized: "Peak") ? 34 : 30
+        let rect = CGRect(
+            x: min(max(x - width / 2, 4), max(4, size.width - width - 4)),
+            y: y - 8,
+            width: width,
+            height: 16
+        )
+        context.fill(Path(roundedRect: rect, cornerRadius: 4), with: .color(color.opacity(0.14)))
+        context.stroke(Path(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), cornerRadius: 3.5), with: .color(color.opacity(0.72)), lineWidth: 1)
+        context.draw(
+            Text(text)
+                .font(.sora(8, weight: .semibold))
+                .foregroundStyle(color),
+            at: CGPoint(x: rect.midX, y: rect.midY),
+            anchor: .center
+        )
     }
 }
 
@@ -2182,14 +2481,46 @@ private struct GanttTimelineHitLayer: View {
 private struct GanttTimelineCanvas: View {
     let renderPlan: GanttTimelineRenderPlan
     let rowHeight: CGFloat
+    let selectedSegmentID: String?
 
     var body: some View {
         Canvas(rendersAsynchronously: true) { context, size in
+            drawAnnotationBands(context: &context, size: size)
             drawGrid(context: &context, size: size)
             drawBars(context: &context, size: size)
+            drawCommitMarkers(context: &context, size: size)
             drawNowLine(context: &context, size: size)
         }
         .accessibilityHidden(true)
+    }
+
+    private func drawAnnotationBands(context: inout GraphicsContext, size: CGSize) {
+        for band in renderPlan.usageLimitBands {
+            let startX = band.startRatio * size.width
+            let endX = band.endRatio * size.width
+            let width = min(size.width - startX, max(2, endX - startX))
+            guard width > 0 else { continue }
+
+            let rect = CGRect(x: startX, y: 0, width: width, height: size.height)
+            let opacity = 0.045 + min(0.18, max(0, band.intensity) * 0.16)
+            context.fill(Path(rect), with: .color(Color.red.opacity(opacity)))
+            context.stroke(
+                Path(rect),
+                with: .color(Color.red.opacity(0.20 + min(0.36, band.intensity * 0.28))),
+                style: StrokeStyle(lineWidth: 1, dash: [4, 4])
+            )
+        }
+
+        if let tokenPeak = renderPlan.tokenPeak {
+            let startX = tokenPeak.startRatio * size.width
+            let endX = tokenPeak.endRatio * size.width
+            let width = min(size.width - startX, max(2, endX - startX))
+            guard width > 0 else { return }
+
+            let rect = CGRect(x: startX, y: 0, width: width, height: size.height)
+            context.fill(Path(rect), with: .color(Color.yellow.opacity(0.085)))
+            context.stroke(Path(rect), with: .color(Color.yellow.opacity(0.34)), lineWidth: 1)
+        }
     }
 
     private func drawGrid(context: inout GraphicsContext, size: CGSize) {
@@ -2216,20 +2547,83 @@ private struct GanttTimelineCanvas: View {
 
     private func drawBars(context: inout GraphicsContext, size: CGSize) {
         for (index, row) in renderPlan.rows.enumerated() {
-            let color = color(for: row)
-            let y = CGFloat(index) * rowHeight + (rowHeight - 13) / 2
-
             for segment in row.segments {
+                let color = color(for: segment, row: row)
                 let startX = segment.startRatio * size.width
                 let endX = segment.endRatio * size.width
                 let width = min(size.width - startX, max(3, endX - startX))
                 guard width > 0 else { continue }
 
-                let rect = CGRect(x: startX, y: y, width: width, height: 13)
-                context.fill(Path(roundedRect: rect, cornerRadius: 4), with: .color(color.opacity(0.86)))
+                let height = 10 + CGFloat(segment.tokenIntensity) * 6
+                let y = CGFloat(index) * rowHeight + (rowHeight - height) / 2
+                let rect = CGRect(x: startX, y: y, width: width, height: height)
+                let fillOpacity = 0.48 + min(0.44, segment.tokenIntensity * 0.44)
+                context.fill(Path(roundedRect: rect, cornerRadius: 4), with: .color(color.opacity(fillOpacity)))
                 context.stroke(Path(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), cornerRadius: 3.5), with: .color(color), lineWidth: 1)
+
+                if segment.focusRatio > 0 {
+                    drawFocusHatch(context: &context, rect: rect.insetBy(dx: 1.5, dy: 1.5))
+                }
+
+                let selectionID = "\(row.id)|\(segment.id)"
+                if selectedSegmentID == selectionID {
+                    let selectedRect = rect.insetBy(dx: -2, dy: -2)
+                    context.stroke(
+                        Path(roundedRect: selectedRect, cornerRadius: 5),
+                        with: .color(Color.primary.opacity(0.88)),
+                        lineWidth: 2
+                    )
+                    context.stroke(
+                        Path(roundedRect: selectedRect.insetBy(dx: -2, dy: -2), cornerRadius: 7),
+                        with: .color(color.opacity(0.30)),
+                        lineWidth: 3
+                    )
+                }
             }
         }
+    }
+
+    private func drawFocusHatch(context: inout GraphicsContext, rect: CGRect) {
+        let color = Color.primary.opacity(0.38)
+        var x = rect.minX - rect.height
+        while x < rect.maxX {
+            var line = Path()
+            line.move(to: CGPoint(x: x, y: rect.maxY))
+            line.addLine(to: CGPoint(x: x + rect.height, y: rect.minY))
+            context.stroke(line, with: .color(color), lineWidth: 1)
+            x += 7
+        }
+    }
+
+    private func drawCommitMarkers(context: inout GraphicsContext, size: CGSize) {
+        for (index, row) in renderPlan.rows.enumerated() where !row.commitMarkers.isEmpty {
+            let rowTop = CGFloat(index) * rowHeight
+            let rowMidY = rowTop + rowHeight / 2
+            let lineStartY = rowTop + 6
+            let lineEndY = rowTop + rowHeight - 6
+
+            for marker in row.commitMarkers {
+                let x = marker.ratio * size.width
+                var line = Path()
+                line.move(to: CGPoint(x: x, y: lineStartY))
+                line.addLine(to: CGPoint(x: x, y: lineEndY))
+                context.stroke(line, with: .color(Color.green.opacity(0.26)), lineWidth: 1)
+
+                let diamond = diamondPath(center: CGPoint(x: x, y: rowMidY), radius: 5)
+                context.fill(diamond, with: .color(Color.green.opacity(0.86)))
+                context.stroke(diamond, with: .color(Color.green), lineWidth: 1)
+            }
+        }
+    }
+
+    private func diamondPath(center: CGPoint, radius: CGFloat) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: center.x, y: center.y - radius))
+        path.addLine(to: CGPoint(x: center.x + radius, y: center.y))
+        path.addLine(to: CGPoint(x: center.x, y: center.y + radius))
+        path.addLine(to: CGPoint(x: center.x - radius, y: center.y))
+        path.closeSubpath()
+        return path
     }
 
     private func drawNowLine(context: inout GraphicsContext, size: CGSize) {
@@ -2242,8 +2636,8 @@ private struct GanttTimelineCanvas: View {
         context.stroke(line, with: .color(Color.stxAccent.opacity(0.72)), style: StrokeStyle(lineWidth: 1.2, dash: [4, 4]))
     }
 
-    private func color(for row: GanttTimelineRenderPlan.Row) -> Color {
-        if let provider = row.colorProvider {
+    private func color(for segment: GanttTimelineRenderPlan.Segment, row: GanttTimelineRenderPlan.Row) -> Color {
+        if let provider = segment.detail.providers.first ?? row.colorProvider {
             return provider == .codex ? Color.stxAccent : provider.accentColor
         }
         let palette: [Color] = [.stxAccent, .blue, .green, .orange, .pink, .purple]

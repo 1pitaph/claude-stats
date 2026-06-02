@@ -113,6 +113,7 @@ struct GanttTimelineSnapshot: Equatable, Sendable {
     let segmentCount: Int
     let metrics: GanttMetricSummary
     let load: GanttLoadSnapshot
+    let commitMarkers: [GanttCommitMarker]
     let baselineComparison: GanttBaselineComparison?
     let renderRevisionID: String
 
@@ -136,6 +137,7 @@ struct GanttTimelineSnapshot: Equatable, Sendable {
             segmentCount: 0,
             metrics: .zero,
             load: .empty,
+            commitMarkers: [],
             baselineComparison: nil,
             renderRevisionID: renderRevisionID(
                 range: period.range,
@@ -204,6 +206,7 @@ struct GanttTimelineSnapshot: Equatable, Sendable {
             segmentCount: segmentCount,
             metrics: metrics,
             load: load,
+            commitMarkers: commitMarkers,
             baselineComparison: comparison,
             renderRevisionID: renderRevisionID
         )
@@ -221,6 +224,7 @@ struct GanttTimelineSnapshot: Equatable, Sendable {
             segmentCount: segmentCount,
             metrics: metrics,
             load: load,
+            commitMarkers: commitMarkers,
             baselineComparison: baselineComparison,
             renderRevisionID: renderRevisionID
         )
@@ -330,10 +334,32 @@ struct GanttMetricSummary: Equatable, Sendable {
     )
 }
 
+struct GanttCommitMarker: Equatable, Identifiable, Sendable {
+    let id: String
+    let projectID: String
+    let date: Date
+    let repoName: String
+    let shortHash: String
+    let subject: String
+}
+
 struct GanttExternalMetrics: Equatable, Sendable {
     let commitCount: Int
     let failureSignals: Int
     let retrySignals: Int
+    let commitMarkers: [GanttCommitMarker]
+
+    init(
+        commitCount: Int,
+        failureSignals: Int,
+        retrySignals: Int,
+        commitMarkers: [GanttCommitMarker] = []
+    ) {
+        self.commitCount = commitCount
+        self.failureSignals = failureSignals
+        self.retrySignals = retrySignals
+        self.commitMarkers = commitMarkers
+    }
 
     static let zero = GanttExternalMetrics(commitCount: 0, failureSignals: 0, retrySignals: 0)
 }

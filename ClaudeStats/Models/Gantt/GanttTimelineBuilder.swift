@@ -187,6 +187,7 @@ enum GanttTimelineBuilder {
             segmentCount: segmentCount,
             metrics: metrics,
             load: load,
+            commitMarkers: externalMetrics.commitMarkers,
             baselineComparison: nil,
             renderRevisionID: GanttTimelineSnapshot.renderRevisionID(
                 range: period.range,
@@ -215,30 +216,75 @@ enum GanttTimelineBuilder {
         during interval: DateInterval,
         projectIDFilter: String? = nil
     ) -> GanttExternalMetrics {
-        let cwds = Set(sessions.compactMap { session -> String? in
-            if let projectIDFilter, projectIdentity(for: session).id != projectIDFilter {
+        let projectCwds = sessions.compactMap { session -> ProjectCwdScope? in
+            let identity = projectIdentity(for: session)
+            if let projectIDFilter, identity.id != projectIDFilter {
                 return nil
             }
             guard let stats = session.stats,
                   stats.activityIntervals.contains(where: { ActivityAnalyzer.clip($0, to: interval) != nil }) else {
                 return nil
             }
-            return normalizedPath(session.cwd)
-        }).sorted()
-        guard !cwds.isEmpty else { return .zero }
+            guard let cwd = normalizedPath(session.cwd) else { return nil }
+            return ProjectCwdScope(projectID: identity.id, cwd: cwd)
+        }
+        guard !projectCwds.isEmpty else { return .zero }
         let git = GitAnalyzer()
         guard git.isAvailable else { return .zero }
-        let repos = git.repos(forCwds: cwds)
-        guard !repos.isEmpty else { return .zero }
+        let repoScopes = repoScopes(for: projectCwds, git: git)
+        guard !repoScopes.isEmpty else { return .zero }
         let email = git.currentUserEmail()
-        let commitCount = repos.reduce(0) {
-            $0 + git.commitCount(in: $1, during: interval, authorEmail: email)
+        var commitsByRepoID: [String: [GitCommit]] = [:]
+        var countedRepoIDs = Set<String>()
+        var commitCount = 0
+        let markers = repoScopes.flatMap { scope in
+            let commits: [GitCommit]
+            if let cached = commitsByRepoID[scope.repo.id] {
+                commits = cached
+            } else {
+                commits = git.commits(in: scope.repo, during: interval, authorEmail: email)
+                commitsByRepoID[scope.repo.id] = commits
+            }
+            if countedRepoIDs.insert(scope.repo.id).inserted {
+                commitCount += commits.count
+            }
+            return commits.map { commit in
+                GanttCommitMarker(
+                    id: commit.id,
+                    projectID: scope.projectID,
+                    date: commit.date,
+                    repoName: scope.repo.displayName,
+                    shortHash: commit.shortHash,
+                    subject: commit.subject
+                )
+            }
+        }
+        .sorted { lhs, rhs in
+            if lhs.date != rhs.date { return lhs.date > rhs.date }
+            return lhs.id < rhs.id
         }
         return GanttExternalMetrics(
             commitCount: commitCount,
             failureSignals: 0,
-            retrySignals: 0
+            retrySignals: 0,
+            commitMarkers: Array(markers.prefix(48))
         )
+    }
+
+    private static func repoScopes(for projectCwds: [ProjectCwdScope], git: GitAnalyzer) -> [ProjectRepoScope] {
+        var seenScopes = Set<String>()
+        var scopes: [ProjectRepoScope] = []
+        for projectCwd in projectCwds.sorted(by: { lhs, rhs in
+            if lhs.projectID != rhs.projectID { return lhs.projectID < rhs.projectID }
+            return lhs.cwd < rhs.cwd
+        }) {
+            guard FileManager.default.fileExists(atPath: projectCwd.cwd),
+                  let repo = git.repo(forCwd: projectCwd.cwd) else { continue }
+            let key = "\(projectCwd.projectID)\u{1f}\(repo.id)"
+            guard seenScopes.insert(key).inserted else { continue }
+            scopes.append(ProjectRepoScope(projectID: projectCwd.projectID, repo: repo))
+        }
+        return scopes
     }
 
     static func loadSnapshot(
@@ -674,6 +720,16 @@ enum GanttTimelineBuilder {
         var providers: Set<ProviderKind>
         var records: [SourceInterval]
         var latestActivity: Date
+    }
+
+    private struct ProjectCwdScope {
+        let projectID: String
+        let cwd: String
+    }
+
+    private struct ProjectRepoScope {
+        let projectID: String
+        let repo: GitRepo
     }
 
     private struct SourceInterval {

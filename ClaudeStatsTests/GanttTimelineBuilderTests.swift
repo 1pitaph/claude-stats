@@ -356,4 +356,32 @@ struct GanttTimelineBuilderTests {
         #expect(comparison.failureSignalDelta == 2)
         #expect(comparison.retrySignalDelta == 2)
     }
+
+    @Test("External commit markers are preserved for timeline rendering")
+    func externalCommitMarkersArePreserved() {
+        let marker = GanttCommitMarker(
+            id: "repo|abcdef123",
+            projectID: "/Users/dev/app",
+            date: h(2),
+            repoName: "app",
+            shortHash: "abcdef1",
+            subject: "Add legend"
+        )
+        let snapshot = GanttTimelineBuilder.build(
+            sessions: [
+                session("a", projectDirectoryName: "-Users-dev-app", cwd: "/Users/dev/app", intervals: [iv(1, 3)]),
+            ],
+            period: period(),
+            activityMode: .aiActive,
+            externalMetrics: GanttExternalMetrics(
+                commitCount: 1,
+                failureSignals: 0,
+                retrySignals: 0,
+                commitMarkers: [marker]
+            )
+        )
+
+        #expect(snapshot.metrics.commitCount == 1)
+        #expect(snapshot.commitMarkers == [marker])
+    }
 }
