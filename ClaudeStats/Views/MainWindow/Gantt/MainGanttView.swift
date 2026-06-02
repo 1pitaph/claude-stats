@@ -99,30 +99,28 @@ struct MainGanttView: View {
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .center, spacing: 12) {
                 GanttModeChips(mode: mode)
+                Spacer(minLength: 12)
+                loadingIndicator(isLoading)
                 GanttPeriodStepper(
+                    range: range,
                     selectedPeriod: selectedPeriod,
                     canStepForward: canStepForward,
                     onStepPeriod: onStepPeriod
                 )
-                Spacer(minLength: 0)
-                loadingIndicator(isLoading)
                 GanttRangeChips(range: range)
             }
-            .fixedSize(horizontal: true, vertical: false)
 
             VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 12) {
-                    GanttModeChips(mode: mode)
+                GanttModeChips(mode: mode)
+                HStack(spacing: 8) {
+                    Spacer(minLength: 0)
+                    loadingIndicator(isLoading)
                     GanttPeriodStepper(
+                        range: range,
                         selectedPeriod: selectedPeriod,
                         canStepForward: canStepForward,
                         onStepPeriod: onStepPeriod
                     )
-                    Spacer(minLength: 0)
-                    loadingIndicator(isLoading)
-                }
-                HStack {
-                    Spacer(minLength: 0)
                     GanttRangeChips(range: range)
                 }
             }
@@ -175,14 +173,17 @@ struct MainGanttView: View {
 private struct GanttRangeChips: View {
     @Binding var range: GanttRange
 
+    private static let values: [GanttRange] = [.week, .month]
+
     var body: some View {
         PillSegmentedBar(
-            GanttRange.allCases,
+            Self.values,
             selection: $range,
             help: { $0.help },
             accessibilityLabel: { $0.label }
         ) { value, _ in
             Text(value.label)
+                .fixedSize(horizontal: true, vertical: false)
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(String(localized: "Gantt range"))
@@ -207,22 +208,41 @@ private struct GanttModeChips: View {
 }
 
 private struct GanttPeriodStepper: View {
+    @Binding var range: GanttRange
     let selectedPeriod: String
     let canStepForward: Bool
     let onStepPeriod: (Int) -> Void
 
+    private var isSelected: Bool {
+        range == .day
+    }
+
     var body: some View {
         PillTimeStepperBar(
             canStepForward: canStepForward,
-            isCenterSelected: true,
-            previousHelp: String(localized: "Previous range"),
-            nextHelp: String(localized: "Next range"),
-            centerAccessibilityLabel: String(localized: "Selected range"),
-            accessibilityLabel: String(localized: "Gantt range navigation"),
-            onPrevious: { onStepPeriod(-1) },
-            onNext: { onStepPeriod(1) }
+            isCenterSelected: isSelected,
+            previousHelp: String(localized: "Previous day"),
+            nextHelp: String(localized: "Next day"),
+            centerHelp: String(localized: "Show selected day"),
+            centerAccessibilityLabel: String(localized: "Selected day"),
+            accessibilityLabel: String(localized: "Gantt day navigation"),
+            onPrevious: { stepDay(-1) },
+            onNext: { stepDay(1) },
+            onCenter: {
+                withAnimation(.easeOut(duration: 0.18)) {
+                    range = .day
+                }
+            }
         ) { _ in
             Text(selectedPeriod)
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func stepDay(_ offset: Int) {
+        withAnimation(.easeOut(duration: 0.18)) {
+            range = .day
+            onStepPeriod(offset)
         }
     }
 }
