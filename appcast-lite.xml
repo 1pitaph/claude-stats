@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
   <channel>
-    <title>Claude Stats</title>
-    <link>https://1pitaph.github.io/claude-stats/appcast.xml</link>
-    <description>Most recent updates to Claude Stats.</description>
+    <title>Claude Stats Lite</title>
+    <link>https://1pitaph.github.io/claude-stats/appcast-lite.xml</link>
+    <description>Most recent updates to Claude Stats Lite.</description>
     <language>en</language>
     <item>
       <title>Version 1.8.2</title>
@@ -24,7 +24,7 @@
 <div style="margin: 0; color: #1f2937; font-size: 13px; line-height: 1.55;">
   <p style="margin: 0 0 10px; color: #172033; font-size: 15px; font-weight: 700;">更新内容</p>
   <div style="margin: 0; padding: 0;">
-<h2>本次更新<span class="cs-update-size-pills"><span class="cs-update-size-pill cs-update-size-full">89.9 MB</span></span></h2>
+<h2>本次更新<span class="cs-update-size-pills"><span class="cs-update-size-pill cs-update-size-full">60.3 MB</span></span></h2>
 <ul>
 <li>在关于设置页面中添加了轻量版和完整版的切换提示与下载按钮，方便用户跳转获取对应版本的应用</li>
 <li>本次提交完成了多项核心改进：</li>
@@ -39,8 +39,8 @@
 </div>
 </div>
 ]]></description>
-      <pubDate>Tue, 02 Jun 2026 02:26:43 GMT</pubDate>
-      <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.8.2/ClaudeStats-1.8.2.dmg" sparkle:edSignature="b/M8z3I6AdT13A/rE/FlV+kWp0sIGZrq6RF8qaESs4R/RR+HVODJw2RikZ/jEHFq50aiWDgx7l4ZOxeWcezzAg==" length="89880319" type="application/octet-stream"/>
+      <pubDate>Tue, 02 Jun 2026 02:27:05 GMT</pubDate>
+      <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.8.2/ClaudeStatsLite-1.8.2.dmg" sparkle:edSignature="ApI/mEGa0WN+wiwyuKLkd1bOW4fdunzZEkhiUhHSOgdNRzIzUJGFIb3ut7ihTmldBFaAVRCtdrKyIA6elvEEBw==" length="60287540" type="application/octet-stream"/>
     </item>
   </channel>
 </rss>
