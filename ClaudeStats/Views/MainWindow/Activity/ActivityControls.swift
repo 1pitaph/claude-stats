@@ -61,7 +61,13 @@ private struct ActivityDailyPeriodControl: View {
                 }
             }
         ) { _ in
-            Text(ActivityDailyDateLabel.label(for: selectedDay))
+            Text(
+                RelativeDayLabel.label(
+                    for: selectedDay,
+                    todayKey: "activity.daily_date.today",
+                    yesterdayKey: "activity.daily_date.yesterday"
+                )
+            )
         }
         .fixedSize(horizontal: true, vertical: false)
     }
@@ -71,24 +77,6 @@ private struct ActivityDailyPeriodControl: View {
             onStepDay(offset)
             range = .day
         }
-    }
-}
-
-private enum ActivityDailyDateLabel {
-    static func label(for date: Date, now: Date = .now, calendar: Calendar = .current) -> String {
-        let day = calendar.startOfDay(for: date)
-        let today = calendar.startOfDay(for: now)
-        if day == today {
-            return L10n.string("activity.daily_date.today", defaultValue: "Today")
-        }
-
-        let yesterday = calendar.date(byAdding: .day, value: -1, to: today)
-            ?? today.addingTimeInterval(-86_400)
-        if day == yesterday {
-            return L10n.string("activity.daily_date.yesterday", defaultValue: "Yesterday")
-        }
-
-        return Format.day(day)
     }
 }
 

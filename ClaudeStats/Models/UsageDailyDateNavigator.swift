@@ -45,15 +45,13 @@ enum UsageDailyDateNavigator {
     static func label(for date: Date, now: Date = .now, calendar: Calendar = .current) -> String {
         let day = normalized(date, now: now, calendar: calendar)
         let today = todayStart(now: now, calendar: calendar)
-        if day == today {
-            return L10n.string("usage.daily_date.today", defaultValue: "Today")
-        }
-
         let yesterday = stepped(from: today, by: -1, now: now, calendar: calendar)
-        if day == yesterday {
-            return L10n.string("usage.daily_date.yesterday", defaultValue: "Yesterday")
-        }
-
-        return Format.day(day)
+        return RelativeDayLabel.label(
+            forDay: day,
+            today: today,
+            yesterday: yesterday,
+            todayKey: "usage.daily_date.today",
+            yesterdayKey: "usage.daily_date.yesterday"
+        )
     }
 }

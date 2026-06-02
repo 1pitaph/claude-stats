@@ -137,12 +137,14 @@ enum LeaderboardDailyDateNavigator {
     static func label(for date: Date, now: Date = .now) -> String {
         let day = normalized(date, now: now)
         let today = todayStartUTC(now: now)
-        if day == today { return "Today" }
-
         let yesterday = stepped(from: today, by: -1, now: now)
-        if day == yesterday { return "Yesterday" }
-
-        return Format.day(day)
+        return RelativeDayLabel.label(
+            forDay: day,
+            today: today,
+            yesterday: yesterday,
+            todayKey: "leaderboard.daily_date.today",
+            yesterdayKey: "leaderboard.daily_date.yesterday"
+        )
     }
 }
 
