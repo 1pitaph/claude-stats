@@ -173,7 +173,7 @@ struct MainGanttView: View {
 private struct GanttRangeChips: View {
     @Binding var range: GanttRange
 
-    private static let values: [GanttRange] = [.week, .month]
+    private static let values: [GanttRange] = [.day, .week, .month]
 
     var body: some View {
         PillSegmentedBar(
@@ -213,35 +213,60 @@ private struct GanttPeriodStepper: View {
     let canStepForward: Bool
     let onStepPeriod: (Int) -> Void
 
-    private var isSelected: Bool {
-        range == .day
-    }
-
     var body: some View {
         PillTimeStepperBar(
             canStepForward: canStepForward,
-            isCenterSelected: isSelected,
-            previousHelp: String(localized: "Previous day"),
-            nextHelp: String(localized: "Next day"),
-            centerHelp: String(localized: "Show selected day"),
-            centerAccessibilityLabel: String(localized: "Selected day"),
-            accessibilityLabel: String(localized: "Gantt day navigation"),
-            onPrevious: { stepDay(-1) },
-            onNext: { stepDay(1) },
-            onCenter: {
-                withAnimation(.easeOut(duration: 0.18)) {
-                    range = .day
-                }
-            }
+            previousHelp: previousHelp,
+            nextHelp: nextHelp,
+            centerHelp: centerHelp,
+            centerAccessibilityLabel: centerAccessibilityLabel,
+            accessibilityLabel: accessibilityLabel,
+            onPrevious: { stepSelectedPeriod(-1) },
+            onNext: { stepSelectedPeriod(1) }
         ) { _ in
             Text(selectedPeriod)
         }
         .fixedSize(horizontal: true, vertical: false)
     }
 
-    private func stepDay(_ offset: Int) {
+    private var previousHelp: String {
+        switch range {
+        case .day: String(localized: "Previous day")
+        case .week: String(localized: "Previous week")
+        case .month: String(localized: "Previous month")
+        }
+    }
+
+    private var nextHelp: String {
+        switch range {
+        case .day: String(localized: "Next day")
+        case .week: String(localized: "Next week")
+        case .month: String(localized: "Next month")
+        }
+    }
+
+    private var centerHelp: String {
+        switch range {
+        case .day: String(localized: "Selected day")
+        case .week: String(localized: "Selected week")
+        case .month: String(localized: "Selected month")
+        }
+    }
+
+    private var centerAccessibilityLabel: String {
+        centerHelp
+    }
+
+    private var accessibilityLabel: String {
+        switch range {
+        case .day: String(localized: "Gantt day navigation")
+        case .week: String(localized: "Gantt week navigation")
+        case .month: String(localized: "Gantt month navigation")
+        }
+    }
+
+    private func stepSelectedPeriod(_ offset: Int) {
         withAnimation(.easeOut(duration: 0.18)) {
-            range = .day
             onStepPeriod(offset)
         }
     }

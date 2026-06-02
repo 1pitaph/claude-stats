@@ -51,7 +51,11 @@ final class GanttViewModel {
         let period = period
         switch range {
         case .day:
-            return Format.day(period.domain.start)
+            return RelativeDayLabel.label(
+                for: period.domain.start,
+                todayKey: "gantt.daily_date.today",
+                yesterdayKey: "gantt.daily_date.yesterday"
+            )
         case .week:
             let end = period.domain.end.addingTimeInterval(-1)
             return "\(Format.day(period.domain.start)) - \(Format.day(end))"
