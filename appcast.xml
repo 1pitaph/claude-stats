@@ -6,6 +6,46 @@
     <description>Most recent updates to Claude Stats.</description>
     <language>en</language>
     <item>
+      <title>Version 1.8.3</title>
+      <sparkle:version>83</sparkle:version>
+      <sparkle:shortVersionString>1.8.3</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0.0</sparkle:minimumSystemVersion>
+      <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+      <description><![CDATA[
+<div class="cs-appcast-notes" style="font-family: -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif; color: #1f2937;">
+  <style>
+    .cs-update-size-fallback { margin: 0 0 14px; }
+    .cs-update-size-pills { display: inline-flex; align-items: center; margin-left: 10px; min-width: 0; vertical-align: middle; }
+    .cs-update-size-pill { display: inline-block; padding: 4px 10px; border: 0; border-radius: 999px; background: #eaf1ff; color: #172033; font-size: 12px; font-weight: 700; line-height: 1.2; white-space: nowrap; }
+    .cs-update-size-delta { display: none; }
+    .cs-update-size-delta.sparkle-installed-version { display: inline-block; }
+    .cs-update-size-delta.sparkle-installed-version ~ .cs-update-size-full { display: none; }
+  </style>
+<div style="margin: 0; color: #1f2937; font-size: 13px; line-height: 1.55;">
+  <p style="margin: 0 0 10px; color: #172033; font-size: 15px; font-weight: 700;">更新内容</p>
+  <div style="margin: 0; padding: 0;">
+<h2>本次更新<span class="cs-update-size-pills"><span class="cs-update-size-pill cs-update-size-delta" data-sparkle-version="82">2.7 MB</span><span class="cs-update-size-pill cs-update-size-full">90.2 MB</span></span></h2>
+<ul>
+<li>新增GanttCommitMarker模型用于存储提交信息</li>
+<li>扩展GanttExternalMetrics支持提交标记列表</li>
+<li>在甘特图渲染中绘制提交标记菱形图标与图例</li>
+<li>新增测试用例验证提交标记的保存与展示逻辑</li>
+<li>优化缓存逻辑，复用提交查询结果避免重复计算</li>
+<li>新增了完整的甘特图横向滚动视图、时间线视口管理组件，添加了带单位的签名令牌格式化函数，重构了基线面板的令牌展示逻辑，并实现了时间线缩略交互控制。</li>
+<li>新增测试用例覆盖格式化工具和视口计算逻辑，重构了时间线刻度生成逻辑以支持小时级细分显示。</li>
+<li>新增格式化工具方法，包括短时间、带符号时长/计数/货币格式</li>
+</ul>
+  </div>
+</div>
+</div>
+]]></description>
+      <pubDate>Tue, 02 Jun 2026 12:22:36 GMT</pubDate>
+      <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.8.3/ClaudeStats-1.8.3.dmg" sparkle:edSignature="hou5H6L1j4lXiJGtImDEtRzhXTYrPa8MdwGNa0yiomxGj4p+HHPp1eU6fQOGQPK0ZB5cjDMpRos9ehn6Wj/1AQ==" length="90154478" type="application/octet-stream"/>
+      <sparkle:deltas>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.8.3/ClaudeStats-83-from-82.delta" sparkle:deltaFrom="82" sparkle:edSignature="vaJexfO3ir40W4kSoK3Ij4wyo/lRWr+8qbGFqwWqrfG2IymwEl+10eV5WAfVAJ01doaXObueYxCw9Hr1PFTnDA==" length="2689058" type="application/octet-stream"/>
+      </sparkle:deltas>
+    </item>
+    <item>
       <title>Version 1.8.2</title>
       <sparkle:version>82</sparkle:version>
       <sparkle:shortVersionString>1.8.2</sparkle:shortVersionString>
