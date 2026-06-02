@@ -5,6 +5,8 @@ struct MainGanttView: View {
     @Environment(AppEnvironment.self) private var env
     @State private var vm = GanttViewModel()
     @State private var selectedProject: GanttProjectReference?
+    @State private var timelineViewport = GanttTimelineViewport()
+    @State private var timelineResetID: UInt64 = 0
 
     private struct ReloadKey: Equatable {
         let range: GanttRange
@@ -46,13 +48,16 @@ struct MainGanttView: View {
                     permissionGate
                 } else {
                     GanttOverviewPanel(snapshot: vm.snapshot)
-                    GanttBaselinePanel(comparison: vm.snapshot.baselineComparison)
-                    GanttTimelineOverviewPanel(snapshot: vm.snapshot) { date in
-                        vm.focusDateIfPeriodChanges(date)
-                    }
-                    GanttChartPanel(snapshot: vm.snapshot, emptyMessage: chartEmptyMessage) { project in
+                    GanttTimelineOverviewPanel(snapshot: vm.snapshot, viewport: $timelineViewport)
+                    GanttChartPanel(
+                        snapshot: vm.snapshot,
+                        emptyMessage: chartEmptyMessage,
+                        viewport: $timelineViewport,
+                        resetID: timelineResetID
+                    ) { project in
                         selectedProject = project
                     }
+                    GanttBaselinePanel(comparison: vm.snapshot.baselineComparison)
                     GanttLoadPanel(load: vm.snapshot.load, domain: vm.snapshot.domain)
                 }
             }
@@ -77,6 +82,15 @@ struct MainGanttView: View {
         }
         .onChange(of: env.usageLimits.reports) { _, reports in
             vm.refreshUsageLimitReports(Array(reports.values))
+        }
+        .onChange(of: vm.range) { _, _ in
+            resetTimelineViewport()
+        }
+        .onChange(of: vm.selectedDate) { _, _ in
+            resetTimelineViewport()
+        }
+        .onChange(of: vm.snapshot.renderRevisionID) { _, _ in
+            resetTimelineViewport()
         }
         .task {
             await env.usageLimits.refreshSupportedProviders()
@@ -192,6 +206,11 @@ struct MainGanttView: View {
             codingSurfaceBundleIDs: codingSurfaceBundleIDs,
             cliHostBundleIDs: cliHostBundleIDs
         )
+    }
+
+    private func resetTimelineViewport() {
+        timelineViewport = GanttTimelineViewport()
+        timelineResetID &+= 1
     }
 
     private func sessionsFingerprint(_ sessions: [Session]) -> SessionsFingerprint {
@@ -425,7 +444,7 @@ private struct GanttBaselinePanel: View {
                     Grid(horizontalSpacing: 0, verticalSpacing: 0) {
                         GridRow {
                             baselineCard("ACTIVE", Format.signedDuration(comparison.activeDurationDelta))
-                            baselineCard("TOKENS", Format.signedCount(comparison.tokensDelta))
+                            baselineCard("TOKENS", Format.signedTokens(comparison.tokensDelta))
                         }
                         GridRow {
                             baselineCard("COST", Format.signedCurrency(comparison.costDelta))
@@ -460,7 +479,7 @@ private struct GanttBaselinePanel: View {
     private func deltaCards(_ comparison: GanttBaselineComparison) -> some View {
         baselineCard("ACTIVE", Format.signedDuration(comparison.activeDurationDelta))
         Divider().opacity(0.5)
-        baselineCard("TOKENS", Format.signedCount(comparison.tokensDelta))
+        baselineCard("TOKENS", Format.signedTokens(comparison.tokensDelta))
         Divider().opacity(0.5)
         baselineCard("COST", Format.signedCurrency(comparison.costDelta))
         Divider().opacity(0.5)
@@ -480,7 +499,12 @@ private struct GanttBaselinePanel: View {
 
 private struct GanttTimelineOverviewPanel: View {
     let snapshot: GanttTimelineSnapshot
-    let onSelectDate: (Date) -> Void
+    @Binding var viewport: GanttTimelineViewport
+    @State private var dragSession: GanttOverviewViewportDragSession?
+
+    private var isInteractive: Bool {
+        GanttTimelineViewportMetrics.overviewIsInteractive(range: snapshot.range, viewport: viewport)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -489,19 +513,31 @@ private struct GanttTimelineOverviewPanel: View {
                     .font(.sora(13, weight: .semibold))
                     .tracking(1.0)
                 Spacer(minLength: 12)
-                Text("Drag to move the visible period.")
-                    .font(.sora(10))
-                    .foregroundStyle(Color.stxMuted)
+                if isInteractive {
+                    Text("Drag to move the visible period.")
+                        .font(.sora(10))
+                        .foregroundStyle(Color.stxMuted)
+                }
             }
 
             GeometryReader { proxy in
-                GanttOverviewCanvas(snapshot: snapshot)
-                    .gesture(
-                        DragGesture(minimumDistance: 0)
-                            .onChanged { value in
-                                onSelectDate(date(at: value.location.x, width: proxy.size.width))
-                            }
-                    )
+                ZStack(alignment: .topLeading) {
+                    GanttOverviewCanvas(snapshot: snapshot)
+
+                    if isInteractive {
+                        GanttOverviewViewportOverlay(
+                            viewport: viewport,
+                            overviewSize: proxy.size
+                        )
+                        .allowsHitTesting(false)
+
+                        GanttOverviewViewportDragLayer(
+                            viewport: $viewport,
+                            overviewSize: proxy.size,
+                            dragSession: $dragSession
+                        )
+                    }
+                }
             }
             .frame(height: 58)
             .clipShape(.rect(cornerRadius: 6))
@@ -511,12 +547,76 @@ private struct GanttTimelineOverviewPanel: View {
             }
         }
         .mainWindowPanel(padding: 16)
+        .onChange(of: isInteractive) { _, _ in
+            dragSession = nil
+        }
+        .onChange(of: snapshot.renderRevisionID) { _, _ in
+            dragSession = nil
+        }
+    }
+}
+
+private enum GanttOverviewViewportDragSession: Equatable {
+    case active(startOffsetX: CGFloat)
+    case ignored
+}
+
+private struct GanttOverviewViewportOverlay: View {
+    let viewport: GanttTimelineViewport
+    let overviewSize: CGSize
+
+    private var rect: CGRect {
+        GanttTimelineViewportMetrics.overviewThumbRect(viewport: viewport, overviewSize: overviewSize)
     }
 
-    private func date(at x: CGFloat, width: CGFloat) -> Date {
-        guard width > 0 else { return snapshot.domain.start }
-        let ratio = min(1, max(0, Double(x / width)))
-        return snapshot.domain.start.addingTimeInterval(snapshot.domain.duration * ratio)
+    var body: some View {
+        RoundedRectangle(cornerRadius: 5, style: .continuous)
+            .fill(Color.stxAccent.opacity(0.14))
+            .overlay {
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .strokeBorder(Color.stxAccent.opacity(0.72), lineWidth: 1)
+            }
+            .frame(width: rect.width, height: rect.height)
+            .offset(x: rect.minX, y: rect.minY)
+            .contentShape(Rectangle())
+            .accessibilityLabel(String(localized: "Visible timeline period"))
+    }
+}
+
+private struct GanttOverviewViewportDragLayer: View {
+    @Binding var viewport: GanttTimelineViewport
+    let overviewSize: CGSize
+    @Binding var dragSession: GanttOverviewViewportDragSession?
+
+    var body: some View {
+        Color.clear
+            .frame(width: max(0, overviewSize.width), height: max(0, overviewSize.height))
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        if dragSession == nil {
+                            let thumbRect = GanttTimelineViewportMetrics
+                                .overviewThumbRect(viewport: viewport, overviewSize: overviewSize)
+                                .insetBy(dx: -6, dy: 0)
+                            dragSession = thumbRect.contains(value.startLocation)
+                                ? .active(startOffsetX: viewport.offsetX)
+                                : .ignored
+                        }
+
+                        guard case .active(let startOffsetX) = dragSession else { return }
+                        let delta = GanttTimelineViewportMetrics.offsetDeltaForOverviewDrag(
+                            translationX: value.translation.width,
+                            overviewWidth: overviewSize.width,
+                            viewport: viewport
+                        )
+                        viewport = viewport.withOffset(startOffsetX + delta)
+                    }
+                    .onEnded { _ in
+                        dragSession = nil
+                    }
+            )
+            .accessibilityHidden(true)
     }
 }
 
@@ -1419,6 +1519,8 @@ private struct GanttChartPanel: View {
     var title: LocalizedStringKey = "PROJECT TIMELINE"
     var captionOverride: String?
     var emptyMessage: String?
+    @Binding var viewport: GanttTimelineViewport
+    var resetID: UInt64 = 0
     var onSelectProject: ((GanttProjectReference) -> Void)?
     @State private var cachedRenderPlanKey: GanttTimelineRenderPlan.Key?
     @State private var cachedRenderPlan: GanttTimelineRenderPlan?
@@ -1450,6 +1552,9 @@ private struct GanttChartPanel: View {
         .onChange(of: renderPlanKey) { _, newKey in
             selectedSegment = nil
             cacheRenderPlanIfNeeded(newKey)
+        }
+        .onChange(of: resetID) { _, _ in
+            selectedSegment = nil
         }
     }
 
@@ -1512,10 +1617,11 @@ private struct GanttChartPanel: View {
         let totalHeight = headerHeight + rowsHeight
 
         return GeometryReader { proxy in
-            let rawTimelineWidth = proxy.size.width - leftColumnWidth - 1
-            let timelineWidth = GanttTimelineMetrics.bucketedWidth(
-                for: rawTimelineWidth,
-                minimum: renderPlan.preferredTimelineWidth
+            let rawTimelineWidth = max(0, proxy.size.width - leftColumnWidth - 1)
+            let timelineWidth = GanttTimelineViewportMetrics.contentWidth(
+                range: renderPlan.range,
+                domain: renderPlan.domain,
+                viewportWidth: rawTimelineWidth
             )
 
             ZStack(alignment: .topLeading) {
@@ -1523,7 +1629,11 @@ private struct GanttChartPanel: View {
                     projectColumn(renderPlan)
                         .frame(width: leftColumnWidth)
 
-                    AppScrollView(.horizontal) {
+                    GanttHorizontalTimelineScrollView(
+                        contentWidth: timelineWidth,
+                        contentHeight: totalHeight,
+                        viewport: $viewport
+                    ) {
                         VStack(spacing: 0) {
                             GanttTimelineHeader(ticks: renderPlan.ticks)
                                 .frame(width: timelineWidth, height: headerHeight)
@@ -1538,7 +1648,7 @@ private struct GanttChartPanel: View {
                             .frame(width: timelineWidth, height: rowsHeight)
                         }
                     }
-                    .frame(minWidth: 0, maxWidth: .infinity)
+                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: totalHeight, maxHeight: totalHeight)
                 }
             }
         }
@@ -1596,33 +1706,6 @@ private struct GanttChartPanel: View {
     }
 }
 
-private enum GanttTimelineMetrics {
-    static let widthStep: CGFloat = 16
-
-    static func bucketedWidth(for rawWidth: CGFloat, minimum: CGFloat) -> CGFloat {
-        let width = max(rawWidth, minimum)
-        let bucket = (width / widthStep).rounded(.up) * widthStep
-        return max(minimum, bucket)
-    }
-
-    static func preferredTimelineWidth(range: GanttRange, domain: DateInterval) -> CGFloat {
-        switch range {
-        case .day:
-            980
-        case .week:
-            1_120
-        case .month:
-            max(1_420, CGFloat(calendarDaySpan(domain)) * 48)
-        }
-    }
-
-    private static func calendarDaySpan(_ interval: DateInterval) -> Int {
-        let calendar = Calendar.current
-        let days = calendar.dateComponents([.day], from: interval.start, to: interval.end).day ?? 1
-        return max(1, days)
-    }
-}
-
 private struct GanttTimelineRenderPlan {
     struct Key: Equatable {
         let revisionID: String
@@ -1672,13 +1755,14 @@ private struct GanttTimelineRenderPlan {
     }
 
     let key: Key
+    let range: GanttRange
     let domain: DateInterval
     let ticks: [Tick]
     let rows: [Row]
-    let preferredTimelineWidth: CGFloat
 
     init(key: Key, snapshot: GanttTimelineSnapshot) {
         self.key = key
+        self.range = snapshot.range
         self.domain = snapshot.domain
         self.ticks = GanttTimelineScale.ticks(for: snapshot.range, domain: snapshot.domain).map { tick in
             Tick(
@@ -1729,10 +1813,6 @@ private struct GanttTimelineRenderPlan {
                 segments: segments
             )
         }
-        self.preferredTimelineWidth = GanttTimelineMetrics.preferredTimelineWidth(
-            range: snapshot.range,
-            domain: snapshot.domain
-        )
     }
 
     func ratio(for date: Date) -> CGFloat {
@@ -2206,22 +2286,33 @@ private enum GanttTimelineScale {
         case .week:
             return strideTicks(
                 domain: domain,
-                component: .day,
+                component: .hour,
                 calendar: calendar
             ) { date in
-                GanttTick(date: date, label: Format.day(date), isMajor: true)
+                multiDayTick(for: date, calendar: calendar)
             }
         case .month:
             return strideTicks(
                 domain: domain,
-                component: .day,
+                component: .hour,
                 calendar: calendar
             ) { date in
-                let weekday = calendar.component(.weekday, from: date)
-                let day = calendar.component(.day, from: date)
-                return GanttTick(date: date, label: Format.day(date), isMajor: day == 1 || weekday == calendar.firstWeekday)
+                multiDayTick(for: date, calendar: calendar)
             }
         }
+    }
+
+    private static func multiDayTick(for date: Date, calendar: Calendar) -> GanttTick {
+        let hour = calendar.component(.hour, from: date)
+        if hour == 0 {
+            return GanttTick(date: date, label: Format.day(date), isMajor: true)
+        }
+
+        return GanttTick(
+            date: date,
+            label: date.formatted(.dateTime.hour(.defaultDigits(amPM: .abbreviated))),
+            isMajor: hour % 3 == 0
+        )
     }
 
     private static func strideTicks(

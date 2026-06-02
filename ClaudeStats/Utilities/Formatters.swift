@@ -68,6 +68,13 @@ enum Format {
         return count > 0 ? "+\(count)" : "\(count)"
     }
 
+    /// Signed compact token deltas: `+12.34K`, `-4.12M`, `0`.
+    static func signedTokens(_ count: Int) -> String {
+        if count == 0 { return "0" }
+        let rendered = tokens(abs(count))
+        return count > 0 ? "+\(rendered)" : "-\(rendered)"
+    }
+
     static func signedCurrency(_ amount: Double) -> String {
         if abs(amount) < 0.005 { return "$0.00" }
         return amount > 0 ? "+\(cost(amount))" : "-\(cost(abs(amount)))"
