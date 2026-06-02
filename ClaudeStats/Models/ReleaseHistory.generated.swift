@@ -3,6 +3,18 @@
 extension ReleaseHistoryCatalog {
     static let generatedEntries: [ReleaseHistoryEntry] = [
         ReleaseHistoryEntry(
+            version: "1.8.3",
+            date: "June 2, 2026",
+            headline: "新增GanttCommitMarker模型用于存储提交信息",
+            changes: [
+                "扩展GanttExternalMetrics支持提交标记列表",
+                "在甘特图渲染中绘制提交标记菱形图标与图例",
+                "新增测试用例验证提交标记的保存与展示逻辑",
+                "优化缓存逻辑，复用提交查询结果避免重复计算",
+                "新增了完整的甘特图横向滚动视图、时间线视口管理组件，添加了带单位的签名令牌格式化函数，重构了基线面板的令牌展示逻辑，并实现了时间线缩略交互控制。",
+            ]
+        ),
+        ReleaseHistoryEntry(
             version: "1.8.2",
             date: "June 2, 2026",
             headline: "在关于设置页面中添加了轻量版和完整版的切换提示与下载按钮，方便用户跳转获取对应版本的应用",
