@@ -91,6 +91,23 @@ struct UsageSummaryTests {
         #expect(summary.totalTokens == 50)
     }
 
+    @Test("Explicit day summaries do not include later days")
+    func explicitDaySummaryExcludesLaterDays() {
+        let sessions = [
+            session("selected", daysAgo: 3, hour: 10, model: "model-a", count: 70),
+            session("later", daysAgo: 2, hour: 10, model: "model-a", count: 900),
+        ]
+        let day = cal.date(byAdding: .day, value: -3, to: .now)!
+        let summary = UsageSummary.makeDay(day, sessions: sessions, pricing: TestPricing.table)
+        let series = summary.trendSeries(now: day)
+
+        #expect(summary.period == .today)
+        #expect(summary.sessionCount == 1)
+        #expect(summary.totalTokens == 70)
+        #expect(series.granularity == .hour)
+        #expect(series.buckets.first?.start == cal.startOfDay(for: day))
+    }
+
     @Test("Custom-range summaries chart at daily granularity")
     func dailyGranularity() {
         let sessions = [
@@ -264,6 +281,7 @@ struct UsageSummaryTests {
 
         let key = UsageDerivedData.Key(
             period: .allTime,
+            selectedDay: UsageDailyDateNavigator.todayStart(),
             provider: .claude,
             lastRefreshedAt: store.lastRefreshedAt
         )
@@ -271,9 +289,53 @@ struct UsageSummaryTests {
 
         #expect(snapshot.summary.totalTokens == 120)
         #expect(snapshot.series.models == ["model-a"])
-        #expect(key == UsageDerivedData.Key(period: .allTime, provider: .claude, lastRefreshedAt: store.lastRefreshedAt))
-        #expect(key != UsageDerivedData.Key(period: .last7Days, provider: .claude, lastRefreshedAt: store.lastRefreshedAt))
-        #expect(key != UsageDerivedData.Key(period: .allTime, provider: .codex, lastRefreshedAt: store.lastRefreshedAt))
+        #expect(key == UsageDerivedData.Key(
+            period: .allTime,
+            selectedDay: key.selectedDay,
+            provider: .claude,
+            lastRefreshedAt: store.lastRefreshedAt
+        ))
+        #expect(key != UsageDerivedData.Key(
+            period: .last7Days,
+            selectedDay: key.selectedDay,
+            provider: .claude,
+            lastRefreshedAt: store.lastRefreshedAt
+        ))
+        #expect(key != UsageDerivedData.Key(
+            period: .allTime,
+            selectedDay: key.selectedDay,
+            provider: .codex,
+            lastRefreshedAt: store.lastRefreshedAt
+        ))
+    }
+
+    @MainActor
+    @Test("Today derived data follows selected usage day")
+    func todayDerivedDataUsesSelectedDay() {
+        let store = SessionStore(registry: ProviderRegistry(pricing: TestPricing.table), pricing: TestPricing.table)
+        let selectedDay = cal.date(byAdding: .day, value: -2, to: .now)!
+        store.loadPreviewSessions([
+            session("selected-day", daysAgo: 2, hour: 10, model: "model-a", count: 220),
+            session("today", daysAgo: 0, hour: 10, model: "model-a", count: 900),
+        ])
+
+        let key = UsageDerivedData.Key(
+            period: .today,
+            selectedDay: UsageDailyDateNavigator.normalized(selectedDay),
+            provider: .claude,
+            lastRefreshedAt: store.lastRefreshedAt
+        )
+        let data = UsageDerivedData.make(key: key, store: store)
+
+        #expect(data.summary.totalTokens == 220)
+        #expect(data.series.granularity == .hour)
+        #expect(data.series.buckets.first?.start == cal.startOfDay(for: selectedDay))
+        #expect(key != UsageDerivedData.Key(
+            period: .today,
+            selectedDay: UsageDailyDateNavigator.todayStart(),
+            provider: .claude,
+            lastRefreshedAt: store.lastRefreshedAt
+        ))
     }
 
     @MainActor
@@ -285,6 +347,7 @@ struct UsageSummaryTests {
         ])
         let key = UsageDerivedData.Key(
             period: .allTime,
+            selectedDay: UsageDailyDateNavigator.todayStart(),
             provider: .claude,
             lastRefreshedAt: store.lastRefreshedAt
         )
@@ -321,6 +384,7 @@ struct UsageSummaryTests {
         ])
         let key = UsageDerivedData.Key(
             period: .allTime,
+            selectedDay: UsageDailyDateNavigator.todayStart(),
             provider: .claude,
             lastRefreshedAt: store.lastRefreshedAt
         )
@@ -355,6 +419,7 @@ struct UsageSummaryTests {
         ])
         let key = UsageDerivedData.Key(
             period: .allTime,
+            selectedDay: UsageDailyDateNavigator.todayStart(),
             provider: .claude,
             lastRefreshedAt: store.lastRefreshedAt
         )

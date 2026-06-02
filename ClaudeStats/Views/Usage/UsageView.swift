@@ -133,6 +133,7 @@ struct UsageView: View {
     private var usageDataKey: UsageDerivedData.Key {
         UsageDerivedData.Key(
             period: vm.period,
+            selectedDay: UsageDailyDateNavigator.normalized(vm.selectedDay),
             provider: env.preferences.selectedProvider,
             lastRefreshedAt: env.store.lastRefreshedAt
         )

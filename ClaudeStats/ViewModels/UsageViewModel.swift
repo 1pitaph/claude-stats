@@ -11,6 +11,7 @@ enum TrendScaleMode: Sendable, Hashable { case linear, log }
 struct UsageDerivedData: Sendable {
     struct Key: Sendable, Hashable {
         let period: StatsPeriod
+        let selectedDay: Date
         let provider: ProviderKind
         let lastRefreshedAt: Date?
 
@@ -18,7 +19,7 @@ struct UsageDerivedData: Sendable {
             let refreshID = lastRefreshedAt
                 .map { String(Int(($0.timeIntervalSinceReferenceDate * 1_000).rounded())) }
                 ?? "never"
-            return "\(provider.rawValue)|\(period.rawValue)|\(refreshID)"
+            return "\(provider.rawValue)|\(period.rawValue)|\(selectedDay.timeIntervalSinceReferenceDate)|\(refreshID)"
         }
     }
 
@@ -29,8 +30,10 @@ struct UsageDerivedData: Sendable {
 
     @MainActor
     static func make(key: Key, store: SessionStore) -> UsageDerivedData {
-        let summary = store.summary(for: key.period, provider: key.provider)
-        let series = summary.trendSeries()
+        let summary = key.period == .today
+            ? store.summary(forDay: key.selectedDay, provider: key.provider)
+            : store.summary(for: key.period, provider: key.provider)
+        let series = summary.trendSeries(now: key.selectedDay)
         let cacheHitRate = store.cacheHitRate(for: summary.totalUsage, provider: key.provider)
         return UsageDerivedData(key: key, summary: summary, series: series, cacheHitRate: cacheHitRate)
     }
@@ -53,6 +56,7 @@ struct UsageDerivedData: Sendable {
 @Observable
 final class UsageViewModel {
     var period: StatsPeriod = .allTime
+    var selectedDay: Date = UsageDailyDateNavigator.todayStart()
     /// Line vs. bar for the trend panel (ignored for the Today/hourly view,
     /// which is always a smoothed line).
     var chartStyle: TrendChartStyle = .line
@@ -69,13 +73,23 @@ final class UsageViewModel {
     }
 
     func refreshDerivedData(from store: SessionStore, provider: ProviderKind, lastRefreshedAt: Date?) {
-        let key = UsageDerivedData.Key(period: period, provider: provider, lastRefreshedAt: lastRefreshedAt)
+        let key = UsageDerivedData.Key(
+            period: period,
+            selectedDay: UsageDailyDateNavigator.normalized(selectedDay),
+            provider: provider,
+            lastRefreshedAt: lastRefreshedAt
+        )
         guard derivedData?.key != key else { return }
         derivedData = UsageDerivedData.make(key: key, store: store)
     }
 
     func displayedDerivedData(provider: ProviderKind, lastRefreshedAt: Date?) -> UsageDerivedData {
-        let key = UsageDerivedData.Key(period: period, provider: provider, lastRefreshedAt: lastRefreshedAt)
+        let key = UsageDerivedData.Key(
+            period: period,
+            selectedDay: UsageDailyDateNavigator.normalized(selectedDay),
+            provider: provider,
+            lastRefreshedAt: lastRefreshedAt
+        )
         guard let derivedData, derivedData.key == key else {
             return .empty(for: key)
         }

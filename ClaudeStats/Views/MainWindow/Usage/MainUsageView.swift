@@ -11,6 +11,7 @@ struct MainUsageView: View {
     @SceneStorage("mainWindow.usage.chartStyle") private var chartStyleRaw: String = MainUsageView.ChartStyleStorage.line.rawValue
     @SceneStorage("mainWindow.usage.scaleMode") private var scaleModeRaw: String = MainUsageView.ScaleModeStorage.linear.rawValue
     @SceneStorage("mainWindow.usage.stackByType") private var stackByTypeRaw: Bool = false
+    @SceneStorage("mainWindow.usage.dailyPeriodKey") private var dailyPeriodKeyRaw: String = ""
 
     @State private var vm = UsageViewModel()
 
@@ -27,7 +28,7 @@ struct MainUsageView: View {
         AppScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 header(provider: provider)
-                controls(period: $bvm.period)
+                controls(period: $bvm.period, selectedDay: $bvm.selectedDay)
                 UsageSummaryCards(
                     summary: summary,
                     includeCacheInTokens: includeCache,
@@ -66,6 +67,14 @@ struct MainUsageView: View {
             refreshDerivedData()
         }
         .onChange(of: vm.period) { _, new in periodRaw = new.rawValue }
+        .onChange(of: vm.selectedDay) { _, new in
+            let normalized = UsageDailyDateNavigator.normalized(new)
+            if normalized != new {
+                vm.selectedDay = normalized
+                return
+            }
+            dailyPeriodKeyRaw = UsageDailyDateNavigator.periodKey(for: normalized)
+        }
         .onChange(of: vm.chartStyle) { _, new in chartStyleRaw = ChartStyleStorage(new).rawValue }
         .onChange(of: vm.scaleMode) { _, new in scaleModeRaw = ScaleModeStorage(new).rawValue }
         .onChange(of: vm.stackByType) { _, new in stackByTypeRaw = new }
@@ -106,10 +115,17 @@ struct MainUsageView: View {
         }
     }
 
-    private func controls(period: Binding<StatsPeriod>) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            Spacer(minLength: 0)
-            UsagePeriodChips(period: period)
+    private func controls(period: Binding<StatsPeriod>, selectedDay: Binding<Date>) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 8) {
+                Spacer(minLength: 0)
+                UsageDailyPeriodControl(period: period, selectedDay: selectedDay)
+                UsagePeriodChips(period: period)
+            }
+            VStack(alignment: .trailing, spacing: 8) {
+                UsageDailyPeriodControl(period: period, selectedDay: selectedDay)
+                UsagePeriodChips(period: period)
+            }
         }
         .frame(maxWidth: .infinity)
     }
@@ -183,6 +199,7 @@ struct MainUsageView: View {
     private var usageDataKey: UsageDerivedData.Key {
         UsageDerivedData.Key(
             period: vm.period,
+            selectedDay: UsageDailyDateNavigator.normalized(vm.selectedDay),
             provider: env.preferences.selectedProvider,
             lastRefreshedAt: env.store.lastRefreshedAt
         )
@@ -199,6 +216,9 @@ struct MainUsageView: View {
 
     private func syncFromSceneStorage() {
         vm.period = StatsPeriod(rawValue: periodRaw) ?? .allTime
+        vm.selectedDay = UsageDailyDateNavigator.date(fromPeriodKey: dailyPeriodKeyRaw)
+            ?? UsageDailyDateNavigator.todayStart()
+        dailyPeriodKeyRaw = UsageDailyDateNavigator.periodKey(for: vm.selectedDay)
         vm.chartStyle = ChartStyleStorage(rawValue: chartStyleRaw)?.chartStyle ?? .line
         vm.scaleMode = ScaleModeStorage(rawValue: scaleModeRaw)?.scaleMode ?? .linear
         vm.stackByType = stackByTypeRaw
@@ -274,7 +294,7 @@ struct MainUsageView: View {
 private struct UsagePeriodChips: View {
     @Binding var period: StatsPeriod
 
-    private static let values: [StatsPeriod] = [.today, .last7Days, .last30Days, .allTime]
+    private static let values: [StatsPeriod] = [.last7Days, .last30Days, .allTime]
 
     var body: some View {
         PillSegmentedBar(
@@ -289,8 +309,8 @@ private struct UsagePeriodChips: View {
     private func label(for period: StatsPeriod) -> String {
         switch period {
         case .today: L10n.string("usage.period_chip.today", defaultValue: "Today")
-        case .last7Days: "7d"
-        case .last30Days: "30d"
+        case .last7Days: L10n.string("usage.period_chip.weekly", defaultValue: "Weekly")
+        case .last30Days: L10n.string("usage.period_chip.monthly", defaultValue: "Monthly")
         case .allTime: L10n.string("usage.period_chip.all", defaultValue: "All")
         }
     }

@@ -51,6 +51,29 @@ struct UsageSummary: Sendable, Hashable {
         return UsageSummary(period: period, sessionCount: inPeriod.count, models: allModels, messageCount: messageCount, timeline: filteredTimeline)
     }
 
+    /// Build a summary for one explicit local calendar day while preserving
+    /// ``StatsPeriod/today`` so the trend chart remains hourly.
+    static func makeDay(
+        _ day: Date,
+        sessions: [Session],
+        pricing: ModelPricing,
+        calendar: Calendar = .current
+    ) -> UsageSummary {
+        let lo = calendar.startOfDay(for: day)
+        guard let hiExclusive = calendar.date(byAdding: .day, value: 1, to: lo) else {
+            return .empty(period: .today)
+        }
+        let inDay = sessions.filter { session in
+            let when = session.stats?.lastActivity ?? session.lastModified
+            return when >= lo && when < hiExclusive
+        }
+        let (allModels, allTimeline) = dedupedAggregate(sessions: inDay, pricing: pricing, calendar: calendar)
+        let messageCount = inDay.reduce(0) { $0 + ($1.stats?.messageCount ?? 0) }
+        let filteredTimeline = allTimeline
+            .filter { $0.start >= lo && $0.start < hiExclusive }
+        return UsageSummary(period: .today, sessionCount: inDay.count, models: allModels, messageCount: messageCount, timeline: filteredTimeline)
+    }
+
     /// Build a summary scoped to an explicit `[start, end]` range of calendar
     /// days (inclusive on both ends). The stored `period` is set to
     /// ``StatsPeriod/allTime`` purely so ``trendSeries(now:calendar:)`` picks

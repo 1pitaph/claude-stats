@@ -128,6 +128,10 @@ final class SessionStore {
         UsageSummary.make(period: period, sessions: sessions(matching: provider), pricing: pricing, now: now)
     }
 
+    func summary(forDay day: Date, provider: ProviderKind? = nil) -> UsageSummary {
+        UsageSummary.makeDay(day, sessions: sessions(matching: provider), pricing: pricing)
+    }
+
     func summary(for selection: PeriodSelection, provider: ProviderKind? = nil, now: Date = .now) -> UsageSummary {
         switch selection {
         case .preset(let period):

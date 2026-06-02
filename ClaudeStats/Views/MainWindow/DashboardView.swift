@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Overview Dashboard: 8 all-provider stat cards (4×2) scoped by an
-/// "All / 30d / 7d" range, then a side-by-side row with the 3-month AI
+/// "Weekly / Monthly / All" range, then a side-by-side row with the 3-month AI
 /// heatmap on the left and the 3-month GitHub contributions heatmap on the
 /// right, followed by the 3-month AI/GitHub overlap, and a humorous
 /// comparison footer. The "Models" tab swaps the stat grid for a per-model

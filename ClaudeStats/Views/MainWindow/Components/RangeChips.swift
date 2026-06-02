@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Three small "7d / 30d / All" chips at the top-right of the Dashboard.
+/// Three small "Weekly / Monthly / All" chips at the top-right of the Dashboard.
 /// Scopes the 8 stat cards only — the heatmap below them stays fixed at the
 /// 3-month rolling window regardless of selection.
 struct RangeChips: View {
@@ -23,8 +23,8 @@ struct RangeChips: View {
     private static func label(for period: StatsPeriod) -> String {
         switch period {
         case .allTime: L10n.string("range.all", defaultValue: "All")
-        case .last30Days: "30d"
-        case .last7Days: "7d"
+        case .last30Days: L10n.string("range.monthly", defaultValue: "Monthly")
+        case .last7Days: L10n.string("range.weekly", defaultValue: "Weekly")
         case .today: L10n.string("stats.period.today", defaultValue: "Today")
         }
     }
