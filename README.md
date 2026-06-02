@@ -21,6 +21,8 @@ Claude Stats is an open-source native macOS app for people who work in AI coding
 
 The app began as a focused macOS take on the open-source [Claude Statistics](https://github.com/sj719045032/claude-statistics) project. It now includes a multi-provider foundation, an embedded terminal, a Notch Island surface, and an integrated network debugger while keeping the main product name **Claude Stats**.
 
+Claude Stats ships in two variants: the full app and **Claude Stats Lite**. Lite keeps the core menu-bar stats, Git views, daily reports, and local AI settings while omitting Linux.do, Warp, Config, Ops, Network, and Notch Island features. The two apps use separate bundle identifiers and update feeds, so they can be installed side by side.
+
 ## Features
 
 - Menu-bar usage stats for AI coding sessions, tokens, estimated cost, and recent activity.
@@ -30,6 +32,7 @@ The app began as a focused macOS take on the open-source [Claude Statistics](htt
 - A Warp-powered embedded terminal surface.
 - An Atoll-backed Notch Island surface for optional media, timer, stats, clipboard, terminal, and related modules.
 - A Rockxy-backed network debugger with proxy, rule, certificate, and helper-tool integration.
+- A Lite build for users who want the menu-bar stats, Git, daily report, and local AI surfaces without the heavier integrations.
 - Sparkle-based automatic updates for packaged releases.
 
 ## Screens
@@ -149,8 +152,18 @@ Packaged builds are published from this repository:
 
 - [GitHub Releases](https://github.com/1pitaph/claude-stats/releases)
 - [Sparkle appcast](https://1pitaph.github.io/claude-stats/appcast.xml)
+- [Sparkle Lite appcast](https://1pitaph.github.io/claude-stats/appcast-lite.xml)
+
+Each tagged release publishes both app variants:
+
+| Variant | Release asset | Sparkle feed | Notes |
+| --- | --- | --- | --- |
+| Claude Stats | `ClaudeStats-<version>.dmg` | `appcast.xml` | Full app with Linux.do, Warp, Config, Ops, Network, and Notch Island. |
+| Claude Stats Lite | `ClaudeStatsLite-<version>.dmg` | `appcast-lite.xml` | Lite app with core stats, Git, daily reports, and local AI settings. |
 
 Release packaging supports both signed/notarized builds and unsigned fallback builds. If you use an unsigned build, macOS Gatekeeper may require opening it with right-click, then **Open**.
+
+The full and Lite apps update independently through Sparkle. A release may contain both packages even when a feature change only affects one variant, because shared code, version metadata, security fixes, and release notes still move together. Settings > About includes a download entry for the other variant, but switching variants is an install-side choice rather than an in-place Sparkle conversion.
 
 ### Compatibility
 
@@ -190,6 +203,7 @@ For normal development, prefer the helper scripts:
 
 ```bash
 bash scripts/run-debug.sh  # generate + build Debug + launch the menu-bar app
+bash scripts/run-lite-debug.sh  # generate + build Debug + launch Claude Stats Lite
 bash scripts/run-tests.sh  # generate + build test dependencies + run unit tests
 ```
 
