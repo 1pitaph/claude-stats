@@ -2952,6 +2952,36 @@
         }
       }
     },
+    "Could not read Screen Time focus data for this range." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法读取此范围内的 Screen Time 焦点数据。"
+          }
+        }
+      }
+    },
+    "No AI activity for this project overlapped the configured coding surfaces or terminal hosts in the last seven days." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这个项目最近七天没有与已配置编辑器或终端重叠的 AI 活动。"
+          }
+        }
+      }
+    },
+    "No AI activity overlapped the configured coding surfaces or terminal hosts in this range." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此范围内没有与已配置编辑器或终端重叠的 AI 活动。"
+          }
+        }
+      }
+    },
     "No project activity in this range." : {
       "localizations" : {
         "zh-Hans" : {
@@ -2968,6 +2998,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无项目路径"
+          }
+        }
+      }
+    },
+    "No Screen Time focus data matched the configured coding surfaces or terminal hosts in this range. Add your editor or terminal in Tracking settings, or verify Screen Time is recording app usage." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此范围内没有匹配到已配置编辑器或终端的 Screen Time 焦点数据。请在追踪设置中添加你的编辑器或终端，或确认 Screen Time 正在记录 App 使用情况。"
           }
         }
       }

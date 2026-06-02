@@ -50,6 +50,12 @@ enum ActivitySurfaceCatalog {
     static let cliHostDefaults: [App] = [
         App(bundleID: "com.apple.Terminal", name: "Terminal"),
         App(bundleID: "dev.warp.Warp-Stable", name: "Warp"),
+        App(bundleID: "com.googlecode.iterm2", name: "iTerm2"),
+        App(bundleID: "com.mitchellh.ghostty", name: "Ghostty"),
+        App(bundleID: "com.github.wez.wezterm", name: "WezTerm"),
+        App(bundleID: "org.alacritty", name: "Alacritty"),
+        App(bundleID: "net.kovidgoyal.kitty", name: "Kitty"),
+        App(bundleID: "co.zeit.hyper", name: "Hyper"),
     ]
 
     private static let codingSurfaceDefaultIDs = Set(codingSurfaceDefaults.map(\.bundleID))

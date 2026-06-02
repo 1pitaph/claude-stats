@@ -76,6 +76,12 @@ enum GanttActivityMode: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+enum GanttFocusDataState: Equatable, Sendable {
+    case available
+    case noMatchingFocusData
+    case queryFailed
+}
+
 struct GanttPeriod: Equatable, Sendable {
     let range: GanttRange
     let domain: DateInterval

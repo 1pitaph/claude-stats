@@ -585,7 +585,7 @@ struct PreferencesTests {
         #expect(reloaded.effectiveCLIHostBundleIDs.contains("com.example.Terminal"))
         #expect(!reloaded.effectiveCLIHostBundleIDs.contains("com.apple.Terminal"))
         #expect(reloaded.effectiveCLIHostBundleIDs.contains("dev.warp.Warp-Stable"))
-        #expect(!reloaded.effectiveCLIHostBundleIDs.contains("com.mitchellh." + "ghost" + "ty"))
+        #expect(reloaded.effectiveCLIHostBundleIDs.contains("com.mitchellh." + "ghost" + "ty"))
     }
 
     private func makeDefaults() -> UserDefaults {

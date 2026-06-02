@@ -37,7 +37,7 @@ struct MainGanttView: View {
                     permissionGate
                 } else {
                     GanttOverviewPanel(snapshot: vm.snapshot)
-                    GanttChartPanel(snapshot: vm.snapshot) { project in
+                    GanttChartPanel(snapshot: vm.snapshot, emptyMessage: chartEmptyMessage) { project in
                         selectedProject = project
                     }
                 }
@@ -144,6 +144,15 @@ struct MainGanttView: View {
             vm.refreshPermissionState()
             vm.bumpReload()
         }
+    }
+
+    private var chartEmptyMessage: String? {
+        assistedFocusEmptyMessage(
+            mode: vm.activityMode,
+            focusDataState: vm.focusDataState,
+            sourceSessionCount: vm.snapshot.sourceSessionCount,
+            scope: .range
+        )
     }
 
     private func reloadKey(
@@ -408,7 +417,7 @@ private struct GanttProjectDetailSheet: View {
                     GanttProjectSevenDayChartPanel(
                         snapshot: vm.snapshot,
                         project: project,
-                        emptyMessage: String(localized: "No activity for this project in the last seven days.")
+                        emptyMessage: detailEmptyMessage
                     )
                 }
             }
@@ -436,6 +445,44 @@ private struct GanttProjectDetailSheet: View {
 
     private var rangeLabel: String {
         "\(Format.day(vm.period.domain.start)) - \(Format.day(vm.period.domain.end.addingTimeInterval(-1)))"
+    }
+
+    private var detailEmptyMessage: String {
+        assistedFocusEmptyMessage(
+            mode: vm.activityMode,
+            focusDataState: vm.focusDataState,
+            sourceSessionCount: vm.snapshot.sourceSessionCount,
+            scope: .project
+        ) ?? String(localized: "No activity for this project in the last seven days.")
+    }
+}
+
+private enum GanttEmptyScope {
+    case range
+    case project
+}
+
+private func assistedFocusEmptyMessage(
+    mode: GanttActivityMode,
+    focusDataState: GanttFocusDataState,
+    sourceSessionCount: Int,
+    scope: GanttEmptyScope
+) -> String? {
+    guard mode == .assistedFocus else { return nil }
+    guard sourceSessionCount > 0 else { return nil }
+
+    switch focusDataState {
+    case .noMatchingFocusData:
+        return String(localized: "No Screen Time focus data matched the configured coding surfaces or terminal hosts in this range. Add your editor or terminal in Tracking settings, or verify Screen Time is recording app usage.")
+    case .queryFailed:
+        return String(localized: "Could not read Screen Time focus data for this range.")
+    case .available:
+        switch scope {
+        case .range:
+            return String(localized: "No AI activity overlapped the configured coding surfaces or terminal hosts in this range.")
+        case .project:
+            return String(localized: "No AI activity for this project overlapped the configured coding surfaces or terminal hosts in the last seven days.")
+        }
     }
 }
 

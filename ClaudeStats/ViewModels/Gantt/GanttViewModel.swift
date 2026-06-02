@@ -17,6 +17,7 @@ final class GanttViewModel {
     }
 
     private(set) var permissionState: ActivityPermissionState = .ok
+    private(set) var focusDataState: GanttFocusDataState = .available
     private(set) var snapshot: GanttTimelineSnapshot
     private(set) var isLoading = false
     private(set) var reloadToken: UInt64 = 0
@@ -70,7 +71,7 @@ final class GanttViewModel {
 
     private enum Outcome: Sendable {
         case failure(ScreenTimeService.Failure)
-        case snapshot(GanttTimelineSnapshot)
+        case snapshot(GanttTimelineSnapshot, GanttFocusDataState)
     }
 
     func reload(
@@ -99,18 +100,19 @@ final class GanttViewModel {
                     sessions: sessions,
                     period: requestedPeriod,
                     activityMode: requestedMode
-                ))
+                ), .available)
             case .assistedFocus:
                 switch await focusIntervalLoader(requestedPeriod.dataRange, focusBundleIDs) {
                 case .failure(let failure):
                     return .failure(failure)
                 case .success(let focus):
+                    let focusDataState: GanttFocusDataState = focus.isEmpty ? .noMatchingFocusData : .available
                     return .snapshot(GanttTimelineBuilder.build(
                         sessions: sessions,
                         period: requestedPeriod,
                         activityMode: requestedMode,
                         focusIntervals: focus.map(\.interval)
-                    ))
+                    ), focusDataState)
                 }
             }
         }.value
@@ -120,13 +122,16 @@ final class GanttViewModel {
         switch outcome {
         case .failure(.noFullDiskAccess):
             permissionState = .needsFullDiskAccess
+            focusDataState = .available
             snapshot = .empty(period: requestedPeriod, activityMode: requestedMode, sourceSessionCount: sessions.count)
         case .failure(.queryFailed(let message)):
             Log.app.error("Gantt Screen Time query failed: \(message, privacy: .public)")
             permissionState = .ok
+            focusDataState = .queryFailed
             snapshot = .empty(period: requestedPeriod, activityMode: requestedMode, sourceSessionCount: sessions.count)
-        case .snapshot(let nextSnapshot):
+        case .snapshot(let nextSnapshot, let nextFocusDataState):
             permissionState = .ok
+            focusDataState = nextFocusDataState
             snapshot = nextSnapshot
         }
     }
@@ -134,6 +139,7 @@ final class GanttViewModel {
     func refreshPermissionState() {
         guard activityMode == .assistedFocus else {
             permissionState = .ok
+            focusDataState = .available
             return
         }
         permissionState = ScreenTimeService.canRead() ? .ok : .needsFullDiskAccess

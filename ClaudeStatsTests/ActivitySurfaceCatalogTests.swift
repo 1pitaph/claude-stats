@@ -12,8 +12,8 @@ struct ActivitySurfaceCatalogTests {
         #expect(!ids.contains("com.openai.chat"))
     }
 
-    @Test("CLI host defaults can be removed")
-    func cliHostDefaultsCanBeRemoved() {
+    @Test("CLI host defaults include common terminal apps and can be removed")
+    func cliHostDefaultsIncludeCommonTerminalsAndCanBeRemoved() {
         let ids = ActivitySurfaceCatalog.effectiveCLIHostBundleIDs(
             added: ["com.example.Terminal"],
             removed: ["com.apple.Terminal"]
@@ -21,7 +21,11 @@ struct ActivitySurfaceCatalogTests {
 
         #expect(ids.contains("com.example.Terminal"))
         #expect(ids.contains("dev.warp.Warp-Stable"))
-        #expect(!ids.contains("com.mitchellh." + "ghost" + "ty"))
+        #expect(ids.contains("com.googlecode.iterm2"))
+        #expect(ids.contains("com.mitchellh." + "ghost" + "ty"))
+        #expect(ids.contains("com.github.wez.wezterm"))
+        #expect(ids.contains("org.alacritty"))
+        #expect(ids.contains("net.kovidgoyal.kitty"))
         #expect(!ids.contains("com.apple.Terminal"))
     }
 }
