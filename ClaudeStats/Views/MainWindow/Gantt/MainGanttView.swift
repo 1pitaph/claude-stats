@@ -816,7 +816,7 @@ private struct GanttDayTimelineCanvas: View {
     let rowHeight: CGFloat
 
     var body: some View {
-        Canvas { context, size in
+        Canvas(rendersAsynchronously: true) { context, size in
             drawGrid(context: &context, size: size)
             drawBars(context: &context, size: size)
             drawTodayLine(context: &context, size: size)
@@ -968,24 +968,33 @@ private struct GanttChartPanel: View {
     var captionOverride: String?
     var emptyMessage: String?
     var onSelectProject: ((GanttProjectReference) -> Void)?
+    @State private var cachedRenderPlanKey: GanttTimelineRenderPlan.Key?
+    @State private var cachedRenderPlan: GanttTimelineRenderPlan?
 
     private let leftColumnWidth: CGFloat = 260
     private let headerHeight: CGFloat = 42
     private let rowHeight: CGFloat = 46
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let renderPlanKey = GanttTimelineRenderPlan.Key(revisionID: snapshot.renderRevisionID)
+        let renderPlan = cachedRenderPlanKey == renderPlanKey
+            ? (cachedRenderPlan ?? makeRenderPlan(key: renderPlanKey))
+            : makeRenderPlan(key: renderPlanKey)
+
+        return VStack(alignment: .leading, spacing: 12) {
             panelHeader
 
             if snapshot.isEmpty {
                 emptyState
             } else {
-                chart
+                chart(renderPlan)
             }
         }
         .mainWindowPanel(padding: 16)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(String(localized: "Gantt"))
+        .onAppear { cacheRenderPlanIfNeeded(renderPlanKey) }
+        .onChange(of: renderPlanKey) { _, newKey in cacheRenderPlanIfNeeded(newKey) }
     }
 
     private var panelHeader: some View {
@@ -1042,22 +1051,26 @@ private struct GanttChartPanel: View {
             .frame(maxWidth: .infinity, minHeight: 220, alignment: .center)
     }
 
-    private var chart: some View {
-        let rowsHeight = CGFloat(snapshot.projects.count) * rowHeight
+    private func chart(_ renderPlan: GanttTimelineRenderPlan) -> some View {
+        let rowsHeight = CGFloat(renderPlan.rows.count) * rowHeight
         let totalHeight = headerHeight + rowsHeight
 
         return GeometryReader { proxy in
-            let timelineWidth = max(proxy.size.width - leftColumnWidth - 1, preferredTimelineWidth)
+            let rawTimelineWidth = proxy.size.width - leftColumnWidth - 1
+            let timelineWidth = GanttTimelineMetrics.bucketedWidth(
+                for: rawTimelineWidth,
+                minimum: renderPlan.preferredTimelineWidth
+            )
 
             HStack(alignment: .top, spacing: 0) {
-                projectColumn
+                projectColumn(renderPlan)
                     .frame(width: leftColumnWidth)
 
                 AppScrollView(.horizontal) {
                     VStack(spacing: 0) {
-                        GanttTimelineHeader(snapshot: snapshot)
+                        GanttTimelineHeader(ticks: renderPlan.ticks)
                             .frame(width: timelineWidth, height: headerHeight)
-                        GanttTimelineCanvas(snapshot: snapshot, rowHeight: rowHeight)
+                        GanttTimelineCanvas(renderPlan: renderPlan, rowHeight: rowHeight)
                             .frame(width: timelineWidth, height: rowsHeight)
                     }
                 }
@@ -1072,19 +1085,8 @@ private struct GanttChartPanel: View {
         }
     }
 
-    private var preferredTimelineWidth: CGFloat {
-        switch snapshot.range {
-        case .day:
-            980
-        case .week:
-            1_120
-        case .month:
-            max(1_420, CGFloat(calendarDaySpan(snapshot.domain)) * 48)
-        }
-    }
-
-    private var projectColumn: some View {
-        VStack(spacing: 0) {
+    private func projectColumn(_ renderPlan: GanttTimelineRenderPlan) -> some View {
+        LazyVStack(spacing: 0) {
             HStack {
                 Text("Project")
                     .font(.sora(10, weight: .semibold))
@@ -1100,17 +1102,17 @@ private struct GanttChartPanel: View {
             .frame(height: headerHeight)
             .background(Color.primary.opacity(0.035))
 
-            ForEach(snapshot.projects) { project in
+            ForEach(renderPlan.rows) { row in
                 Group {
                     if let onSelectProject {
-                        GanttProjectSelectableRow(project: project, onSelect: onSelectProject)
+                        GanttProjectSelectableRow(row: row, onSelect: onSelectProject)
                     } else {
-                        GanttProjectRow(project: project)
+                        GanttProjectRow(row: row)
                     }
                 }
                 .frame(height: rowHeight)
 
-                if project.id != snapshot.projects.last?.id {
+                if row.id != renderPlan.rows.last?.id {
                     StxRule()
                 }
             }
@@ -1118,28 +1120,142 @@ private struct GanttChartPanel: View {
         .background(Color.primary.opacity(0.02))
     }
 
-    private func calendarDaySpan(_ interval: DateInterval) -> Int {
+    private func makeRenderPlan(key: GanttTimelineRenderPlan.Key) -> GanttTimelineRenderPlan {
+        GanttTimelineRenderPlan(key: key, snapshot: snapshot)
+    }
+
+    private func cacheRenderPlanIfNeeded(_ key: GanttTimelineRenderPlan.Key) {
+        guard cachedRenderPlanKey != key else { return }
+        cachedRenderPlan = makeRenderPlan(key: key)
+        cachedRenderPlanKey = key
+    }
+}
+
+private enum GanttTimelineMetrics {
+    static let widthStep: CGFloat = 16
+
+    static func bucketedWidth(for rawWidth: CGFloat, minimum: CGFloat) -> CGFloat {
+        let width = max(rawWidth, minimum)
+        let bucket = (width / widthStep).rounded(.up) * widthStep
+        return max(minimum, bucket)
+    }
+
+    static func preferredTimelineWidth(range: GanttRange, domain: DateInterval) -> CGFloat {
+        switch range {
+        case .day:
+            980
+        case .week:
+            1_120
+        case .month:
+            max(1_420, CGFloat(calendarDaySpan(domain)) * 48)
+        }
+    }
+
+    private static func calendarDaySpan(_ interval: DateInterval) -> Int {
         let calendar = Calendar.current
         let days = calendar.dateComponents([.day], from: interval.start, to: interval.end).day ?? 1
         return max(1, days)
     }
 }
 
+private struct GanttTimelineRenderPlan {
+    struct Key: Equatable {
+        let revisionID: String
+    }
+
+    struct Tick {
+        let ratio: CGFloat
+        let label: String
+        let isMajor: Bool
+    }
+
+    struct Segment {
+        let startRatio: CGFloat
+        let endRatio: CGFloat
+    }
+
+    struct Row: Identifiable {
+        let id: String
+        let displayName: String
+        let pathText: String
+        let providers: [ProviderKind]
+        let durationText: String
+        let accessibilityLabel: String
+        let reference: GanttProjectReference
+        let colorProvider: ProviderKind?
+        let fallbackColorIndex: Int
+        let segments: [Segment]
+    }
+
+    let key: Key
+    let domain: DateInterval
+    let ticks: [Tick]
+    let rows: [Row]
+    let preferredTimelineWidth: CGFloat
+
+    init(key: Key, snapshot: GanttTimelineSnapshot) {
+        self.key = key
+        self.domain = snapshot.domain
+        self.ticks = GanttTimelineScale.ticks(for: snapshot.range, domain: snapshot.domain).map { tick in
+            Tick(
+                ratio: GanttTimelineScale.ratio(for: tick.date, domain: snapshot.domain),
+                label: tick.label,
+                isMajor: tick.isMajor
+            )
+        }
+        self.rows = snapshot.projects.enumerated().map { index, project in
+            let providerList = project.providerList
+            let durationText = Format.duration(project.totalDuration)
+            let segments = project.segments.map { segment in
+                Segment(
+                    startRatio: GanttTimelineScale.ratio(for: segment.interval.start, domain: snapshot.domain),
+                    endRatio: GanttTimelineScale.ratio(for: segment.interval.end, domain: snapshot.domain)
+                )
+            }
+            return Row(
+                id: project.id,
+                displayName: project.displayName,
+                pathText: project.path ?? String(localized: "No project path"),
+                providers: providerList,
+                durationText: durationText,
+                accessibilityLabel: L10n.format(
+                    "gantt.project.accessibility.active",
+                    defaultValue: "%@, %@ active",
+                    project.displayName,
+                    durationText
+                ),
+                reference: project.reference,
+                colorProvider: providerList.first,
+                fallbackColorIndex: index,
+                segments: segments
+            )
+        }
+        self.preferredTimelineWidth = GanttTimelineMetrics.preferredTimelineWidth(
+            range: snapshot.range,
+            domain: snapshot.domain
+        )
+    }
+
+    func ratio(for date: Date) -> CGFloat {
+        GanttTimelineScale.ratio(for: date, domain: domain)
+    }
+}
+
 private struct GanttProjectRow: View {
-    let project: GanttProjectTimeline
+    let row: GanttTimelineRenderPlan.Row
 
     var body: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(project.displayName)
+                    Text(row.displayName)
                         .font(.sora(12, weight: .medium))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
-                    GanttProviderBadges(providers: project.providerList)
+                    GanttProviderBadges(providers: row.providers)
                 }
 
-                Text(project.path ?? String(localized: "No project path"))
+                Text(row.pathText)
                     .font(.sora(9))
                     .foregroundStyle(Color.stxMuted)
                     .lineLimit(1)
@@ -1147,7 +1263,7 @@ private struct GanttProjectRow: View {
 
             Spacer(minLength: 8)
 
-            Text(Format.duration(project.totalDuration))
+            Text(row.durationText)
                 .font(.sora(11, weight: .medium).monospacedDigit())
                 .foregroundStyle(Color.stxMuted)
                 .lineLimit(1)
@@ -1156,25 +1272,20 @@ private struct GanttProjectRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(L10n.format(
-            "gantt.project.accessibility.active",
-            defaultValue: "%@, %@ active",
-            project.displayName,
-            Format.duration(project.totalDuration)
-        ))
+        .accessibilityLabel(row.accessibilityLabel)
     }
 }
 
 private struct GanttProjectSelectableRow: View {
-    let project: GanttProjectTimeline
+    let row: GanttTimelineRenderPlan.Row
     let onSelect: (GanttProjectReference) -> Void
     @State private var hovering = false
 
     var body: some View {
         Button {
-            onSelect(project.reference)
+            onSelect(row.reference)
         } label: {
-            GanttProjectRow(project: project)
+            GanttProjectRow(row: row)
                 .background {
                     if hovering {
                         Color.primary.opacity(0.045)
@@ -1207,15 +1318,14 @@ private struct GanttProviderBadges: View {
 }
 
 private struct GanttTimelineHeader: View {
-    let snapshot: GanttTimelineSnapshot
+    let ticks: [GanttTimelineRenderPlan.Tick]
 
     var body: some View {
         Canvas { context, size in
-            let ticks = GanttTimelineScale.ticks(for: snapshot.range, domain: snapshot.domain)
             context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Color.primary.opacity(0.035)))
 
             for tick in ticks where tick.isMajor {
-                let x = GanttTimelineScale.x(for: tick.date, domain: snapshot.domain, width: size.width)
+                let x = tick.ratio * size.width
                 var line = Path()
                 line.move(to: CGPoint(x: x, y: size.height - 12))
                 line.addLine(to: CGPoint(x: x, y: size.height))
@@ -1240,21 +1350,20 @@ private struct GanttTimelineHeader: View {
 }
 
 private struct GanttTimelineCanvas: View {
-    let snapshot: GanttTimelineSnapshot
+    let renderPlan: GanttTimelineRenderPlan
     let rowHeight: CGFloat
 
     var body: some View {
-        Canvas { context, size in
-            let ticks = GanttTimelineScale.ticks(for: snapshot.range, domain: snapshot.domain)
-            drawGrid(context: &context, size: size, ticks: ticks)
+        Canvas(rendersAsynchronously: true) { context, size in
+            drawGrid(context: &context, size: size)
             drawBars(context: &context, size: size)
             drawNowLine(context: &context, size: size)
         }
         .accessibilityHidden(true)
     }
 
-    private func drawGrid(context: inout GraphicsContext, size: CGSize, ticks: [GanttTick]) {
-        for index in 0...snapshot.projects.count {
+    private func drawGrid(context: inout GraphicsContext, size: CGSize) {
+        for index in 0...renderPlan.rows.count {
             let y = CGFloat(index) * rowHeight
             var line = Path()
             line.move(to: CGPoint(x: 0, y: y))
@@ -1262,8 +1371,8 @@ private struct GanttTimelineCanvas: View {
             context.stroke(line, with: .color(Color.stxStroke.opacity(0.55)), lineWidth: 1)
         }
 
-        for tick in ticks {
-            let x = GanttTimelineScale.x(for: tick.date, domain: snapshot.domain, width: size.width)
+        for tick in renderPlan.ticks {
+            let x = tick.ratio * size.width
             var line = Path()
             line.move(to: CGPoint(x: x, y: 0))
             line.addLine(to: CGPoint(x: x, y: size.height))
@@ -1276,13 +1385,13 @@ private struct GanttTimelineCanvas: View {
     }
 
     private func drawBars(context: inout GraphicsContext, size: CGSize) {
-        for (index, project) in snapshot.projects.enumerated() {
-            let color = colorForProject(project, index: index)
+        for (index, row) in renderPlan.rows.enumerated() {
+            let color = color(for: row)
             let y = CGFloat(index) * rowHeight + (rowHeight - 13) / 2
 
-            for segment in project.segments {
-                let startX = GanttTimelineScale.x(for: segment.interval.start, domain: snapshot.domain, width: size.width)
-                let endX = GanttTimelineScale.x(for: segment.interval.end, domain: snapshot.domain, width: size.width)
+            for segment in row.segments {
+                let startX = segment.startRatio * size.width
+                let endX = segment.endRatio * size.width
                 let width = min(size.width - startX, max(3, endX - startX))
                 guard width > 0 else { continue }
 
@@ -1295,20 +1404,20 @@ private struct GanttTimelineCanvas: View {
 
     private func drawNowLine(context: inout GraphicsContext, size: CGSize) {
         let now = Date.now
-        guard snapshot.domain.contains(now) else { return }
-        let x = GanttTimelineScale.x(for: now, domain: snapshot.domain, width: size.width)
+        guard renderPlan.domain.contains(now) else { return }
+        let x = renderPlan.ratio(for: now) * size.width
         var line = Path()
         line.move(to: CGPoint(x: x, y: 0))
         line.addLine(to: CGPoint(x: x, y: size.height))
         context.stroke(line, with: .color(Color.stxAccent.opacity(0.72)), style: StrokeStyle(lineWidth: 1.2, dash: [4, 4]))
     }
 
-    private func colorForProject(_ project: GanttProjectTimeline, index: Int) -> Color {
-        if let provider = project.providerList.first {
+    private func color(for row: GanttTimelineRenderPlan.Row) -> Color {
+        if let provider = row.colorProvider {
             return provider == .codex ? Color.stxAccent : provider.accentColor
         }
         let palette: [Color] = [.stxAccent, .blue, .green, .orange, .pink, .purple]
-        return palette[index % palette.count]
+        return palette[row.fallbackColorIndex % palette.count]
     }
 }
 
@@ -1319,10 +1428,14 @@ private struct GanttTick: Sendable {
 }
 
 private enum GanttTimelineScale {
-    static func x(for date: Date, domain: DateInterval, width: CGFloat) -> CGFloat {
+    static func ratio(for date: Date, domain: DateInterval) -> CGFloat {
         guard domain.duration > 0 else { return 0 }
         let ratio = date.timeIntervalSince(domain.start) / domain.duration
-        return min(width, max(0, width * CGFloat(ratio)))
+        return min(1, max(0, CGFloat(ratio)))
+    }
+
+    static func x(for date: Date, domain: DateInterval, width: CGFloat) -> CGFloat {
+        ratio(for: date, domain: domain) * width
     }
 
     static func ticks(for range: GanttRange, domain: DateInterval, calendar: Calendar = .current) -> [GanttTick] {

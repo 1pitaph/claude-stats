@@ -83,13 +83,26 @@ enum GanttTimelineBuilder {
             return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
         }
 
+        let totalDuration = rows.reduce(0) { $0 + $1.totalDuration }
+        let segmentCount = rows.reduce(0) { $0 + $1.segments.count }
+
         return GanttTimelineSnapshot(
             range: period.range,
             activityMode: activityMode,
             domain: period.domain,
             dataRange: period.dataRange,
             projects: rows,
-            sourceSessionCount: sessions.count
+            sourceSessionCount: sessions.count,
+            totalDuration: totalDuration,
+            segmentCount: segmentCount,
+            renderRevisionID: GanttTimelineSnapshot.renderRevisionID(
+                range: period.range,
+                activityMode: activityMode,
+                domain: period.domain,
+                dataRange: period.dataRange,
+                projects: rows,
+                sourceSessionCount: sessions.count
+            )
         )
     }
 

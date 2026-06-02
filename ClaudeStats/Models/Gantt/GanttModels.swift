@@ -109,14 +109,9 @@ struct GanttTimelineSnapshot: Equatable, Sendable {
     let dataRange: DateInterval
     let projects: [GanttProjectTimeline]
     let sourceSessionCount: Int
-
-    var totalDuration: TimeInterval {
-        projects.reduce(0) { $0 + $1.totalDuration }
-    }
-
-    var segmentCount: Int {
-        projects.reduce(0) { $0 + $1.segments.count }
-    }
+    let totalDuration: TimeInterval
+    let segmentCount: Int
+    let renderRevisionID: String
 
     var mostActiveProject: GanttProjectTimeline? {
         projects.first
@@ -133,8 +128,71 @@ struct GanttTimelineSnapshot: Equatable, Sendable {
             domain: period.domain,
             dataRange: period.dataRange,
             projects: [],
-            sourceSessionCount: sourceSessionCount
+            sourceSessionCount: sourceSessionCount,
+            totalDuration: 0,
+            segmentCount: 0,
+            renderRevisionID: renderRevisionID(
+                range: period.range,
+                activityMode: activityMode,
+                domain: period.domain,
+                dataRange: period.dataRange,
+                projects: [],
+                sourceSessionCount: sourceSessionCount
+            )
         )
+    }
+
+    static func renderRevisionID(
+        range: GanttRange,
+        activityMode: GanttActivityMode,
+        domain: DateInterval,
+        dataRange: DateInterval,
+        projects: [GanttProjectTimeline],
+        sourceSessionCount: Int
+    ) -> String {
+        let projectID = projects.map { project in
+            let providers = ProviderKind.allCases
+                .filter { project.providers.contains($0) }
+                .map(\.rawValue)
+                .joined(separator: ",")
+            let segments = project.segments.map { segment in
+                "\(timeID(segment.interval.start))-\(timeID(segment.interval.end))"
+            }
+            .joined(separator: ",")
+            return [
+                project.id,
+                project.displayName,
+                project.path ?? "",
+                providers,
+                durationID(project.totalDuration),
+                timeID(project.latestActivity),
+                segments,
+            ]
+            .joined(separator: ":")
+        }
+        .joined(separator: "|")
+
+        return [
+            range.rawValue,
+            activityMode.rawValue,
+            intervalID(domain),
+            intervalID(dataRange),
+            String(sourceSessionCount),
+            projectID,
+        ]
+        .joined(separator: "#")
+    }
+
+    private static func intervalID(_ interval: DateInterval) -> String {
+        "\(timeID(interval.start))-\(timeID(interval.end))"
+    }
+
+    private static func timeID(_ date: Date) -> String {
+        String(Int((date.timeIntervalSinceReferenceDate * 1_000).rounded()))
+    }
+
+    private static func durationID(_ duration: TimeInterval) -> String {
+        String(Int((duration * 1_000).rounded()))
     }
 }
 
