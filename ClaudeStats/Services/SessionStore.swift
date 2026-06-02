@@ -8,7 +8,6 @@ import Observation
 @Observable
 final class SessionStore {
     private(set) var sessions: [Session] = []
-    private(set) var sessionsRevision: UInt64 = 0
     private(set) var isLoading = false
     private(set) var lastRefreshedAt: Date?
     /// Whether any provider's on-disk data directory exists — drives the
@@ -190,7 +189,6 @@ final class SessionStore {
         for i in withStats.indices { withStats[i].stats = cache[withStats[i].id]?.stats }
         // Drop transcripts that parsed to nothing (only queue-ops / snapshots).
         sessions = withStats.filter { $0.stats != nil }
-        sessionsRevision &+= 1
         lastRefreshedAt = .now
         Log.store.notice("Refreshed: \(self.sessions.count) sessions visible, \(stale.count) re-parsed")
         onRefresh?()
@@ -225,7 +223,6 @@ extension SessionStore {
     /// Inject canned sessions without touching disk — for SwiftUI previews.
     func loadPreviewSessions(_ sessions: [Session]) {
         self.sessions = sessions
-        self.sessionsRevision &+= 1
         self.lastRefreshedAt = .now
         self.dataDirectoryExists = !sessions.isEmpty
     }
