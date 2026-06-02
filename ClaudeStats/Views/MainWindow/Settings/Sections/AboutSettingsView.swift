@@ -30,6 +30,12 @@ struct AboutSettingsView: View {
                                description: "See what changed since 1.4.0") {
                         Button("View…", action: onShowReleaseHistory)
                     }
+                    SettingRowDivider()
+                    SettingRow(title: counterpartVersionTitle,
+                               description: counterpartVersionDescription) {
+                        Button(counterpartVersionButtonTitle, action: openCounterpartDownloadPage)
+                            .help(counterpartVersionHelp)
+                    }
                 }
                 .settingCard()
             }
@@ -42,6 +48,34 @@ struct AboutSettingsView: View {
         let build = info?["CFBundleVersion"] as? String ?? "—"
         return "\(short) (\(build))"
     }
+
+    private var counterpartVersionTitle: String {
+        AppVariant.isLite ? "Full version" : "Lite version"
+    }
+
+    private var counterpartVersionDescription: String {
+        if AppVariant.isLite {
+            "Download Claude Stats with Linux.do, Warp, Config, Ops, Network, and Notch Island."
+        } else {
+            "Download Claude Stats Lite with the core stats, Git, daily reports, and local AI."
+        }
+    }
+
+    private var counterpartVersionButtonTitle: String {
+        AppVariant.isLite ? "Download Full…" : "Download Lite…"
+    }
+
+    private var counterpartVersionHelp: String {
+        AppVariant.isLite
+            ? "Open the latest GitHub release to download Claude Stats."
+            : "Open the latest GitHub release to download Claude Stats Lite."
+    }
+
+    private func openCounterpartDownloadPage() {
+        NSWorkspace.shared.open(Self.releasesURL)
+    }
+
+    private static let releasesURL = URL(string: "https://github.com/1pitaph/claude-stats/releases/latest")!
 }
 
 #if DEBUG
