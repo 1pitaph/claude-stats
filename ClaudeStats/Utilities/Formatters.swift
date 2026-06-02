@@ -40,6 +40,10 @@ enum Format {
         date.formatted(date: .abbreviated, time: .shortened)
     }
 
+    static func shortTime(_ date: Date) -> String {
+        date.formatted(.dateTime.hour(.defaultDigits(amPM: .abbreviated)).minute())
+    }
+
     /// Day only, no year: `May 1`, `Dec 12`.
     static func day(_ date: Date) -> String {
         date.formatted(.dateTime.month(.abbreviated).day())
@@ -53,6 +57,25 @@ enum Format {
         let m = minutes % 60
         if h == 0 { return "\(m)m" }
         return m == 0 ? "\(h)h" : String(format: "%dh %02dm", h, m)
+    }
+
+    static func signedDuration(_ seconds: TimeInterval) -> String {
+        signed(seconds, zero: "0m") { duration(abs($0)) }
+    }
+
+    static func signedCount(_ count: Int) -> String {
+        if count == 0 { return "0" }
+        return count > 0 ? "+\(count)" : "\(count)"
+    }
+
+    static func signedCurrency(_ amount: Double) -> String {
+        if abs(amount) < 0.005 { return "$0.00" }
+        return amount > 0 ? "+\(cost(amount))" : "-\(cost(abs(amount)))"
+    }
+
+    private static func signed(_ value: TimeInterval, zero: String, render: (TimeInterval) -> String) -> String {
+        if abs(value) < 0.5 { return zero }
+        return value > 0 ? "+\(render(value))" : "-\(render(value))"
     }
 
     /// `0%`, `48%`, `100%` from a `0...1` ratio.

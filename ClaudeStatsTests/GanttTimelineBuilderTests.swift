@@ -38,14 +38,16 @@ struct GanttTimelineBuilderTests {
         provider: ProviderKind = .claude,
         projectDirectoryName: String,
         cwd: String?,
-        intervals: [DateInterval]
+        intervals: [DateInterval],
+        models: [ModelUsage] = [],
+        messageCount: Int = 1
     ) -> Session {
         let stats = SessionStats(
             title: id,
-            messageCount: 1,
+            messageCount: messageCount,
             firstActivity: intervals.map(\.start).min(),
             lastActivity: intervals.map(\.end).max(),
-            models: [],
+            models: models,
             timeline: [],
             activityIntervals: intervals
         )
@@ -232,5 +234,126 @@ struct GanttTimelineBuilderTests {
         )
 
         #expect(snapshot.projects.map(\.displayName) == ["long", "new", "old"])
+    }
+
+    @Test("Segments and load lanes aggregate tokens cost focus and usage limits")
+    func segmentsAndLoadLanesAggregateMetrics() {
+        let usage = TokenUsage(inputTokens: 100, outputTokens: 50)
+        let snapshot = GanttTimelineBuilder.build(
+            sessions: [
+                session(
+                    "feature",
+                    provider: .codex,
+                    projectDirectoryName: "-Users-dev-app",
+                    cwd: "/Users/dev/app",
+                    intervals: [iv(1, 3)],
+                    models: [
+                        ModelUsage(model: "gpt-5-codex", messageCount: 4, usage: usage, estimatedCost: 1.25),
+                    ],
+                    messageCount: 4
+                ),
+            ],
+            period: period(),
+            activityMode: .aiActive,
+            focusAppIntervals: [
+                AppFocusInterval(bundleID: "com.apple.dt.Xcode", interval: iv(1.5, 2.5)),
+            ],
+            usageLimitReports: [
+                .fresh(
+                    provider: .claude,
+                    snapshot: UsageLimitSnapshot(
+                        provider: .claude,
+                        windows: [
+                            UsageLimitWindow(id: "five_hour", label: "5h", usedPercent: 75, resetAt: h(6), windowMinutes: 300),
+                        ],
+                        capturedAt: h(2),
+                        sourceLabel: "Test",
+                        sourcePath: nil,
+                        planType: nil,
+                        limitID: nil
+                    )
+                ),
+            ]
+        )
+
+        let project = snapshot.projects.first
+        let segment = project?.segments.first
+        #expect(project?.sessionCount == 1)
+        #expect(project?.messageCount == 4)
+        #expect(project?.totalUsage.total == 150)
+        #expect(abs((project?.totalCost ?? 0) - 1.25) < 0.001)
+        #expect(abs((project?.focusOverlapDuration ?? 0) - 3_600) < 0.001)
+        #expect(segment?.models.first?.model == "gpt-5-codex")
+        #expect(segment?.usage.total == 150)
+        #expect(snapshot.metrics.tokens == 150)
+        #expect(snapshot.metrics.messageCount == 4)
+
+        let providerLane = snapshot.load.groups.first { $0.kind == .provider }?.lanes.first
+        let modelLane = snapshot.load.groups.first { $0.kind == .model }?.lanes.first
+        let focusLane = snapshot.load.groups.first { $0.kind == .focus }?.lanes.first
+        let usageLimitLane = snapshot.load.groups.first { $0.kind == .usageLimit }?.lanes.first
+        #expect(providerLane?.id == ProviderKind.codex.rawValue)
+        #expect(providerLane?.tokens == 150)
+        #expect(modelLane?.id == "gpt-5-codex")
+        #expect(focusLane?.id == "com.apple.dt.Xcode")
+        #expect(usageLimitLane?.id == "\(ProviderKind.claude.rawValue)|five_hour")
+        #expect(abs((usageLimitLane?.intensity ?? 0) - 0.75) < 0.001)
+    }
+
+    @Test("Baseline comparison exposes metric deltas")
+    func baselineComparisonExposesMetricDeltas() {
+        let current = GanttTimelineBuilder.build(
+            sessions: [
+                session(
+                    "fix retry current",
+                    projectDirectoryName: "-Users-dev-app",
+                    cwd: "/Users/dev/app",
+                    intervals: [iv(1, 3)],
+                    models: [
+                        ModelUsage(
+                            model: "claude-sonnet",
+                            messageCount: 2,
+                            usage: TokenUsage(inputTokens: 20, outputTokens: 10),
+                            estimatedCost: 0.30
+                        ),
+                    ],
+                    messageCount: 2
+                ),
+            ],
+            period: period(),
+            activityMode: .aiActive,
+            externalMetrics: GanttExternalMetrics(commitCount: 3, failureSignals: 1, retrySignals: 2)
+        )
+        let baseline = GanttTimelineBuilder.build(
+            sessions: [
+                session(
+                    "baseline",
+                    projectDirectoryName: "-Users-dev-app",
+                    cwd: "/Users/dev/app",
+                    intervals: [iv(-22, -21)],
+                    models: [
+                        ModelUsage(
+                            model: "claude-sonnet",
+                            messageCount: 1,
+                            usage: TokenUsage(inputTokens: 5, outputTokens: 5),
+                            estimatedCost: 0.10
+                        ),
+                    ],
+                    messageCount: 1
+                ),
+            ],
+            period: period(start: -24, end: 0),
+            activityMode: .aiActive,
+            externalMetrics: GanttExternalMetrics(commitCount: 1, failureSignals: 0, retrySignals: 1)
+        )
+
+        let comparison = GanttTimelineBuilder.baselineComparison(current: current, baseline: baseline)
+
+        #expect(abs(comparison.activeDurationDelta - 3_600) < 0.001)
+        #expect(comparison.tokensDelta == 20)
+        #expect(abs(comparison.costDelta - 0.20) < 0.001)
+        #expect(comparison.commitDelta == 2)
+        #expect(comparison.failureSignalDelta == 2)
+        #expect(comparison.retrySignalDelta == 2)
     }
 }

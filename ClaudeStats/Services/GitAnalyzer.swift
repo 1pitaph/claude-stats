@@ -33,10 +33,15 @@ struct GitAnalyzer: Sendable {
     /// (several `cwd`s can sit in the same repo). Non-repos / missing paths are
     /// dropped silently.
     func repos(forCwds cwds: [String]) -> [GitRepo] {
+        let normalizedCwds = Set(cwds.compactMap { cwd -> String? in
+            let trimmed = cwd.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            return URL(fileURLWithPath: trimmed).standardizedFileURL.path
+        })
         var seen = Set<String>()
         var out: [GitRepo] = []
-        for cwd in cwds {
-            guard !cwd.isEmpty, FileManager.default.fileExists(atPath: cwd) else { continue }
+        for cwd in normalizedCwds.sorted() {
+            guard FileManager.default.fileExists(atPath: cwd) else { continue }
             guard let repo = repo(forCwd: cwd) else { continue }
             if seen.insert(repo.rootPath).inserted { out.append(repo) }
         }
@@ -114,6 +119,26 @@ struct GitAnalyzer: Sendable {
         guard let output = runGit(args) else { return [] }
         return Self.parseLog(output, repoID: repo.id)
             .filter { interval.contains($0.date) }
+    }
+
+    func commitCount(in repo: GitRepo, during interval: DateInterval, authorEmail: String?) -> Int {
+        guard isAvailable else { return 0 }
+        let formatter = ISO8601DateFormatter()
+        let sinceArg = formatter.string(from: interval.start)
+        let beforeArg = formatter.string(from: interval.end)
+        var args = [
+            "-C", repo.rootPath,
+            "rev-list",
+            "--count",
+            "--no-merges",
+            "--since=\(sinceArg)",
+            "--before=\(beforeArg)",
+        ]
+        if let authorEmail, !authorEmail.isEmpty { args.append("--author=\(authorEmail)") }
+        args.append("HEAD")
+        guard let output = runGit(args, timeout: 10)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) else { return 0 }
+        return Int(output) ?? 0
     }
 
     func latestCommitDate(in repo: GitRepo, authorEmail: String?) -> Date? {

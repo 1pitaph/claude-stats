@@ -8,12 +8,20 @@ struct MainGanttView: View {
 
     private struct ReloadKey: Equatable {
         let range: GanttRange
-        let selectedDate: Date
+        let periodStart: Date
+        let periodEnd: Date
         let mode: GanttActivityMode
         let token: UInt64
-        let lastRefreshedAt: Date?
+        let sessions: SessionsFingerprint
         let codingSurfaceBundleIDs: Set<String>
         let cliHostBundleIDs: Set<String>
+    }
+
+    private struct SessionsFingerprint: Equatable {
+        let count: Int
+        let newestModified: Date?
+        let totalFileSize: Int64
+        let contentHash: Int
     }
 
     var body: some View {
@@ -30,16 +38,22 @@ struct MainGanttView: View {
                     selectedPeriod: vm.periodLabel,
                     canStepForward: vm.canStepForward,
                     isLoading: vm.isLoading,
-                    onStepPeriod: vm.stepPeriod
+                    onStepPeriod: vm.stepPeriod,
+                    onJumpToToday: vm.jumpToToday
                 )
 
                 if vm.activityMode == .assistedFocus && vm.permissionState == .needsFullDiskAccess {
                     permissionGate
                 } else {
                     GanttOverviewPanel(snapshot: vm.snapshot)
+                    GanttBaselinePanel(comparison: vm.snapshot.baselineComparison)
+                    GanttTimelineOverviewPanel(snapshot: vm.snapshot) { date in
+                        vm.focusDateIfPeriodChanges(date)
+                    }
                     GanttChartPanel(snapshot: vm.snapshot, emptyMessage: chartEmptyMessage) { project in
                         selectedProject = project
                     }
+                    GanttLoadPanel(load: vm.snapshot.load, domain: vm.snapshot.domain)
                 }
             }
             .padding(.horizontal, 20)
@@ -57,15 +71,22 @@ struct MainGanttView: View {
             await vm.reload(
                 sessions: env.store.sessions,
                 codingSurfaceBundleIDs: codingSurfaceBundleIDs,
-                cliHostBundleIDs: cliHostBundleIDs
+                cliHostBundleIDs: cliHostBundleIDs,
+                usageLimitReports: Array(env.usageLimits.reports.values)
             )
+        }
+        .onChange(of: env.usageLimits.reports) { _, reports in
+            vm.refreshUsageLimitReports(Array(reports.values))
+        }
+        .task {
+            await env.usageLimits.refreshSupportedProviders()
         }
         .sheet(item: $selectedProject) { project in
             GanttProjectDetailSheet(
                 project: project,
                 initialMode: vm.activityMode,
                 sessions: env.store.sessions,
-                sourceRefreshedAt: env.store.lastRefreshedAt,
+                usageLimitReports: Array(env.usageLimits.reports.values),
                 codingSurfaceBundleIDs: codingSurfaceBundleIDs,
                 cliHostBundleIDs: cliHostBundleIDs
             )
@@ -94,13 +115,15 @@ struct MainGanttView: View {
         selectedPeriod: String,
         canStepForward: Bool,
         isLoading: Bool,
-        onStepPeriod: @escaping (Int) -> Void
+        onStepPeriod: @escaping (Int) -> Void,
+        onJumpToToday: @escaping () -> Void
     ) -> some View {
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .center, spacing: 12) {
                 GanttModeChips(mode: mode)
                 Spacer(minLength: 12)
                 loadingIndicator(isLoading)
+                GanttTodayButton(onJumpToToday: onJumpToToday)
                 GanttPeriodStepper(
                     range: range,
                     selectedPeriod: selectedPeriod,
@@ -115,6 +138,7 @@ struct MainGanttView: View {
                 HStack(spacing: 8) {
                     Spacer(minLength: 0)
                     loadingIndicator(isLoading)
+                    GanttTodayButton(onJumpToToday: onJumpToToday)
                     GanttPeriodStepper(
                         range: range,
                         selectedPeriod: selectedPeriod,
@@ -157,17 +181,63 @@ struct MainGanttView: View {
         codingSurfaceBundleIDs: Set<String>,
         cliHostBundleIDs: Set<String>
     ) -> ReloadKey {
-        ReloadKey(
+        let period = vm.period
+        return ReloadKey(
             range: vm.range,
-            selectedDate: vm.selectedDate,
+            periodStart: period.domain.start,
+            periodEnd: period.domain.end,
             mode: vm.activityMode,
             token: vm.reloadToken,
-            lastRefreshedAt: env.store.lastRefreshedAt,
+            sessions: sessionsFingerprint(env.store.sessions),
             codingSurfaceBundleIDs: codingSurfaceBundleIDs,
             cliHostBundleIDs: cliHostBundleIDs
         )
     }
 
+    private func sessionsFingerprint(_ sessions: [Session]) -> SessionsFingerprint {
+        var newestModified: Date?
+        var totalFileSize: Int64 = 0
+        var hasher = Hasher()
+        for session in sessions {
+            totalFileSize += session.fileSize
+            if newestModified == nil || session.lastModified > newestModified! {
+                newestModified = session.lastModified
+            }
+            hasher.combine(session.provider)
+            hasher.combine(session.id)
+            hasher.combine(session.filePath)
+            hasher.combine(session.fileSize)
+            hasher.combine(Int((session.lastModified.timeIntervalSinceReferenceDate * 1_000).rounded()))
+            hasher.combine(session.stats?.messageCount ?? 0)
+            hasher.combine(Int(((session.stats?.lastActivity ?? session.lastModified).timeIntervalSinceReferenceDate * 1_000).rounded()))
+        }
+        return SessionsFingerprint(
+            count: sessions.count,
+            newestModified: newestModified,
+            totalFileSize: totalFileSize,
+            contentHash: hasher.finalize()
+        )
+    }
+
+}
+
+private struct GanttTodayButton: View {
+    let onJumpToToday: () -> Void
+
+    var body: some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.18)) {
+                onJumpToToday()
+            }
+        } label: {
+            Image(systemName: "calendar.badge.clock")
+                .font(.system(size: 12, weight: .semibold))
+                .frame(width: 28, height: 28)
+        }
+        .buttonStyle(.plain)
+        .help(String(localized: "Go to today"))
+        .accessibilityLabel(String(localized: "Go to today"))
+    }
 }
 
 private struct GanttRangeChips: View {
@@ -328,12 +398,334 @@ private struct GanttOverviewPanel: View {
     }
 }
 
+private struct GanttBaselinePanel: View {
+    let comparison: GanttBaselineComparison?
+
+    var body: some View {
+        if let comparison {
+            VStack(alignment: .leading, spacing: 12) {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .firstTextBaseline) {
+                        title
+                        Spacer(minLength: 12)
+                        Text("\(Format.day(comparison.baselineDomain.start)) - \(Format.day(comparison.baselineDomain.end.addingTimeInterval(-1)))")
+                            .font(.sora(10).monospacedDigit())
+                            .foregroundStyle(Color.stxMuted)
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        title
+                        Text("\(Format.day(comparison.baselineDomain.start)) - \(Format.day(comparison.baselineDomain.end.addingTimeInterval(-1)))")
+                            .font(.sora(10).monospacedDigit())
+                            .foregroundStyle(Color.stxMuted)
+                    }
+                }
+
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 0) { deltaCards(comparison) }
+                    Grid(horizontalSpacing: 0, verticalSpacing: 0) {
+                        GridRow {
+                            baselineCard("ACTIVE", Format.signedDuration(comparison.activeDurationDelta))
+                            baselineCard("TOKENS", Format.signedCount(comparison.tokensDelta))
+                        }
+                        GridRow {
+                            baselineCard("COST", Format.signedCurrency(comparison.costDelta))
+                            baselineCard("COMMITS", Format.signedCount(comparison.commitDelta))
+                        }
+                        GridRow {
+                            baselineCard("FAILURES", Format.signedCount(comparison.failureSignalDelta))
+                            baselineCard("RETRIES", Format.signedCount(comparison.retrySignalDelta))
+                        }
+                        GridRow {
+                            baselineCard("SWITCHES", Format.signedCount(comparison.contextSwitchDelta))
+                        }
+                    }
+                }
+            }
+            .mainWindowPanel(padding: 16)
+        }
+    }
+
+    private var title: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("BASELINE")
+                .font(.sora(13, weight: .semibold))
+                .tracking(1.0)
+            Text("Compared with the previous matching range.")
+                .font(.sora(10))
+                .foregroundStyle(Color.stxMuted)
+        }
+    }
+
+    @ViewBuilder
+    private func deltaCards(_ comparison: GanttBaselineComparison) -> some View {
+        baselineCard("ACTIVE", Format.signedDuration(comparison.activeDurationDelta))
+        Divider().opacity(0.5)
+        baselineCard("TOKENS", Format.signedCount(comparison.tokensDelta))
+        Divider().opacity(0.5)
+        baselineCard("COST", Format.signedCurrency(comparison.costDelta))
+        Divider().opacity(0.5)
+        baselineCard("COMMITS", Format.signedCount(comparison.commitDelta))
+        Divider().opacity(0.5)
+        baselineCard("FAILURES", Format.signedCount(comparison.failureSignalDelta))
+        Divider().opacity(0.5)
+        baselineCard("RETRIES", Format.signedCount(comparison.retrySignalDelta))
+        Divider().opacity(0.5)
+        baselineCard("SWITCHES", Format.signedCount(comparison.contextSwitchDelta))
+    }
+
+    private func baselineCard(_ label: String, _ value: String) -> some View {
+        StatCard(label: label, value: value, animatesNumericValue: false)
+    }
+}
+
+private struct GanttTimelineOverviewPanel: View {
+    let snapshot: GanttTimelineSnapshot
+    let onSelectDate: (Date) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("OVERVIEW")
+                    .font(.sora(13, weight: .semibold))
+                    .tracking(1.0)
+                Spacer(minLength: 12)
+                Text("Drag to move the visible period.")
+                    .font(.sora(10))
+                    .foregroundStyle(Color.stxMuted)
+            }
+
+            GeometryReader { proxy in
+                GanttOverviewCanvas(snapshot: snapshot)
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                onSelectDate(date(at: value.location.x, width: proxy.size.width))
+                            }
+                    )
+            }
+            .frame(height: 58)
+            .clipShape(.rect(cornerRadius: 6))
+            .overlay {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(Color.stxStroke.opacity(0.7), lineWidth: 1)
+            }
+        }
+        .mainWindowPanel(padding: 16)
+    }
+
+    private func date(at x: CGFloat, width: CGFloat) -> Date {
+        guard width > 0 else { return snapshot.domain.start }
+        let ratio = min(1, max(0, Double(x / width)))
+        return snapshot.domain.start.addingTimeInterval(snapshot.domain.duration * ratio)
+    }
+}
+
+private struct GanttOverviewCanvas: View {
+    let snapshot: GanttTimelineSnapshot
+
+    var body: some View {
+        Canvas(rendersAsynchronously: true) { context, size in
+            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Color.primary.opacity(0.025)))
+            let rowCount = max(1, min(snapshot.projects.count, 8))
+            let rowHeight = size.height / CGFloat(rowCount)
+            for (index, project) in snapshot.projects.prefix(rowCount).enumerated() {
+                let color = project.providerList.first == .codex ? Color.stxAccent : (project.providerList.first?.accentColor ?? Color.stxAccent)
+                for segment in project.segments {
+                    let startX = GanttTimelineScale.ratio(for: segment.interval.start, domain: snapshot.domain) * size.width
+                    let endX = GanttTimelineScale.ratio(for: segment.interval.end, domain: snapshot.domain) * size.width
+                    let rect = CGRect(
+                        x: startX,
+                        y: CGFloat(index) * rowHeight + 8,
+                        width: max(2, endX - startX),
+                        height: max(3, rowHeight - 14)
+                    )
+                    context.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(color.opacity(0.78)))
+                }
+            }
+            if snapshot.domain.contains(Date.now) {
+                let x = GanttTimelineScale.ratio(for: .now, domain: snapshot.domain) * size.width
+                var path = Path()
+                path.move(to: CGPoint(x: x, y: 0))
+                path.addLine(to: CGPoint(x: x, y: size.height))
+                context.stroke(path, with: .color(Color.stxAccent.opacity(0.75)), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+            }
+        }
+        .accessibilityLabel(String(localized: "Gantt overview"))
+    }
+}
+
+private struct GanttLoadPanel: View {
+    let load: GanttLoadSnapshot
+    let domain: DateInterval
+    @State private var selectedKind: GanttLoadGroupKind = .provider
+
+    private var selectedGroup: GanttLoadGroup? {
+        load.groups.first { $0.kind == selectedKind } ?? load.groups.first
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            header
+            summary
+            if load.groups.isEmpty {
+                Text("No tool or attention load data in this range.")
+                    .font(.sora(12))
+                    .foregroundStyle(Color.stxMuted)
+                    .frame(maxWidth: .infinity, minHeight: 96, alignment: .center)
+            } else {
+                GanttLoadKindChips(groups: load.groups, selection: $selectedKind)
+                if let selectedGroup {
+                    GanttLoadLaneList(group: selectedGroup, domain: domain)
+                }
+            }
+        }
+        .mainWindowPanel(padding: 16)
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("TOOL / ATTENTION LOAD")
+                .font(.sora(13, weight: .semibold))
+                .tracking(1.0)
+            Text("Provider, model, project, focus, and usage-limit pressure translated into load lanes.")
+                .font(.sora(10))
+                .foregroundStyle(Color.stxMuted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var summary: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 0) { summaryCards }
+            Grid(horizontalSpacing: 0, verticalSpacing: 0) {
+                GridRow {
+                    loadCard("FOCUS BLOCKS", "\(load.summary.focusBlocks)")
+                    loadCard("SWITCHES", "\(load.summary.contextSwitches)")
+                }
+                GridRow {
+                    loadCard("TOP LOAD", load.summary.topLoadTitle ?? "--")
+                    loadCard("FOCUS SCORE", "\(Int(load.summary.focusScore.rounded()))")
+                }
+            }
+        }
+        .background(Color.primary.opacity(0.015), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+    }
+
+    @ViewBuilder
+    private var summaryCards: some View {
+        loadCard("FOCUS BLOCKS", "\(load.summary.focusBlocks)")
+        Divider().opacity(0.5)
+        loadCard("SWITCHES", "\(load.summary.contextSwitches)")
+        Divider().opacity(0.5)
+        loadCard("TOP LOAD", load.summary.topLoadTitle ?? "--")
+        Divider().opacity(0.5)
+        loadCard("TOKEN PEAK", load.summary.highestTokenWindow.map { "\(Format.shortTime($0.start))" } ?? "--")
+        Divider().opacity(0.5)
+        loadCard("FOCUS SCORE", "\(Int(load.summary.focusScore.rounded()))")
+    }
+
+    private func loadCard(_ label: String, _ value: String) -> some View {
+        StatCard(label: label, value: value, animatesNumericValue: false)
+    }
+}
+
+private struct GanttLoadKindChips: View {
+    let groups: [GanttLoadGroup]
+    @Binding var selection: GanttLoadGroupKind
+
+    var body: some View {
+        PillSegmentedBar(
+            groups.map(\.kind),
+            selection: $selection,
+            help: { $0.label },
+            accessibilityLabel: { $0.label }
+        ) { value, _ in
+            Text(value.label)
+                .fixedSize(horizontal: true, vertical: false)
+        }
+    }
+}
+
+private struct GanttLoadLaneList: View {
+    let group: GanttLoadGroup
+    let domain: DateInterval
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(group.lanes.prefix(8)) { lane in
+                GanttLoadLaneRow(lane: lane, domain: domain)
+                if lane.id != group.lanes.prefix(8).last?.id {
+                    StxRule()
+                }
+            }
+        }
+        .clipShape(.rect(cornerRadius: 6))
+        .overlay {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(Color.stxStroke.opacity(0.55), lineWidth: 1)
+        }
+    }
+}
+
+private struct GanttLoadLaneRow: View {
+    let lane: GanttLoadLane
+    let domain: DateInterval
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(lane.title)
+                    .font(.sora(11, weight: .medium))
+                    .lineLimit(1)
+                Text(lane.subtitle ?? "\(Format.duration(lane.totalDuration)) · \(lane.tokens) tokens")
+                    .font(.sora(9))
+                    .foregroundStyle(Color.stxMuted)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .frame(width: 210, alignment: .leading)
+
+            GanttLoadLaneCanvas(lane: lane, domain: domain)
+                .frame(height: 28)
+
+            Text(Format.duration(lane.totalDuration))
+                .font(.sora(10).monospacedDigit())
+                .foregroundStyle(Color.stxMuted)
+                .frame(width: 64, alignment: .trailing)
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 44)
+        .background(Color.primary.opacity(0.018))
+    }
+}
+
+private struct GanttLoadLaneCanvas: View {
+    let lane: GanttLoadLane
+    let domain: DateInterval
+
+    var body: some View {
+        Canvas(rendersAsynchronously: true) { context, size in
+            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Color.primary.opacity(0.025)))
+            for segment in lane.segments {
+                let startX = GanttTimelineScale.ratio(for: segment.interval.start, domain: domain) * size.width
+                let endX = GanttTimelineScale.ratio(for: segment.interval.end, domain: domain) * size.width
+                let rect = CGRect(x: startX, y: 8, width: max(2, endX - startX), height: 12)
+                context.fill(
+                    Path(roundedRect: rect, cornerRadius: 3),
+                    with: .color(Color.stxAccent.opacity(max(0.18, min(0.92, segment.intensity))))
+                )
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
 private struct GanttProjectDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     let project: GanttProjectReference
     let sessions: [Session]
-    let sourceRefreshedAt: Date?
+    let usageLimitReports: [UsageLimitReport]
     let codingSurfaceBundleIDs: Set<String>
     let cliHostBundleIDs: Set<String>
 
@@ -343,22 +735,29 @@ private struct GanttProjectDetailSheet: View {
         let projectID: String
         let mode: GanttActivityMode
         let token: UInt64
-        let sourceRefreshedAt: Date?
+        let sessions: SessionsFingerprint
         let codingSurfaceBundleIDs: Set<String>
         let cliHostBundleIDs: Set<String>
+    }
+
+    private struct SessionsFingerprint: Equatable {
+        let count: Int
+        let newestModified: Date?
+        let totalFileSize: Int64
+        let contentHash: Int
     }
 
     init(
         project: GanttProjectReference,
         initialMode: GanttActivityMode,
         sessions: [Session],
-        sourceRefreshedAt: Date?,
+        usageLimitReports: [UsageLimitReport],
         codingSurfaceBundleIDs: Set<String>,
         cliHostBundleIDs: Set<String>
     ) {
         self.project = project
         self.sessions = sessions
-        self.sourceRefreshedAt = sourceRefreshedAt
+        self.usageLimitReports = usageLimitReports
         self.codingSurfaceBundleIDs = codingSurfaceBundleIDs
         self.cliHostBundleIDs = cliHostBundleIDs
         _vm = State(initialValue: GanttProjectDetailViewModel(initialMode: initialMode))
@@ -384,9 +783,13 @@ private struct GanttProjectDetailSheet: View {
             await vm.reload(
                 projectID: project.id,
                 sessions: sessions,
+                usageLimitReports: usageLimitReports,
                 codingSurfaceBundleIDs: codingSurfaceBundleIDs,
                 cliHostBundleIDs: cliHostBundleIDs
             )
+        }
+        .onChange(of: usageLimitReports) { _, reports in
+            vm.refreshUsageLimitReports(reports)
         }
     }
 
@@ -395,9 +798,34 @@ private struct GanttProjectDetailSheet: View {
             projectID: project.id,
             mode: vm.activityMode,
             token: vm.reloadToken,
-            sourceRefreshedAt: sourceRefreshedAt,
+            sessions: sessionsFingerprint(sessions),
             codingSurfaceBundleIDs: codingSurfaceBundleIDs,
             cliHostBundleIDs: cliHostBundleIDs
+        )
+    }
+
+    private func sessionsFingerprint(_ sessions: [Session]) -> SessionsFingerprint {
+        var newestModified: Date?
+        var totalFileSize: Int64 = 0
+        var hasher = Hasher()
+        for session in sessions {
+            totalFileSize += session.fileSize
+            if newestModified == nil || session.lastModified > newestModified! {
+                newestModified = session.lastModified
+            }
+            hasher.combine(session.provider)
+            hasher.combine(session.id)
+            hasher.combine(session.filePath)
+            hasher.combine(session.fileSize)
+            hasher.combine(Int((session.lastModified.timeIntervalSinceReferenceDate * 1_000).rounded()))
+            hasher.combine(session.stats?.messageCount ?? 0)
+            hasher.combine(Int(((session.stats?.lastActivity ?? session.lastModified).timeIntervalSinceReferenceDate * 1_000).rounded()))
+        }
+        return SessionsFingerprint(
+            count: sessions.count,
+            newestModified: newestModified,
+            totalFileSize: totalFileSize,
+            contentHash: hasher.finalize()
         )
     }
 
@@ -459,11 +887,13 @@ private struct GanttProjectDetailSheet: View {
                     }
                 } else {
                     GanttProjectDetailSummaryPanel(snapshot: vm.snapshot)
+                    GanttBaselinePanel(comparison: vm.snapshot.baselineComparison)
                     GanttProjectSevenDayChartPanel(
                         snapshot: vm.snapshot,
                         project: project,
                         emptyMessage: detailEmptyMessage
                     )
+                    GanttLoadPanel(load: vm.snapshot.load, domain: vm.snapshot.domain)
                 }
             }
             .padding(16)
@@ -931,12 +1361,9 @@ private enum GanttDayTimelineScale {
             return width
         }
 
-        let components = calendar.dateComponents([.hour, .minute, .second, .nanosecond], from: day.start, to: date)
-        let seconds = Double(components.hour ?? 0) * 3_600
-            + Double(components.minute ?? 0) * 60
-            + Double(components.second ?? 0)
-            + Double(components.nanosecond ?? 0) / 1_000_000_000
-        return min(width, max(0, width * CGFloat(seconds / 86_400)))
+        guard day.duration > 0 else { return 0 }
+        let seconds = date.timeIntervalSince(day.start)
+        return min(width, max(0, width * CGFloat(seconds / day.duration)))
     }
 }
 
@@ -995,6 +1422,7 @@ private struct GanttChartPanel: View {
     var onSelectProject: ((GanttProjectReference) -> Void)?
     @State private var cachedRenderPlanKey: GanttTimelineRenderPlan.Key?
     @State private var cachedRenderPlan: GanttTimelineRenderPlan?
+    @State private var selectedSegment: GanttTimelineRenderPlan.SegmentDetail?
 
     private let leftColumnWidth: CGFloat = 260
     private let headerHeight: CGFloat = 42
@@ -1013,6 +1441,9 @@ private struct GanttChartPanel: View {
                 emptyState
             } else {
                 chart(renderPlan)
+                if let selectedSegment {
+                    GanttSegmentInspector(detail: selectedSegment)
+                }
             }
         }
         .mainWindowPanel(padding: 16)
@@ -1095,8 +1526,15 @@ private struct GanttChartPanel: View {
                     VStack(spacing: 0) {
                         GanttTimelineHeader(ticks: renderPlan.ticks)
                             .frame(width: timelineWidth, height: headerHeight)
-                        GanttTimelineCanvas(renderPlan: renderPlan, rowHeight: rowHeight)
-                            .frame(width: timelineWidth, height: rowsHeight)
+                        ZStack(alignment: .topLeading) {
+                            GanttTimelineCanvas(renderPlan: renderPlan, rowHeight: rowHeight)
+                            GanttTimelineHitLayer(
+                                renderPlan: renderPlan,
+                                rowHeight: rowHeight,
+                                onSelect: { selectedSegment = $0 }
+                            )
+                        }
+                        .frame(width: timelineWidth, height: rowsHeight)
                     }
                 }
                 .frame(minWidth: 0, maxWidth: .infinity)
@@ -1195,8 +1633,27 @@ private struct GanttTimelineRenderPlan {
     }
 
     struct Segment {
+        let id: String
         let startRatio: CGFloat
         let endRatio: CGFloat
+        let detail: SegmentDetail
+    }
+
+    struct SegmentDetail: Equatable, Identifiable {
+        let id: String
+        let projectName: String
+        let projectPath: String
+        let interval: DateInterval
+        let providers: [ProviderKind]
+        let sessionCount: Int
+        let sessionTitles: [String]
+        let models: [GanttModelMetric]
+        let tokens: Int
+        let cost: Double
+        let messageCount: Int
+        let focusOverlapDuration: TimeInterval
+
+        var duration: TimeInterval { interval.duration }
     }
 
     struct Row: Identifiable {
@@ -1233,8 +1690,23 @@ private struct GanttTimelineRenderPlan {
             let durationText = Format.duration(project.totalDuration)
             let segments = project.segments.map { segment in
                 Segment(
+                    id: segment.id,
                     startRatio: GanttTimelineScale.ratio(for: segment.interval.start, domain: snapshot.domain),
-                    endRatio: GanttTimelineScale.ratio(for: segment.interval.end, domain: snapshot.domain)
+                    endRatio: GanttTimelineScale.ratio(for: segment.interval.end, domain: snapshot.domain),
+                    detail: SegmentDetail(
+                        id: segment.id,
+                        projectName: project.displayName,
+                        projectPath: project.path ?? String(localized: "No project path"),
+                        interval: segment.interval,
+                        providers: segment.providerList,
+                        sessionCount: segment.sessionIDs.count,
+                        sessionTitles: segment.sessionTitles,
+                        models: segment.models,
+                        tokens: segment.usage.total,
+                        cost: segment.cost,
+                        messageCount: segment.messageCount,
+                        focusOverlapDuration: segment.focusOverlapDuration
+                    )
                 )
             }
             return Row(
@@ -1371,6 +1843,125 @@ private struct GanttTimelineHeader: View {
             context.stroke(bottom, with: .color(Color.stxStroke.opacity(0.8)), lineWidth: 1)
         }
         .accessibilityHidden(true)
+    }
+}
+
+private struct GanttSegmentInspector: View {
+    let detail: GanttTimelineRenderPlan.SegmentDetail
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("ACTIVITY SEGMENT")
+                        .font(.sora(12, weight: .semibold))
+                        .tracking(0.8)
+                    Text("\(detail.projectName) · \(Format.shortDate(detail.interval.start)) - \(Format.shortTime(detail.interval.end))")
+                        .font(.sora(10))
+                        .foregroundStyle(Color.stxMuted)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer(minLength: 12)
+                GanttProviderBadges(providers: detail.providers)
+            }
+
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 0) { inspectorCards }
+                Grid(horizontalSpacing: 0, verticalSpacing: 0) {
+                    GridRow {
+                        inspectorCard("DURATION", Format.duration(detail.duration))
+                        inspectorCard("TOKENS", Format.tokens(detail.tokens))
+                    }
+                    GridRow {
+                        inspectorCard("COST", Format.cost(detail.cost))
+                        inspectorCard("FOCUS", Format.duration(detail.focusOverlapDuration))
+                    }
+                }
+            }
+
+            if !detail.models.isEmpty {
+                HStack(spacing: 8) {
+                    ForEach(detail.models.prefix(4)) { model in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(model.model)
+                                .font(.sora(9, weight: .medium))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Text("\(Format.tokens(model.tokens)) · \(Format.cost(model.cost))")
+                                .font(.sora(8))
+                                .foregroundStyle(Color.stxMuted)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+
+            if !detail.sessionTitles.isEmpty {
+                Text(detail.sessionTitles.joined(separator: " · "))
+                    .font(.sora(9))
+                    .foregroundStyle(Color.stxMuted)
+                    .lineLimit(2)
+            }
+        }
+        .padding(12)
+        .background(Color.primary.opacity(0.022), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(Color.stxStroke.opacity(0.55), lineWidth: 1)
+        }
+    }
+
+    @ViewBuilder
+    private var inspectorCards: some View {
+        inspectorCard("DURATION", Format.duration(detail.duration))
+        Divider().opacity(0.5)
+        inspectorCard("SESSIONS", "\(detail.sessionCount)")
+        Divider().opacity(0.5)
+        inspectorCard("MESSAGES", "\(detail.messageCount)")
+        Divider().opacity(0.5)
+        inspectorCard("TOKENS", Format.tokens(detail.tokens))
+        Divider().opacity(0.5)
+        inspectorCard("COST", Format.cost(detail.cost))
+        Divider().opacity(0.5)
+        inspectorCard("FOCUS", Format.duration(detail.focusOverlapDuration))
+    }
+
+    private func inspectorCard(_ label: String, _ value: String) -> some View {
+        StatCard(label: label, value: value, animatesNumericValue: false)
+    }
+}
+
+private struct GanttTimelineHitLayer: View {
+    let renderPlan: GanttTimelineRenderPlan
+    let rowHeight: CGFloat
+    let onSelect: (GanttTimelineRenderPlan.SegmentDetail) -> Void
+
+    var body: some View {
+        GeometryReader { proxy in
+            ForEach(Array(renderPlan.rows.enumerated()), id: \.element.id) { index, row in
+                ForEach(row.segments, id: \.id) { segment in
+                    let startX = segment.startRatio * proxy.size.width
+                    let endX = segment.endRatio * proxy.size.width
+                    let width = max(8, endX - startX)
+                    Button {
+                        onSelect(segment.detail)
+                    } label: {
+                        Rectangle()
+                            .fill(Color.clear)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .frame(width: width, height: rowHeight)
+                    .offset(x: startX, y: CGFloat(index) * rowHeight)
+                    .help("\(segment.detail.projectName): \(Format.duration(segment.detail.duration)), \(Format.tokens(segment.detail.tokens))")
+                    .accessibilityLabel("\(segment.detail.projectName), \(Format.duration(segment.detail.duration)), \(Format.tokens(segment.detail.tokens))")
+                }
+            }
+        }
     }
 }
 
