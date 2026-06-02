@@ -7,18 +7,18 @@ name: Release
 #   1. Writes the tag's version into project.yml (MARKETING_VERSION) and uses the
 #      workflow run number as the build number (CURRENT_PROJECT_VERSION). The app's
 #      Settings ▸ About reads these from the bundle at runtime, so it updates itself.
-#   2. Builds a Release Claude Stats.app and packages it:
-#        • if the Developer ID signing secrets below are configured -> a SIGNED +
-#          NOTARIZED + stapled DMG;
-#        • otherwise -> an ad-hoc-signed (un-notarized) DMG *and* a .zip. Gatekeeper
-#          warns on first launch; users open via right-click ▸ Open.
-#   3. If SPARKLE_PRIVATE_ED_KEY is set, EdDSA-signs the archive, creates delta
-#      updates from recent appcast releases when possible, and writes an updated
-#      appcast.xml for GitHub Pages.
+#   2. Builds Release Claude Stats.app and Claude Stats Lite.app, then packages:
+#        • if the Developer ID signing secrets below are configured -> SIGNED +
+#          NOTARIZED + stapled DMGs for both variants;
+#        • otherwise -> ad-hoc-signed (un-notarized) DMGs and .zips for both
+#          variants. Gatekeeper warns on first launch; users open via right-click ▸ Open.
+#   3. If SPARKLE_PRIVATE_ED_KEY is set, EdDSA-signs the archives, creates delta
+#      updates from recent appcast releases when possible, and writes updated
+#      appcast.xml and appcast-lite.xml files for GitHub Pages.
 #   4. Creates a GitHub Release for the tag in this public source repo, with the
 #      packaged app and any Sparkle deltas attached.
-#   5. Publishes the updated appcast.xml to this repo's gh-pages branch (served
-#      at SUFeedURL by GitHub Pages) so installs can auto-update.
+#   5. Publishes the updated appcasts to this repo's gh-pages branch (served at
+#      each variant's SUFeedURL by GitHub Pages) so installs can auto-update.
 #      During the migration away from 1pitaph/claude-stats-releases, the same
 #      appcast is also mirrored to that legacy repo's gh-pages branch when
 #      RELEASES_REPO_TOKEN is present. No binaries are uploaded there.
@@ -120,10 +120,10 @@ jobs:
                 && -n "$APPLE_TEAM_ID" && -n "$BUILD_PROVISION_PROFILE_BASE64" \
                 && -n "$NOTARY_APPLE_ID" && -n "$NOTARY_PASSWORD" ]]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
-            echo "Signing secrets present — will build a notarized DMG."
+            echo "Signing secrets present — will build notarized DMGs."
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "Signing secrets absent — will build an un-notarized DMG + zip."
+            echo "Signing secrets absent — will build un-notarized DMGs + zips."
           fi
 
       - name: Detect Sparkle EdDSA key
@@ -261,11 +261,25 @@ jobs:
           echo "----- release_notes.html -----"
           cat release_notes.html
 
-      - name: Build Sparkle appcast
+      - name: Build Sparkle appcasts
         if: steps.sparkle.outputs.enabled == 'true'
         env:
           SPARKLE_PRIVATE_ED_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY }}
-        run: bash scripts/publish-appcast.sh "${{ steps.version.outputs.version }}" "${{ steps.version.outputs.build }}" "${{ github.ref_name }}"
+        run: |
+          bash scripts/publish-appcast.sh \
+            "${{ steps.version.outputs.version }}" \
+            "${{ steps.version.outputs.build }}" \
+            "${{ github.ref_name }}" \
+            ClaudeStats \
+            appcast.xml \
+            "Claude Stats"
+          bash scripts/publish-appcast.sh \
+            "${{ steps.version.outputs.version }}" \
+            "${{ steps.version.outputs.build }}" \
+            "${{ github.ref_name }}" \
+            ClaudeStatsLite \
+            appcast-lite.xml \
+            "Claude Stats Lite"
 
       - name: Create GitHub Release (in source repo)
         uses: softprops/action-gh-release@v3

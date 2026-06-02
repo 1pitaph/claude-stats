@@ -1,17 +1,23 @@
 #!/usr/bin/env bash
 # Sign the freshly-built release archive with Sparkle's EdDSA key and write an
-# updated appcast to ./_site/appcast.xml (the workflow then pushes _site/ to the
-# gh-pages branch, which GitHub Pages serves at the SUFeedURL in Info.plist).
+# updated appcast to ./_site/<appcast-file> (the workflow then pushes _site/ to
+# the gh-pages branch, which GitHub Pages serves at the SUFeedURL in Info.plist).
 #
 # Expects the artifacts produced by scripts/release-build.sh to already be in
 # ./dist/. This script may add Sparkle .delta files to ./dist/ before the
 # workflow uploads all assets to GitHub Releases.
 #
-# Usage: bash scripts/publish-appcast.sh <version> <build> <tag>
+# Usage: bash scripts/publish-appcast.sh <version> <build> <tag> [artifact-prefix] [appcast-file] [channel-title]
 #   <version>  marketing version, e.g. 1.2.0
 #   <build>    build number (CURRENT_PROJECT_VERSION) — must be monotonically
 #              increasing across releases; Sparkle compares on this
 #   <tag>      the git tag, e.g. v1.2.0 (used to build the release asset URL)
+#   [artifact-prefix]
+#              release artifact prefix; defaults to ClaudeStats
+#   [appcast-file]
+#              output/feed filename under gh-pages; defaults to appcast.xml
+#   [channel-title]
+#              RSS channel title for newly-created appcasts
 #
 # Environment:
 #   SPARKLE_PRIVATE_ED_KEY   base64 EdDSA private key from Sparkle's
@@ -23,13 +29,18 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="${1:?usage: publish-appcast.sh <version> <build> <tag>}"
-BUILD="${2:?usage: publish-appcast.sh <version> <build> <tag>}"
-TAG="${3:?usage: publish-appcast.sh <version> <build> <tag>}"
+USAGE="usage: publish-appcast.sh <version> <build> <tag> [artifact-prefix] [appcast-file] [channel-title]"
+VERSION="${1:?$USAGE}"
+BUILD="${2:?$USAGE}"
+TAG="${3:?$USAGE}"
+ARTIFACT_PREFIX="${4:-ClaudeStats}"
+APPCAST_FILE="${5:-appcast.xml}"
+CHANNEL_TITLE="${6:-Claude Stats}"
 : "${SPARKLE_PRIVATE_ED_KEY:?SPARKLE_PRIVATE_ED_KEY is not set}"
 
 REPO="1pitaph/claude-stats"
-FEED_URL="https://1pitaph.github.io/claude-stats/appcast.xml"
+FEED_URL="https://1pitaph.github.io/claude-stats/$APPCAST_FILE"
+CHANNEL_DESCRIPTION="${APPCAST_CHANNEL_DESCRIPTION:-Most recent updates to $CHANNEL_TITLE.}"
 SPARKLE_TOOLS_VERSION="2.9.1"   # the version of Sparkle CLI tools to download
 SPARKLE_MAX_DELTAS="${SPARKLE_MAX_DELTAS:-3}"
 SPARKLE_DELTA_FORMAT_VERSION="${SPARKLE_DELTA_FORMAT_VERSION:-4}"
@@ -63,12 +74,12 @@ gh_warning() {
 # Sparkle updates from a .zip when one is present (no disk image to mount),
 # otherwise from the .dmg (notarized + stapled in the signed release path).
 ARCHIVE=""
-for candidate in "dist/ClaudeStats-$VERSION.zip" "dist/ClaudeStats-$VERSION.dmg"; do
+for candidate in "dist/$ARTIFACT_PREFIX-$VERSION.zip" "dist/$ARTIFACT_PREFIX-$VERSION.dmg"; do
     if [[ -f "$candidate" ]]; then ARCHIVE="$candidate"; break; fi
 done
-[[ -n "$ARCHIVE" ]] || { echo "error: no dist/ClaudeStats-$VERSION.{zip,dmg} to sign" >&2; exit 1; }
+[[ -n "$ARCHIVE" ]] || { echo "error: no dist/$ARTIFACT_PREFIX-$VERSION.{zip,dmg} to sign" >&2; exit 1; }
 ARCHIVE_NAME="$(basename "$ARCHIVE")"
-echo "==> Signing $ARCHIVE for the appcast"
+echo "==> Signing $ARCHIVE for $APPCAST_FILE"
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -270,7 +281,7 @@ while IFS=$'\t' read -r OLD_BUILD OLD_DISPLAY OLD_URL; do
         continue
     fi
 
-    DELTA_NAME="ClaudeStats-$BUILD-from-$OLD_BUILD.delta"
+    DELTA_NAME="$ARTIFACT_PREFIX-$BUILD-from-$OLD_BUILD.delta"
     DELTA_PATH="dist/$DELTA_NAME"
     PATCHED_DIR="$WORK/patched-$OLD_BUILD"
     PATCHED_APP="$PATCHED_DIR/$(basename "$CURRENT_APP")"
@@ -318,11 +329,14 @@ python3 scripts/update-appcast.py \
     --url "https://github.com/$REPO/releases/download/$TAG/$ARCHIVE_NAME" \
     --enclosure-attrs "$ENCLOSURE_ATTRS" \
     --release-notes-file "$NOTES_FILE" \
+    --feed-url "$FEED_URL" \
+    --channel-title "$CHANNEL_TITLE" \
+    --channel-description "$CHANNEL_DESCRIPTION" \
     --min-system-version "14.0.0" \
     --hardware-requirements "arm64" \
     --deltas-file "$DELTAS_JSON" \
     --in "$WORK/appcast.xml" \
-    --out "_site/appcast.xml"
+    --out "_site/$APPCAST_FILE"
 
-echo "==> Wrote _site/appcast.xml:"
-cat "_site/appcast.xml"
+echo "==> Wrote _site/$APPCAST_FILE:"
+cat "_site/$APPCAST_FILE"

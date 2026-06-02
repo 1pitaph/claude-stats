@@ -38,30 +38,34 @@ git tag v1.2.0 && git push origin v1.2.0
 ```
 
 `.github/workflows/release.yml` (runs on `macos-26` with Xcode 26.4.1) then: writes `1.2.0` into `project.yml`
-(build number = the workflow run number), builds a Release `Codex Stats.app`, packages it,
-publishes a GitHub Release **in this source repo** with the artifact(s) attached,
-publishes the Sparkle appcast to this repo's `gh-pages` branch, and commits the
-bumped `project.yml` back to `master` here.
+(build number = the workflow run number), builds Release `Claude Stats.app` and
+`Claude Stats Lite.app`, packages both variants, publishes a GitHub Release
+**in this source repo** with the artifact(s) attached, publishes the Sparkle
+appcasts to this repo's `gh-pages` branch, and commits the bumped `project.yml`
+back to `master` here.
 
 The source repo is public and is the canonical download/update host. During the
 migration away from the old public `claude-stats-releases` companion repo, the
 workflow can still mirror only `appcast.xml` to that repo's `gh-pages` branch via
 the optional fine-grained PAT `RELEASES_REPO_TOKEN` (Contents: Read and write) so
-older builds can discover the migration release; release binaries are no longer
-uploaded there.
+older builds can discover the migration release. The mirror includes generated
+appcast files only; release binaries are no longer uploaded there.
 
 Packaging has two modes, picked automatically:
 
 - **Signed + notarized DMG** — when all signing and notarization secrets are set on the repo
   (`BUILD_CERTIFICATE_BASE64`, `P12_PASSWORD`, `KEYCHAIN_PASSWORD`, `APPLE_TEAM_ID`,
   `BUILD_PROVISION_PROFILE_BASE64`, `NOTARY_APPLE_ID`, `NOTARY_PASSWORD`; see the
-  comment block at the top of the workflow).
+  comment block at the top of the workflow). Produces `ClaudeStats-<version>.dmg`
+  and `ClaudeStatsLite-<version>.dmg`.
 - **Un-notarized DMG + .zip** — when those secrets are absent (the default). Gatekeeper warns
-  on first launch; users open it via right-click ▸ Open.
+  on first launch; users open it via right-click ▸ Open. Produces DMG and zip
+  artifacts for both variants.
 
 `scripts/release-build.sh` mirrors this: with `SIGN_IDENTITY` (plus `APPLE_TEAM_ID`, `APPLE_ID`,
-`APP_PASSWORD`) it codesigns with hardened runtime, notarizes via `notarytool`, and staples;
-without it, it produces an ad-hoc DMG + zip. Dry-run locally: `bash scripts/release-build.sh 1.2.0`.
+`APP_PASSWORD`) it codesigns with hardened runtime, notarizes via `notarytool`, and staples
+both DMGs; without it, it produces ad-hoc DMGs + zips for both variants. Dry-run locally:
+`bash scripts/release-build.sh 1.2.0`.
 Bump the version without building: `bash scripts/bump-version.sh 1.2.0`.
 
 ## Auto-update (Sparkle)
@@ -74,12 +78,14 @@ while Sparkle's windows are up and back to `.accessory` when the session ends.
 Settings ▸ About has a "Check for Updates…" button; scheduled background checks
 are on by default (`SUEnableAutomaticChecks` in `Info.plist`).
 
-The update feed is `appcast.xml` on this repo's `gh-pages` branch, served at
+The main update feed is `appcast.xml` on this repo's `gh-pages` branch, served at
 `https://1pitaph.github.io/claude-stats/appcast.xml`
-(`SUFeedURL` in `Info.plist`). On each tagged release the workflow EdDSA-signs the
-archive (`scripts/publish-appcast.sh` → `scripts/update-appcast.py`) and pushes an
-updated `appcast.xml` to that branch. During the transition, the same appcast can
-also be mirrored to `https://1pitaph.github.io/claude-stats-releases/appcast.xml`
+(`SUFeedURL` in `Info.plist`). The Lite feed is `appcast-lite.xml`, served at
+`https://1pitaph.github.io/claude-stats/appcast-lite.xml`
+(`SUFeedURL` in `InfoLite.plist`). On each tagged release the workflow EdDSA-signs
+each variant archive (`scripts/publish-appcast.sh` → `scripts/update-appcast.py`)
+and pushes updated appcast files to that branch. During the transition, generated
+appcasts can also be mirrored to `https://1pitaph.github.io/claude-stats-releases/`
 for older builds whose `SUFeedURL` still points there. This works the same whether
 the release is the un-notarized zip/DMG or the signed+notarized DMG — Sparkle just
 downloads whichever asset the appcast points at (it prefers the `.zip` when

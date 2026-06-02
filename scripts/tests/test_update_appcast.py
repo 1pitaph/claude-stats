@@ -81,6 +81,46 @@ class UpdateAppcastTests(unittest.TestCase):
                 out.read_text(encoding="utf-8"),
             )
 
+    def test_custom_feed_metadata_is_supported(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            notes = root / "notes.html"
+            out = root / "appcast-lite.xml"
+            notes.write_text("<p>lite</p>", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--version",
+                    "1.8.1",
+                    "--build",
+                    "81",
+                    "--url",
+                    "https://example.com/ClaudeStatsLite-1.8.1.zip",
+                    "--enclosure-attrs",
+                    'sparkle:edSignature="abc" length="123"',
+                    "--release-notes-file",
+                    str(notes),
+                    "--feed-url",
+                    "https://1pitaph.github.io/claude-stats/appcast-lite.xml",
+                    "--channel-title",
+                    "Claude Stats Lite",
+                    "--channel-description",
+                    "Most recent updates to Claude Stats Lite.",
+                    "--out",
+                    str(out),
+                ],
+                text=True,
+                capture_output=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            xml = out.read_text(encoding="utf-8")
+            self.assertIn("<title>Claude Stats Lite</title>", xml)
+            self.assertIn("<link>https://1pitaph.github.io/claude-stats/appcast-lite.xml</link>", xml)
+            self.assertIn("<description>Most recent updates to Claude Stats Lite.</description>", xml)
+
     def test_writes_delta_enclosures_when_present(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

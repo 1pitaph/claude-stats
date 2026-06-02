@@ -12,6 +12,8 @@ Usage:
       --url https://github.com/1pitaph/claude-stats/releases/download/v1.2.0/ClaudeStats-1.2.0.zip \
       --enclosure-attrs 'sparkle:edSignature="..." length="12345"' \
       --release-notes-file release_notes.html \
+      --feed-url https://1pitaph.github.io/claude-stats/appcast.xml \
+      --channel-title "Claude Stats" \
       --min-system-version 14.0.0 \
       --hardware-requirements arm64 \
       --deltas-file deltas.json \
@@ -33,18 +35,20 @@ import re
 import sys
 import time
 
-FEED_URL = "https://1pitaph.github.io/claude-stats/appcast.xml"
+DEFAULT_FEED_URL = "https://1pitaph.github.io/claude-stats/appcast.xml"
+DEFAULT_CHANNEL_TITLE = "Claude Stats"
+DEFAULT_CHANNEL_DESCRIPTION = "Most recent updates to Claude Stats."
 
-SKELETON = """<?xml version="1.0" encoding="utf-8"?>
+SKELETON_TEMPLATE = """<?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
   <channel>
-    <title>Claude Stats</title>
+    <title>{title}</title>
     <link>{feed}</link>
-    <description>Most recent updates to Claude Stats.</description>
+    <description>{description}</description>
     <language>en</language>
   </channel>
 </rss>
-""".format(feed=FEED_URL)
+"""
 
 ITEM_TEMPLATE = """    <item>
       <title>Version {version}</title>
@@ -233,6 +237,14 @@ def render_deltas(deltas: list[dict[str, str]]) -> str:
     return "      <sparkle:deltas>\n{}      </sparkle:deltas>\n".format(enclosures)
 
 
+def appcast_skeleton(feed_url: str, channel_title: str, channel_description: str) -> str:
+    return SKELETON_TEMPLATE.format(
+        feed=html.escape(feed_url, quote=False),
+        title=html.escape(channel_title, quote=False),
+        description=html.escape(channel_description, quote=False),
+    )
+
+
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--version", required=True)
@@ -242,6 +254,12 @@ def main() -> int:
                    help='the `sparkle:edSignature="..." length="..."` string from sign_update')
     p.add_argument("--release-notes-file", required=True,
                    help="path to an HTML fragment with this release's notes; embedded in CDATA")
+    p.add_argument("--feed-url", default=DEFAULT_FEED_URL,
+                   help="absolute URL where this appcast is hosted")
+    p.add_argument("--channel-title", default=DEFAULT_CHANNEL_TITLE,
+                   help="RSS channel title for newly-created appcasts")
+    p.add_argument("--channel-description", default=DEFAULT_CHANNEL_DESCRIPTION,
+                   help="RSS channel description for newly-created appcasts")
     p.add_argument("--min-system-version", default="14.0.0")
     p.add_argument("--hardware-requirements", default="arm64")
     p.add_argument("--deltas-file",
@@ -254,7 +272,7 @@ def main() -> int:
         with open(args.infile, encoding="utf-8") as fh:
             xml = fh.read()
     else:
-        xml = SKELETON
+        xml = appcast_skeleton(args.feed_url, args.channel_title, args.channel_description)
 
     version_tag = "<sparkle:shortVersionString>{}</sparkle:shortVersionString>".format(args.version)
     if version_tag in xml:
