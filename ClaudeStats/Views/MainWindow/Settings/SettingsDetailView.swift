@@ -37,12 +37,12 @@ struct SettingsDetailView: View {
     private var settingsContent: some View {
         Group {
             #if !CLAUDE_STATS_LITE
-            if section == .notchIsland {
+            if activeSection == .notchIsland {
                 NotchIslandSettingsView(onSelectSection: onSelectSection)
             } else {
                 AppScrollView {
                     VStack(alignment: .leading, spacing: 32) {
-                        Text(section.title)
+                        Text(activeSection.title)
                             .font(.sora(28, weight: .semibold))
                             .padding(.bottom, 4)
                         sectionContent
@@ -57,7 +57,7 @@ struct SettingsDetailView: View {
             #else
             AppScrollView {
                 VStack(alignment: .leading, spacing: 32) {
-                    Text(section.title)
+                    Text(activeSection.title)
                         .font(.sora(28, weight: .semibold))
                         .padding(.bottom, 4)
                     sectionContent
@@ -74,7 +74,7 @@ struct SettingsDetailView: View {
 
     @ViewBuilder
     private var sectionContent: some View {
-        switch SettingsSection.availableCases.contains(section) ? section : .general {
+        switch activeSection {
         case .general: GeneralSettingsView()
         case .features: FeaturesSettingsView(onSelectSection: onSelectSection)
         case .menuBar: MenuBarSettingsView()
@@ -106,6 +106,10 @@ struct SettingsDetailView: View {
             #endif
         case .about: AboutSettingsView(onShowReleaseHistory: showReleaseHistory)
         }
+    }
+
+    private var activeSection: SettingsSection {
+        SettingsSection.availableCases.contains(section) ? section : .general
     }
 
     private func showReleaseHistory() {

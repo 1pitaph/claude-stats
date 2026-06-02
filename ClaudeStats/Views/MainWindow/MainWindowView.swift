@@ -97,7 +97,8 @@ struct MainWindowView: View {
     }
 
     private var settingsSection: SettingsSection {
-        SettingsSection(rawValue: settingsSectionRaw) ?? .general
+        let storedSection = SettingsSection(rawValue: settingsSectionRaw) ?? .general
+        return SettingsSection.availableCases.contains(storedSection) ? storedSection : .general
     }
 
     #if !CLAUDE_STATS_LITE

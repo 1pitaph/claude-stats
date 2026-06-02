@@ -10,6 +10,7 @@ enum AppFeature: CaseIterable, Sendable, Hashable {
     case ops
     case network
     case notchIsland
+    case dictionary
     case git
     case dailyReport
 }
@@ -26,7 +27,7 @@ enum AppVariant {
     static func isEnabled(_ feature: AppFeature) -> Bool {
         #if CLAUDE_STATS_LITE
         switch feature {
-        case .sessions, .memory, .localAI, .linuxDo, .warp, .config, .ops, .network, .notchIsland:
+        case .sessions, .memory, .localAI, .linuxDo, .warp, .config, .ops, .network, .notchIsland, .dictionary:
             return false
         case .git, .dailyReport:
             return true

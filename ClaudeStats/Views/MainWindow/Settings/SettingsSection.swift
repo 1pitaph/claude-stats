@@ -30,6 +30,8 @@ enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
                 AppVariant.isEnabled(.linuxDo)
             case .terminal:
                 AppVariant.isEnabled(.warp)
+            case .dictionary:
+                AppVariant.isEnabled(.dictionary)
             default:
                 true
             }

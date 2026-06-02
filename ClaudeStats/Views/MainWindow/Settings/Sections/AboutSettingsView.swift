@@ -55,9 +55,9 @@ struct AboutSettingsView: View {
 
     private var counterpartVersionDescription: String {
         if AppVariant.isLite {
-            "Download Claude Stats with Linux.do, Warp, Config, Ops, Network, and Notch Island."
+            "Download Claude Stats with Dictionary, Linux.do, Warp, Config, Ops, Network, Local AI, and Notch Island."
         } else {
-            "Download Claude Stats Lite with the core stats, Git, daily reports, and local AI."
+            "Download Claude Stats Lite with the core stats, Git, and daily reports."
         }
     }
 

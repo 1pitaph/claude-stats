@@ -21,7 +21,7 @@ Claude Stats is an open-source native macOS app for people who work in AI coding
 
 The app began as a focused macOS take on the open-source [Claude Statistics](https://github.com/sj719045032/claude-statistics) project. It now includes a multi-provider foundation, an embedded terminal, a Notch Island surface, and an integrated network debugger while keeping the main product name **Claude Stats**.
 
-Claude Stats ships in two variants: the full app and **Claude Stats Lite**. Lite keeps the core menu-bar stats, Git views, daily reports, and local AI settings while omitting Linux.do, Warp, Config, Ops, Network, and Notch Island features. The two apps use separate bundle identifiers and update feeds, so they can be installed side by side.
+Claude Stats ships in two variants: the full app and **Claude Stats Lite**. Lite keeps the core menu-bar stats, Git views, and daily reports while omitting Dictionary, Linux.do, Warp, Config, Ops, Network, Local AI, and Notch Island features. The two apps use separate bundle identifiers and update feeds, so they can be installed side by side.
 
 ## Features
 
@@ -32,7 +32,7 @@ Claude Stats ships in two variants: the full app and **Claude Stats Lite**. Lite
 - A Warp-powered embedded terminal surface.
 - An Atoll-backed Notch Island surface for optional media, timer, stats, clipboard, terminal, and related modules.
 - A Rockxy-backed network debugger with proxy, rule, certificate, and helper-tool integration.
-- A Lite build for users who want the menu-bar stats, Git, daily report, and local AI surfaces without the heavier integrations.
+- A Lite build for users who want the menu-bar stats, Git, and daily report surfaces without the heavier integrations.
 - Sparkle-based automatic updates for packaged releases.
 
 ## Screens
@@ -158,8 +158,8 @@ Each tagged release publishes both app variants:
 
 | Variant | Release asset | Sparkle feed | Notes |
 | --- | --- | --- | --- |
-| Claude Stats | `ClaudeStats-<version>.dmg` | `appcast.xml` | Full app with Linux.do, Warp, Config, Ops, Network, and Notch Island. |
-| Claude Stats Lite | `ClaudeStatsLite-<version>.dmg` | `appcast-lite.xml` | Lite app with core stats, Git, daily reports, and local AI settings. |
+| Claude Stats | `ClaudeStats-<version>.dmg` | `appcast.xml` | Full app with Dictionary, Linux.do, Warp, Config, Ops, Network, Local AI, and Notch Island. |
+| Claude Stats Lite | `ClaudeStatsLite-<version>.dmg` | `appcast-lite.xml` | Lite app with core stats, Git, and daily reports. |
 
 Release packaging supports both signed/notarized builds and unsigned fallback builds. If you use an unsigned build, macOS Gatekeeper may require opening it with right-click, then **Open**.
 
