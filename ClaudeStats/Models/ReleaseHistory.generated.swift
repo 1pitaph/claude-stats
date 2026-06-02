@@ -3,6 +3,18 @@
 extension ReleaseHistoryCatalog {
     static let generatedEntries: [ReleaseHistoryEntry] = [
         ReleaseHistoryEntry(
+            version: "1.8.2",
+            date: "June 2, 2026",
+            headline: "在关于设置页面中添加了轻量版和完整版的切换提示与下载按钮，方便用户跳转获取对应版本的应用",
+            changes: [
+                "本次提交完成了多项核心改进：",
+                "新增Claude Stats Lite应用构建、打包与发布流程",
+                "重构update-appcast脚本，支持自定义feed元数据",
+                "更新CI工作流，为两个应用版本生成独立的appcast文件",
+                "移除硬编码的配置文件签名配置项",
+            ]
+        ),
+        ReleaseHistoryEntry(
             version: "1.8.1",
             date: "June 1, 2026",
             headline: "实现了按日期范围查询Git提交的能力，添加了完整的每日报告Git详情sheet页面，支持生成基于提交元数据和差异内容的AI总结，并带有缓存机制，同时完善了相关测试用例。",

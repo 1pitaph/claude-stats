@@ -66,8 +66,8 @@ settings:
     MACOSX_DEPLOYMENT_TARGET: "14.0"
     DEVELOPMENT_LANGUAGE: en
     SWIFT_STRICT_CONCURRENCY: complete
-    MARKETING_VERSION: "1.8.1"
-    CURRENT_PROJECT_VERSION: "80"
+    MARKETING_VERSION: "1.8.2"
+    CURRENT_PROJECT_VERSION: "82"
     ROCKXY_FAMILY_NAMESPACE: com.claudestats.rockxy
     ROCKXY_SHARED_SUPPORT_DIRECTORY_NAME: com.claudestats.rockxy
     ROCKXY_SHARED_CERTIFICATE_LABEL_PREFIX: com.claudestats.rockxy.rootCA
@@ -104,8 +104,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: "$(ROCKXY_HELPER_BUNDLE_ID)"
         PRODUCT_NAME: RockxyHelperTool
-        MARKETING_VERSION: "1.8.1"
-        CURRENT_PROJECT_VERSION: "80"
+        MARKETING_VERSION: "1.8.2"
+        CURRENT_PROJECT_VERSION: "82"
         INFOPLIST_FILE: ThirdParty/Rockxy/RockxyHelperTool/Info.plist
         CREATE_INFOPLIST_SECTION_IN_BINARY: YES
         GENERATE_INFOPLIST_FILE: NO
@@ -146,8 +146,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.claudestats.ClaudeStatsMemoryCLI
         PRODUCT_NAME: claude-stats-memory
         PRODUCT_MODULE_NAME: ClaudeStatsMemoryCLI
-        MARKETING_VERSION: "1.8.1"
-        CURRENT_PROJECT_VERSION: "80"
+        MARKETING_VERSION: "1.8.2"
+        CURRENT_PROJECT_VERSION: "82"
         GENERATE_INFOPLIST_FILE: YES
         CREATE_INFOPLIST_SECTION_IN_BINARY: YES
         INSTALL_PATH: ""
@@ -200,8 +200,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.claudestats.ClaudeStatsLocalAIHelper
         PRODUCT_NAME: claude-stats-local-ai
         PRODUCT_MODULE_NAME: ClaudeStatsLocalAIHelper
-        MARKETING_VERSION: "1.8.1"
-        CURRENT_PROJECT_VERSION: "80"
+        MARKETING_VERSION: "1.8.2"
+        CURRENT_PROJECT_VERSION: "82"
         GENERATE_INFOPLIST_FILE: YES
         CREATE_INFOPLIST_SECTION_IN_BINARY: YES
         INSTALL_PATH: ""
