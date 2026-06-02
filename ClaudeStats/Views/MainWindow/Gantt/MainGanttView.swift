@@ -1422,7 +1422,7 @@ private struct GanttChartPanel: View {
     var onSelectProject: ((GanttProjectReference) -> Void)?
     @State private var cachedRenderPlanKey: GanttTimelineRenderPlan.Key?
     @State private var cachedRenderPlan: GanttTimelineRenderPlan?
-    @State private var selectedSegment: GanttTimelineRenderPlan.SegmentDetail?
+    @State private var selectedSegment: GanttTimelinePopoverSelection?
 
     private let leftColumnWidth: CGFloat = 260
     private let headerHeight: CGFloat = 42
@@ -1441,16 +1441,16 @@ private struct GanttChartPanel: View {
                 emptyState
             } else {
                 chart(renderPlan)
-                if let selectedSegment {
-                    GanttSegmentInspector(detail: selectedSegment)
-                }
             }
         }
         .mainWindowPanel(padding: 16)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(String(localized: "Gantt"))
         .onAppear { cacheRenderPlanIfNeeded(renderPlanKey) }
-        .onChange(of: renderPlanKey) { _, newKey in cacheRenderPlanIfNeeded(newKey) }
+        .onChange(of: renderPlanKey) { _, newKey in
+            selectedSegment = nil
+            cacheRenderPlanIfNeeded(newKey)
+        }
     }
 
     private var panelHeader: some View {
@@ -1518,26 +1518,28 @@ private struct GanttChartPanel: View {
                 minimum: renderPlan.preferredTimelineWidth
             )
 
-            HStack(alignment: .top, spacing: 0) {
-                projectColumn(renderPlan)
-                    .frame(width: leftColumnWidth)
+            ZStack(alignment: .topLeading) {
+                HStack(alignment: .top, spacing: 0) {
+                    projectColumn(renderPlan)
+                        .frame(width: leftColumnWidth)
 
-                AppScrollView(.horizontal) {
-                    VStack(spacing: 0) {
-                        GanttTimelineHeader(ticks: renderPlan.ticks)
-                            .frame(width: timelineWidth, height: headerHeight)
-                        ZStack(alignment: .topLeading) {
-                            GanttTimelineCanvas(renderPlan: renderPlan, rowHeight: rowHeight)
-                            GanttTimelineHitLayer(
-                                renderPlan: renderPlan,
-                                rowHeight: rowHeight,
-                                onSelect: { selectedSegment = $0 }
-                            )
+                    AppScrollView(.horizontal) {
+                        VStack(spacing: 0) {
+                            GanttTimelineHeader(ticks: renderPlan.ticks)
+                                .frame(width: timelineWidth, height: headerHeight)
+                            ZStack(alignment: .topLeading) {
+                                GanttTimelineCanvas(renderPlan: renderPlan, rowHeight: rowHeight)
+                                GanttTimelineHitLayer(
+                                    renderPlan: renderPlan,
+                                    rowHeight: rowHeight,
+                                    selectedSegment: $selectedSegment
+                                )
+                            }
+                            .frame(width: timelineWidth, height: rowsHeight)
                         }
-                        .frame(width: timelineWidth, height: rowsHeight)
                     }
+                    .frame(minWidth: 0, maxWidth: .infinity)
                 }
-                .frame(minWidth: 0, maxWidth: .infinity)
             }
         }
         .frame(height: totalHeight)
@@ -1738,6 +1740,139 @@ private struct GanttTimelineRenderPlan {
     }
 }
 
+private struct GanttTimelinePopoverSelection: Equatable {
+    let segmentID: String
+    let detail: GanttTimelineRenderPlan.SegmentDetail
+}
+
+private struct GanttSegmentPopoverSource: NSViewRepresentable {
+    let segmentID: String
+    let detail: GanttTimelineRenderPlan.SegmentDetail
+    @Binding var selectedSegment: GanttTimelinePopoverSelection?
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> FlippedPopoverSourceView {
+        let view = FlippedPopoverSourceView()
+        view.postsFrameChangedNotifications = true
+        return view
+    }
+
+    func updateNSView(_ nsView: FlippedPopoverSourceView, context: Context) {
+        context.coordinator.selectedSegment = $selectedSegment
+        context.coordinator.update(
+            isSelected: selectedSegment?.segmentID == segmentID,
+            detail: selectedSegment?.detail ?? detail,
+            in: nsView
+        )
+    }
+
+    static func dismantleNSView(_ nsView: FlippedPopoverSourceView, coordinator: Coordinator) {
+        coordinator.closeFromViewRemoval()
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSPopoverDelegate {
+        var selectedSegment: Binding<GanttTimelinePopoverSelection?>?
+        private var popover: NSPopover?
+        private var hostingController: NSHostingController<GanttSegmentInspector>?
+        private var isClosingFromUpdate = false
+
+        func update(
+            isSelected: Bool,
+            detail: GanttTimelineRenderPlan.SegmentDetail,
+            in sourceView: FlippedPopoverSourceView
+        ) {
+            guard isSelected else {
+                closeFromSelectionChange()
+                return
+            }
+
+            guard sourceView.window != nil else { return }
+
+            let sourceRect = sourceView.bounds
+            guard sourceRect.width > 0, sourceRect.height > 0 else { return }
+
+            let popover = ensurePopover(for: detail)
+            updateContentSize(popover)
+
+            if popover.isShown {
+                popover.positioningRect = sourceRect
+                return
+            }
+
+            let popoverToShow = self.popover ?? ensurePopover(for: detail)
+            // The source view is flipped, so minY is the visual top edge.
+            popoverToShow.show(relativeTo: sourceRect, of: sourceView, preferredEdge: .minY)
+            if popoverToShow.delegate == nil {
+                popoverToShow.delegate = self
+            }
+            self.popover = popoverToShow
+        }
+
+        func closeFromSelectionChange() {
+            guard let popover else { return }
+            isClosingFromUpdate = true
+            popover.close()
+        }
+
+        func closeFromViewRemoval() {
+            popover?.close()
+            popover = nil
+            hostingController = nil
+        }
+
+        func popoverDidClose(_ notification: Notification) {
+            defer { isClosingFromUpdate = false }
+            guard !isClosingFromUpdate else { return }
+            selectedSegment?.wrappedValue = nil
+        }
+
+        private func ensurePopover(for detail: GanttTimelineRenderPlan.SegmentDetail) -> NSPopover {
+            if let hostingController {
+                hostingController.rootView = GanttSegmentInspector(detail: detail)
+            } else {
+                hostingController = NSHostingController(rootView: GanttSegmentInspector(detail: detail))
+            }
+
+            if let popover {
+                popover.contentViewController = hostingController
+                return popover
+            }
+
+            let popover = NSPopover()
+            popover.behavior = .transient
+            popover.animates = true
+            popover.delegate = self
+            popover.contentViewController = hostingController
+            self.popover = popover
+            return popover
+        }
+
+        private func updateContentSize(_ popover: NSPopover) {
+            guard let view = hostingController?.view else { return }
+            view.layoutSubtreeIfNeeded()
+            let fittingSize = view.fittingSize
+            guard fittingSize.width.isFinite,
+                  fittingSize.height.isFinite,
+                  fittingSize.width > 0,
+                  fittingSize.height > 0
+            else {
+                return
+            }
+            popover.contentSize = fittingSize
+        }
+    }
+}
+
+private final class FlippedPopoverSourceView: NSView {
+    override var isFlipped: Bool {
+        true
+    }
+}
+
 private struct GanttProjectRow: View {
     let row: GanttTimelineRenderPlan.Row
 
@@ -1866,19 +2001,21 @@ private struct GanttSegmentInspector: View {
                 GanttProviderBadges(providers: detail.providers)
             }
 
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 0) { inspectorCards }
-                Grid(horizontalSpacing: 0, verticalSpacing: 0) {
-                    GridRow {
-                        inspectorCard("DURATION", Format.duration(detail.duration))
-                        inspectorCard("TOKENS", Format.tokens(detail.tokens))
-                    }
-                    GridRow {
-                        inspectorCard("COST", Format.cost(detail.cost))
-                        inspectorCard("FOCUS", Format.duration(detail.focusOverlapDuration))
-                    }
+            Grid(horizontalSpacing: 0, verticalSpacing: 0) {
+                GridRow {
+                    inspectorCard("DURATION", Format.duration(detail.duration))
+                    inspectorCard("SESSIONS", "\(detail.sessionCount)")
+                }
+                GridRow {
+                    inspectorCard("MESSAGES", "\(detail.messageCount)")
+                    inspectorCard("TOKENS", Format.tokens(detail.tokens))
+                }
+                GridRow {
+                    inspectorCard("COST", Format.cost(detail.cost))
+                    inspectorCard("FOCUS", Format.duration(detail.focusOverlapDuration))
                 }
             }
+            .background(Color.primary.opacity(0.025), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
 
             if !detail.models.isEmpty {
                 HStack(spacing: 8) {
@@ -1899,35 +2036,9 @@ private struct GanttSegmentInspector: View {
                     Spacer(minLength: 0)
                 }
             }
-
-            if !detail.sessionTitles.isEmpty {
-                Text(detail.sessionTitles.joined(separator: " · "))
-                    .font(.sora(9))
-                    .foregroundStyle(Color.stxMuted)
-                    .lineLimit(2)
-            }
         }
-        .padding(12)
-        .background(Color.primary.opacity(0.022), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .strokeBorder(Color.stxStroke.opacity(0.55), lineWidth: 1)
-        }
-    }
-
-    @ViewBuilder
-    private var inspectorCards: some View {
-        inspectorCard("DURATION", Format.duration(detail.duration))
-        Divider().opacity(0.5)
-        inspectorCard("SESSIONS", "\(detail.sessionCount)")
-        Divider().opacity(0.5)
-        inspectorCard("MESSAGES", "\(detail.messageCount)")
-        Divider().opacity(0.5)
-        inspectorCard("TOKENS", Format.tokens(detail.tokens))
-        Divider().opacity(0.5)
-        inspectorCard("COST", Format.cost(detail.cost))
-        Divider().opacity(0.5)
-        inspectorCard("FOCUS", Format.duration(detail.focusOverlapDuration))
+        .padding(14)
+        .frame(width: 340)
     }
 
     private func inspectorCard(_ label: String, _ value: String) -> some View {
@@ -1938,29 +2049,52 @@ private struct GanttSegmentInspector: View {
 private struct GanttTimelineHitLayer: View {
     let renderPlan: GanttTimelineRenderPlan
     let rowHeight: CGFloat
-    let onSelect: (GanttTimelineRenderPlan.SegmentDetail) -> Void
+    @Binding var selectedSegment: GanttTimelinePopoverSelection?
 
     var body: some View {
         GeometryReader { proxy in
-            ForEach(Array(renderPlan.rows.enumerated()), id: \.element.id) { index, row in
-                ForEach(row.segments, id: \.id) { segment in
-                    let startX = segment.startRatio * proxy.size.width
-                    let endX = segment.endRatio * proxy.size.width
-                    let width = max(8, endX - startX)
-                    Button {
-                        onSelect(segment.detail)
-                    } label: {
-                        Rectangle()
-                            .fill(Color.clear)
-                            .contentShape(Rectangle())
+            ZStack(alignment: .topLeading) {
+                ForEach(Array(renderPlan.rows.enumerated()), id: \.element.id) { index, row in
+                    ForEach(row.segments, id: \.id) { segment in
+                        let selectionID = "\(row.id)|\(segment.id)"
+                        let startX = segment.startRatio * proxy.size.width
+                        let endX = segment.endRatio * proxy.size.width
+                        let barWidth = min(proxy.size.width - startX, max(3, endX - startX))
+                        let visibleStartX = min(max(startX, 0), proxy.size.width)
+                        let visibleEndX = min(max(startX + barWidth, 0), proxy.size.width)
+                        let visibleWidth = max(0, visibleEndX - visibleStartX)
+                        let hitWidth = max(8, visibleWidth)
+                        let rowY = CGFloat(index) * rowHeight
+                        if visibleWidth > 0 {
+                            Button {
+                                selectedSegment = GanttTimelinePopoverSelection(
+                                    segmentID: selectionID,
+                                    detail: segment.detail
+                                )
+                            } label: {
+                                Rectangle()
+                                    .fill(Color.clear)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .frame(width: hitWidth, height: rowHeight)
+                            .overlay {
+                                GanttSegmentPopoverSource(
+                                    segmentID: selectionID,
+                                    detail: segment.detail,
+                                    selectedSegment: $selectedSegment
+                                )
+                                .frame(width: 1, height: 1)
+                                .allowsHitTesting(false)
+                            }
+                            .position(x: visibleStartX + visibleWidth / 2, y: rowY + rowHeight / 2)
+                            .help("\(segment.detail.projectName): \(Format.duration(segment.detail.duration)), \(Format.tokens(segment.detail.tokens))")
+                            .accessibilityLabel("\(segment.detail.projectName), \(Format.duration(segment.detail.duration)), \(Format.tokens(segment.detail.tokens))")
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .frame(width: width, height: rowHeight)
-                    .offset(x: startX, y: CGFloat(index) * rowHeight)
-                    .help("\(segment.detail.projectName): \(Format.duration(segment.detail.duration)), \(Format.tokens(segment.detail.tokens))")
-                    .accessibilityLabel("\(segment.detail.projectName), \(Format.duration(segment.detail.duration)), \(Format.tokens(segment.detail.tokens))")
                 }
             }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
         }
     }
 }
