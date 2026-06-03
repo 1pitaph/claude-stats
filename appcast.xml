@@ -6,6 +6,44 @@
     <description>Most recent updates to Claude Stats.</description>
     <language>en</language>
     <item>
+      <title>Version 1.8.5</title>
+      <sparkle:version>85</sparkle:version>
+      <sparkle:shortVersionString>1.8.5</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0.0</sparkle:minimumSystemVersion>
+      <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+      <description><![CDATA[
+<div class="cs-appcast-notes" style="font-family: -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif; color: #1f2937;">
+  <style>
+    .cs-update-size-fallback { margin: 0 0 14px; }
+    .cs-update-size-pills { display: inline-flex; align-items: center; margin-left: 10px; min-width: 0; vertical-align: middle; }
+    .cs-update-size-pill { display: inline-block; padding: 4px 10px; border: 0; border-radius: 999px; background: #eaf1ff; color: #172033; font-size: 12px; font-weight: 700; line-height: 1.2; white-space: nowrap; }
+    .cs-update-size-delta { display: none; }
+    .cs-update-size-delta.sparkle-installed-version { display: inline-block; }
+    .cs-update-size-delta.sparkle-installed-version ~ .cs-update-size-full { display: none; }
+  </style>
+<div style="margin: 0; color: #1f2937; font-size: 13px; line-height: 1.55;">
+  <p style="margin: 0 0 10px; color: #172033; font-size: 15px; font-weight: 700;">更新内容</p>
+  <div style="margin: 0; padding: 0;">
+<h2>本次更新<span class="cs-update-size-pills"><span class="cs-update-size-pill cs-update-size-delta" data-sparkle-version="84">1.9 MB</span><span class="cs-update-size-pill cs-update-size-delta" data-sparkle-version="83">2.6 MB</span><span class="cs-update-size-pill cs-update-size-delta" data-sparkle-version="82">2.9 MB</span><span class="cs-update-size-pill cs-update-size-full">90.3 MB</span></span></h2>
+<ul>
+<li>新增排行榜应用特性，创建共享偏好存储与同步逻辑，为Lite版本添加CloudKit构建配置与对应scheme</li>
+<li>此次提交重构了使用限制历史记录的过滤逻辑，替换原先仅匹配7天核心限制的检查，改为通过预测范围来筛选可预测的使用窗口。新增了5小时和7天两种预测范围类型，为Codex和Claude提供商分别适配了对应的窗口匹配规则。</li>
+<li>同时完善了UI展示逻辑，在甘特图、卡片标题中增加预测范围标识，区分5小时和7天的预测样式与图例。新增了完整的5小时使用预测服务实现，包括历史数据收集、趋势计算、蒙特卡洛模拟预测等完整流程，并补充了大量测试用例覆盖新功能。</li>
+<li>修改了历史数据存储和测试用例，适配新增的多窗口预测场景，确保现有7天预测逻辑正常工作的同时，新增了对短周期5小时使用限制的预测能力。</li>
+</ul>
+  </div>
+</div>
+</div>
+]]></description>
+      <pubDate>Wed, 03 Jun 2026 09:24:17 GMT</pubDate>
+      <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.8.5/ClaudeStats-1.8.5.dmg" sparkle:edSignature="vrDH8L7d/qoNU9Urjja2gYlJlPsHErlDXDFX685OC9Dyk6ZIPlUDzujCOtyg6AlolFpJYHz6giRRwmpHQOzOBQ==" length="90296205" type="application/octet-stream"/>
+      <sparkle:deltas>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.8.5/ClaudeStats-85-from-84.delta" sparkle:deltaFrom="84" sparkle:edSignature="Vo0IEvV9N8ouLjWcaUdj5ARt+31GKjECJU4gl5BIwoNA2hXoZInZvbU/iVoZ5hQDcAWfGq/eMGX11xFezy2MCQ==" length="1891598" type="application/octet-stream"/>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.8.5/ClaudeStats-85-from-83.delta" sparkle:deltaFrom="83" sparkle:edSignature="ZYff2O5Yd+hhVvdBHPWcVZL59/thIOl8Zou9ShWtxcul6MpwCR4rgyOOlW7waqpGD9SkaiH9OgLtS0i4WbSvAQ==" length="2552670" type="application/octet-stream"/>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.8.5/ClaudeStats-85-from-82.delta" sparkle:deltaFrom="82" sparkle:edSignature="PHUar3NwE3TW54qWhze/EsVwYqpYhDlDczxJ5SN3A1WRXacIagjOIWC6pX0pfRStbTaUI4UUoI+291GVtV0/Bg==" length="2891946" type="application/octet-stream"/>
+      </sparkle:deltas>
+    </item>
+    <item>
       <title>Version 1.8.4</title>
       <sparkle:version>84</sparkle:version>
       <sparkle:shortVersionString>1.8.4</sparkle:shortVersionString>
