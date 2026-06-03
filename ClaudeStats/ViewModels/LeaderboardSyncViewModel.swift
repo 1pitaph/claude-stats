@@ -56,12 +56,12 @@ final class LeaderboardSyncViewModel {
     }
 
     var leaderboardStatusText: String {
-        guard preferences.leaderboardsEnabled else { return SyncStatus.disabled.displayText }
+        guard leaderboardsFeatureIsActive else { return SyncStatus.disabled.displayText }
         return syncStatus.displayText
     }
 
     var leaderboardRealtimeStatusText: String {
-        guard preferences.leaderboardsEnabled else { return SyncStatus.disabled.displayText }
+        guard leaderboardsFeatureIsActive else { return SyncStatus.disabled.displayText }
         switch realtimeStatus {
         case .inactive, .live, .pending, .historicalCache, .unavailable:
             return realtimeStatus.displayText
@@ -93,6 +93,10 @@ final class LeaderboardSyncViewModel {
     private static let defaultSilentSyncDebounceInterval: TimeInterval = 60
     private static let defaultSilentSyncMinimumInterval: TimeInterval = 5 * 60
     private static let defaultRealtimeRefreshDebounceInterval: TimeInterval = 2
+
+    private var leaderboardsFeatureIsActive: Bool {
+        AppVariant.isEnabled(.leaderboards) && preferences.leaderboardsEnabled
+    }
 
     private struct VisibleScoreQuery: Sendable {
         let metric: LeaderboardMetric
@@ -139,11 +143,16 @@ final class LeaderboardSyncViewModel {
         self.realtimeRefreshDebounceInterval = realtimeRefreshDebounceInterval
         let storedUserHash = preferences.leaderboardProfileUserHash.trimmingCharacters(in: .whitespacesAndNewlines)
         currentUserHash = storedUserHash.isEmpty ? nil : storedUserHash
-        syncStatus = preferences.leaderboardsEnabled ? .idle : .disabled
+        syncStatus = leaderboardsFeatureIsActive ? .idle : .disabled
     }
 
     func start() {
         syncTask?.cancel()
+        guard AppVariant.isEnabled(.leaderboards) else {
+            syncStatus = .disabled
+            accountState = .unknown
+            return
+        }
         if preferences.leaderboardsEnabled {
             remoteNotificationRegistrar?.registerForLeaderboardRemoteNotifications()
         }
@@ -162,12 +171,12 @@ final class LeaderboardSyncViewModel {
     }
 
     func scheduleSilentSyncAfterDataRefresh() {
-        guard preferences.leaderboardsEnabled else { return }
+        guard leaderboardsFeatureIsActive else { return }
         scheduleSilentSync(after: silentSyncDebounceInterval)
     }
 
     func activateRealtime(scope: LeaderboardRealtimeScope?) async {
-        guard preferences.leaderboardsEnabled else {
+        guard leaderboardsFeatureIsActive else {
             realtimeStatus = .inactive
             activeRealtimeScope = nil
             return
@@ -192,7 +201,7 @@ final class LeaderboardSyncViewModel {
     }
 
     func handleRealtimeNotification(_ notification: LeaderboardRealtimeNotification) {
-        guard preferences.leaderboardsEnabled else { return }
+        guard leaderboardsFeatureIsActive else { return }
         Task { [weak self] in
             guard let self else { return }
             let decision = await realtime.handle(notification)
@@ -208,7 +217,7 @@ final class LeaderboardSyncViewModel {
     }
 
     func refreshIfPendingRealtimeChanges() async {
-        guard preferences.leaderboardsEnabled,
+        guard leaderboardsFeatureIsActive,
               let scope = activeRealtimeScope,
               await realtime.consumePending(for: scope) else {
             return
@@ -218,7 +227,7 @@ final class LeaderboardSyncViewModel {
     }
 
     func checkAccountStatus() async {
-        guard preferences.leaderboardsEnabled else {
+        guard leaderboardsFeatureIsActive else {
             syncStatus = .disabled
             accountState = .unknown
             return
@@ -281,7 +290,7 @@ final class LeaderboardSyncViewModel {
                     now: Date = .now,
                     allowsRecentDayFallback: Bool = true,
                     forceRefresh: Bool = false) async {
-        guard preferences.leaderboardsEnabled else {
+        guard leaderboardsFeatureIsActive else {
             scores = []
             lastLoadedPeriodKey = nil
             scoreError = nil
@@ -333,6 +342,10 @@ final class LeaderboardSyncViewModel {
                           historyStartMonthKey: String? = nil,
                           forceRefresh: Bool = false,
                           now: Date = .now) async {
+        guard leaderboardsFeatureIsActive else {
+            clearSelectedUserHistory()
+            return
+        }
         visibleHistoryQuery = VisibleHistoryQuery(
             userHash: userHash,
             metric: metric,
@@ -483,7 +496,7 @@ final class LeaderboardSyncViewModel {
                                      showsStatus: Bool,
                                      refreshStoreBeforeSubmit: Bool,
                                      refreshVisibleAfterSync: Bool = true) async {
-        guard preferences.leaderboardsEnabled else {
+        guard leaderboardsFeatureIsActive else {
             if showsStatus { syncStatus = .disabled }
             return
         }
@@ -629,7 +642,7 @@ final class LeaderboardSyncViewModel {
         }
         preferences.leaderboardAvatarSeed = next
 
-        guard preferences.leaderboardsEnabled else {
+        guard leaderboardsFeatureIsActive else {
             syncStatus = .disabled
             return
         }
@@ -862,7 +875,7 @@ final class LeaderboardSyncViewModel {
     }
 
     private func reconcileCurrentUserProfileIfPossible() async {
-        guard preferences.leaderboardsEnabled else { return }
+        guard leaderboardsFeatureIsActive else { return }
         do {
             try await reconcileCurrentUserProfile()
         } catch {
@@ -909,6 +922,10 @@ final class LeaderboardSyncViewModel {
     }
 
     private func saveCurrentProfileIfPossible() async {
+        guard leaderboardsFeatureIsActive else {
+            syncStatus = .disabled
+            return
+        }
         guard !isSavingProfile else { return }
 
         let nickname = preferences.leaderboardNickname.trimmingCharacters(in: .whitespacesAndNewlines)

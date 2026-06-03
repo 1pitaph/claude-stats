@@ -412,6 +412,8 @@ targets:
         excludes:
           - App/InfoLite.plist
           - App/ClaudeStatsLite.entitlements
+          - App/ClaudeStatsLiteCloudKit.entitlements
+          - App/ClaudeStatsLiteCloudKitDebug.entitlements
           - Resources/GitTools
       - path: ClaudeStats/Resources/GitTools
         type: folder
@@ -620,6 +622,8 @@ targets:
           - App/ClaudeStats.entitlements
           - App/ClaudeStatsCloudKit.entitlements
           - App/ClaudeStatsCloudKitDebug.entitlements
+          - App/ClaudeStatsLiteCloudKit.entitlements
+          - App/ClaudeStatsLiteCloudKitDebug.entitlements
           - Resources/GitTools
           - Models/Chat
           - Models/LocalAI
@@ -710,7 +714,7 @@ targets:
           CODE_SIGN_IDENTITY: "-"
           CODE_SIGN_STYLE: Automatic
         DebugCloudKit:
-          CODE_SIGN_ENTITLEMENTS: ClaudeStats/App/ClaudeStatsLite.entitlements
+          CODE_SIGN_ENTITLEMENTS: ClaudeStats/App/ClaudeStatsLiteCloudKitDebug.entitlements
           ENABLE_HARDENED_RUNTIME: NO
           CODE_SIGN_IDENTITY: Apple Development
           CODE_SIGN_STYLE: Automatic
@@ -721,7 +725,7 @@ targets:
           CODE_SIGN_IDENTITY: "-"
           CODE_SIGN_STYLE: Automatic
         ReleaseSigned:
-          CODE_SIGN_ENTITLEMENTS: ClaudeStats/App/ClaudeStatsLite.entitlements
+          CODE_SIGN_ENTITLEMENTS: ClaudeStats/App/ClaudeStatsLiteCloudKit.entitlements
           ENABLE_HARDENED_RUNTIME: YES
           CODE_SIGN_IDENTITY: "$(SIGN_IDENTITY)"
           CODE_SIGN_STYLE: Manual
@@ -819,6 +823,19 @@ schemes:
       config: Debug
     archive:
       config: Release
+
+  ClaudeStats Lite CloudKit:
+    build:
+      targets:
+        ClaudeStatsLite: all
+    run:
+      config: DebugCloudKit
+    profile:
+      config: DebugCloudKit
+    analyze:
+      config: DebugCloudKit
+    archive:
+      config: ReleaseSigned
 
   ClaudeStats CloudKit:
     build:

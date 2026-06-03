@@ -13,6 +13,7 @@ enum AppFeature: CaseIterable, Sendable, Hashable {
     case dictionary
     case git
     case dailyReport
+    case leaderboards
 }
 
 enum AppVariant {
@@ -30,6 +31,8 @@ enum AppVariant {
         case .sessions, .memory, .localAI, .linuxDo, .warp, .config, .ops, .network, .notchIsland, .dictionary:
             return false
         case .git, .dailyReport:
+            return true
+        case .leaderboards:
             return true
         }
         #else

@@ -556,6 +556,39 @@ struct PreferencesTests {
         #expect(reloaded.openAIStatusVisibleGroupIDs == OpenAIStatusGroupCatalog.defaultVisibleGroupIDs)
     }
 
+    @Test("Leaderboard preferences can be shared between app variants")
+    func leaderboardPreferencesShareAcrossDefaultsSuites() {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LeaderboardSharedPreferencesTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sharedStore = LeaderboardSharedPreferencesStore(directory: directory)
+
+        let fullDefaults = makeDefaults()
+        let fullPrefs = Preferences(defaults: fullDefaults, leaderboardSharedStore: sharedStore)
+        fullPrefs.leaderboardsEnabled = true
+        fullPrefs.leaderboardNickname = "Ada"
+        fullPrefs.leaderboardAvatarSeed = "avatar-full"
+        fullPrefs.leaderboardProfileUserHash = "userhash"
+        fullPrefs.leaderboardLastSyncedAt = Date(timeIntervalSince1970: 1_768_200_000)
+        fullPrefs.leaderboardLastSyncError = "retry later"
+        fullPrefs.leaderboardLastSubmittedPeriodKeys = ["day:2026-06-03"]
+
+        let liteDefaults = makeDefaults()
+        let litePrefs = Preferences(defaults: liteDefaults, leaderboardSharedStore: sharedStore)
+
+        #expect(litePrefs.leaderboardsEnabled == true)
+        #expect(litePrefs.leaderboardNickname == "Ada")
+        #expect(litePrefs.leaderboardAvatarSeed == "avatar-full")
+        #expect(litePrefs.leaderboardProfileUserHash == "userhash")
+        #expect(litePrefs.leaderboardLastSyncedAt == Date(timeIntervalSince1970: 1_768_200_000))
+        #expect(litePrefs.leaderboardLastSyncError == "retry later")
+        #expect(litePrefs.leaderboardLastSubmittedPeriodKeys == ["day:2026-06-03"])
+
+        litePrefs.leaderboardNickname = "Lite Ada"
+        let reloadedFullPrefs = Preferences(defaults: fullDefaults, leaderboardSharedStore: sharedStore)
+        #expect(reloadedFullPrefs.leaderboardNickname == "Lite Ada")
+    }
+
     @Test("Legacy IDE bundle preferences migrate to coding surfaces")
     func legacyIDEBundlePreferencesMigrate() {
         let defaults = makeDefaults()

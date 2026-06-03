@@ -408,32 +408,53 @@ final class Preferences {
     /// Opt-in to publishing aggregate, privacy-preserving leaderboard scores to
     /// CloudKit's public database. Off by default.
     var leaderboardsEnabled: Bool {
-        didSet { defaults.set(leaderboardsEnabled, forKey: Keys.leaderboardsEnabled) }
+        didSet {
+            defaults.set(leaderboardsEnabled, forKey: Keys.leaderboardsEnabled)
+            persistSharedLeaderboardPreferences()
+        }
     }
     /// Public display name shown next to submitted leaderboard scores. Stored
     /// locally in defaults; CloudKit receives only this nickname and aggregate
     /// scores.
     var leaderboardNickname: String {
-        didSet { defaults.set(leaderboardNickname, forKey: Keys.leaderboardNickname) }
+        didSet {
+            defaults.set(leaderboardNickname, forKey: Keys.leaderboardNickname)
+            persistSharedLeaderboardPreferences()
+        }
     }
     /// Random seed used to render the user's public Beam avatar. It is scoped
     /// to the current iCloud user hash by ``leaderboardProfileUserHash``.
     var leaderboardAvatarSeed: String {
-        didSet { defaults.set(leaderboardAvatarSeed, forKey: Keys.leaderboardAvatarSeed) }
+        didSet {
+            defaults.set(leaderboardAvatarSeed, forKey: Keys.leaderboardAvatarSeed)
+            persistSharedLeaderboardPreferences()
+        }
     }
     /// Last iCloud user hash this local leaderboard profile was reconciled
     /// against. If it changes, the app reloads or regenerates the avatar seed.
     var leaderboardProfileUserHash: String {
-        didSet { defaults.set(leaderboardProfileUserHash, forKey: Keys.leaderboardProfileUserHash) }
+        didSet {
+            defaults.set(leaderboardProfileUserHash, forKey: Keys.leaderboardProfileUserHash)
+            persistSharedLeaderboardPreferences()
+        }
     }
     var leaderboardLastSyncedAt: Date? {
-        didSet { defaults.set(leaderboardLastSyncedAt, forKey: Keys.leaderboardLastSyncedAt) }
+        didSet {
+            defaults.set(leaderboardLastSyncedAt, forKey: Keys.leaderboardLastSyncedAt)
+            persistSharedLeaderboardPreferences()
+        }
     }
     var leaderboardLastSyncError: String {
-        didSet { defaults.set(leaderboardLastSyncError, forKey: Keys.leaderboardLastSyncError) }
+        didSet {
+            defaults.set(leaderboardLastSyncError, forKey: Keys.leaderboardLastSyncError)
+            persistSharedLeaderboardPreferences()
+        }
     }
     var leaderboardLastSubmittedPeriodKeys: [String] {
-        didSet { defaults.set(leaderboardLastSubmittedPeriodKeys, forKey: Keys.leaderboardLastSubmittedPeriodKeys) }
+        didSet {
+            defaults.set(leaderboardLastSubmittedPeriodKeys, forKey: Keys.leaderboardLastSubmittedPeriodKeys)
+            persistSharedLeaderboardPreferences()
+        }
     }
     /// Extra GUI coding-surface bundle ids the user added on top of
     /// ``ActivitySurfaceCatalog/codingSurfaceDefaults``.
@@ -476,9 +497,12 @@ final class Preferences {
     }
 
     private let defaults: UserDefaults
+    private let leaderboardSharedStore: LeaderboardSharedPreferencesStore?
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard,
+         leaderboardSharedStore: LeaderboardSharedPreferencesStore? = nil) {
         self.defaults = defaults
+        self.leaderboardSharedStore = leaderboardSharedStore ?? Self.defaultLeaderboardSharedStore(for: defaults)
         appLanguagePreference = AppLanguagePreference(rawValue: defaults.string(forKey: Keys.appLanguagePreference) ?? "") ?? .system
         autoRefreshMinutes = (defaults.object(forKey: Keys.autoRefreshMinutes) as? Int) ?? 5
         menuBarMetric = MenuBarMetric(rawValue: defaults.string(forKey: Keys.menuBarMetric) ?? "") ?? .tokens
@@ -597,13 +621,26 @@ final class Preferences {
         openAIStatusNotificationsEnabled = defaults.bool(forKey: Keys.openAIStatusNotificationsEnabled)
         openAIStatusLastNotificationFingerprint = defaults.string(forKey: Keys.openAIStatusLastNotificationFingerprint) ?? ""
         overlapPalette = OverlapPalette(rawValue: defaults.string(forKey: Keys.overlapPalette) ?? "") ?? .appCohesive
-        leaderboardsEnabled = defaults.bool(forKey: Keys.leaderboardsEnabled)
-        leaderboardNickname = defaults.string(forKey: Keys.leaderboardNickname) ?? ""
-        leaderboardAvatarSeed = defaults.string(forKey: Keys.leaderboardAvatarSeed) ?? ""
-        leaderboardProfileUserHash = defaults.string(forKey: Keys.leaderboardProfileUserHash) ?? ""
-        leaderboardLastSyncedAt = defaults.object(forKey: Keys.leaderboardLastSyncedAt) as? Date
-        leaderboardLastSyncError = defaults.string(forKey: Keys.leaderboardLastSyncError) ?? ""
-        leaderboardLastSubmittedPeriodKeys = defaults.stringArray(forKey: Keys.leaderboardLastSubmittedPeriodKeys) ?? []
+        let sharedLeaderboardPreferences = self.leaderboardSharedStore?.read()
+        leaderboardsEnabled = sharedLeaderboardPreferences?.leaderboardsEnabled
+            ?? defaults.bool(forKey: Keys.leaderboardsEnabled)
+        leaderboardNickname = sharedLeaderboardPreferences?.nickname
+            ?? defaults.string(forKey: Keys.leaderboardNickname)
+            ?? ""
+        leaderboardAvatarSeed = sharedLeaderboardPreferences?.avatarSeed
+            ?? defaults.string(forKey: Keys.leaderboardAvatarSeed)
+            ?? ""
+        leaderboardProfileUserHash = sharedLeaderboardPreferences?.profileUserHash
+            ?? defaults.string(forKey: Keys.leaderboardProfileUserHash)
+            ?? ""
+        leaderboardLastSyncedAt = sharedLeaderboardPreferences?.lastSyncedAt
+            ?? defaults.object(forKey: Keys.leaderboardLastSyncedAt) as? Date
+        leaderboardLastSyncError = sharedLeaderboardPreferences?.lastSyncError
+            ?? defaults.string(forKey: Keys.leaderboardLastSyncError)
+            ?? ""
+        leaderboardLastSubmittedPeriodKeys = sharedLeaderboardPreferences?.lastSubmittedPeriodKeys
+            ?? defaults.stringArray(forKey: Keys.leaderboardLastSubmittedPeriodKeys)
+            ?? []
         let hasNewCodingSurfaceAdditions = defaults.object(forKey: Keys.codingSurfaceBundleIDsAdded) != nil
         let hasNewCodingSurfaceRemovals = defaults.object(forKey: Keys.codingSurfaceBundleIDsRemoved) != nil
         let storedCodingSurfaceBundleIDsAdded = defaults.stringArray(forKey: Keys.codingSurfaceBundleIDsAdded)
@@ -640,6 +677,9 @@ final class Preferences {
             selectedProvider = firstEnabled
         }
         appLanguagePreference.applyToAppleLanguages(defaults: defaults)
+        if sharedLeaderboardPreferences == nil {
+            persistSharedLeaderboardPreferences()
+        }
     }
 
     func resetNetworkTrafficAutoBreakpoint() {
@@ -662,6 +702,24 @@ final class Preferences {
             return
         }
         defaults.set(data, forKey: Keys.linuxDoReadingPositions)
+    }
+
+    private func persistSharedLeaderboardPreferences() {
+        leaderboardSharedStore?.write(LeaderboardSharedPreferencesSnapshot(
+            leaderboardsEnabled: leaderboardsEnabled,
+            nickname: leaderboardNickname,
+            avatarSeed: leaderboardAvatarSeed,
+            profileUserHash: leaderboardProfileUserHash,
+            lastSyncedAt: leaderboardLastSyncedAt,
+            lastSyncError: leaderboardLastSyncError,
+            lastSubmittedPeriodKeys: leaderboardLastSubmittedPeriodKeys
+        ))
+    }
+
+    private static func defaultLeaderboardSharedStore(for defaults: UserDefaults) -> LeaderboardSharedPreferencesStore? {
+        ObjectIdentifier(defaults) == ObjectIdentifier(UserDefaults.standard)
+            ? LeaderboardSharedPreferencesStore()
+            : nil
     }
 
     private static func trimLinuxDoReadingPositions(
