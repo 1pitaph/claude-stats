@@ -78,6 +78,8 @@ final class LeaderboardSyncViewModel {
     private let silentSyncDebounceInterval: TimeInterval
     private let silentSyncMinimumInterval: TimeInterval
     private let realtime: LeaderboardRealtimeCoordinator
+    private let syncLease: any LeaderboardSyncLeasing
+    private let syncLeasePolicy: LeaderboardSyncLeasePolicy
     private let remoteNotificationRegistrar: (any LeaderboardRemoteNotificationRegistering)?
     private let realtimeRefreshDebounceInterval: TimeInterval
     private var syncTask: Task<Void, Never>?
@@ -117,6 +119,8 @@ final class LeaderboardSyncViewModel {
          silentSyncDebounceInterval: TimeInterval = LeaderboardSyncViewModel.defaultSilentSyncDebounceInterval,
          silentSyncMinimumInterval: TimeInterval = LeaderboardSyncViewModel.defaultSilentSyncMinimumInterval,
          realtimeCoordinator: LeaderboardRealtimeCoordinator? = nil,
+         syncLease: any LeaderboardSyncLeasing = CloudKitLeaderboardSyncLeaseClient(),
+         syncLeasePolicy: LeaderboardSyncLeasePolicy = .currentApp(),
          remoteNotificationRegistrar: (any LeaderboardRemoteNotificationRegistering)? = nil,
          realtimeRefreshDebounceInterval: TimeInterval = LeaderboardSyncViewModel.defaultRealtimeRefreshDebounceInterval) {
         self.preferences = preferences
@@ -129,6 +133,8 @@ final class LeaderboardSyncViewModel {
         self.silentSyncDebounceInterval = silentSyncDebounceInterval
         self.silentSyncMinimumInterval = silentSyncMinimumInterval
         self.realtime = realtimeCoordinator ?? LeaderboardRealtimeCoordinator(localStore: localStore)
+        self.syncLease = syncLease
+        self.syncLeasePolicy = syncLeasePolicy
         self.remoteNotificationRegistrar = remoteNotificationRegistrar
         self.realtimeRefreshDebounceInterval = realtimeRefreshDebounceInterval
         let storedUserHash = preferences.leaderboardProfileUserHash.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -557,6 +563,14 @@ final class LeaderboardSyncViewModel {
         }
 
         do {
+            if !showsStatus && !force {
+                let userHash = try await client.currentUserHash()
+                let decision = try await syncLease.acquire(syncLeasePolicy.request(userHash: userHash, now: now))
+                guard case .acquired = decision else {
+                    Log.network.debug("Leaderboard automatic sync skipped because another app variant holds the sync lease.")
+                    return
+                }
+            }
             let profile = try await client.submit(
                 submissions,
                 historySubmissions: historySubmissions,
@@ -781,7 +795,17 @@ final class LeaderboardSyncViewModel {
                 selectedUserHistoryError = "This user has not uploaded local history yet."
                 return nil
             }
-            await localStore.writeProfile(profile, savedAt: Date())
+            await localStore.writeProfile(
+                LeaderboardProfile(
+                    userHash: userHash,
+                    nickname: profile.nickname,
+                    avatarSeed: profile.avatarSeed,
+                    historyStartMonthKey: profile.historyStartMonthKey,
+                    favoriteModels: profile.favoriteModels,
+                    updatedAt: profile.updatedAt
+                ),
+                savedAt: Date()
+            )
             return window.startUTC
         } catch let error as LeaderboardCloudError {
             selectedUserHistoryError = error.description
@@ -850,19 +874,36 @@ final class LeaderboardSyncViewModel {
         let userHash = try await client.currentUserHash()
         currentUserHash = userHash
 
-        let storedUserHash = preferences.leaderboardProfileUserHash
+        let storedUserHash = preferences.leaderboardProfileUserHash.trimmingCharacters(in: .whitespacesAndNewlines)
         let needsRemoteProfile = storedUserHash != userHash
             || preferences.leaderboardAvatarSeed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         guard needsRemoteProfile else { return }
 
         preferences.leaderboardProfileUserHash = userHash
         if let profile = try await client.fetchProfile(userHash: userHash) {
-            await localStore.writeProfile(profile, savedAt: Date())
-            if let avatarSeed = profile.avatarSeed,
-               !avatarSeed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                preferences.leaderboardAvatarSeed = avatarSeed
-                return
+            let merged = LeaderboardProfileMergePolicy.merge(
+                local: profileDraft(nickname: preferences.leaderboardNickname.trimmingCharacters(in: .whitespacesAndNewlines)),
+                remote: profile,
+                prefersRemoteAvatarSeed: storedUserHash != userHash
+            )
+            await localStore.writeProfile(
+                LeaderboardProfile(
+                    userHash: userHash,
+                    nickname: merged.draft.nickname,
+                    avatarSeed: merged.draft.avatarSeed,
+                    historyStartMonthKey: merged.draft.historyStartMonthKey,
+                    favoriteModels: merged.draft.favoriteModels,
+                    updatedAt: merged.draft.updatedAt
+                ),
+                savedAt: Date()
+            )
+            if merged.shouldUpdateLocalNickname {
+                preferences.leaderboardNickname = merged.draft.nickname
             }
+            if merged.shouldUpdateLocalAvatarSeed {
+                preferences.leaderboardAvatarSeed = merged.draft.avatarSeed
+            }
+            return
         }
         preferences.leaderboardAvatarSeed = LeaderboardAvatarSeed.random()
     }
@@ -906,6 +947,11 @@ final class LeaderboardSyncViewModel {
     private func remember(profile: LeaderboardProfile) {
         currentUserHash = profile.userHash
         preferences.leaderboardProfileUserHash = profile.userHash
+        let nickname = profile.nickname.trimmingCharacters(in: .whitespacesAndNewlines)
+        if preferences.leaderboardNickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           !nickname.isEmpty {
+            preferences.leaderboardNickname = nickname
+        }
         if let avatarSeed = profile.avatarSeed,
            !avatarSeed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             preferences.leaderboardAvatarSeed = avatarSeed

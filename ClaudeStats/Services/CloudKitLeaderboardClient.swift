@@ -71,6 +71,7 @@ enum CloudKitLeaderboardConfig {
     static let recordType = "LeaderboardScoreV1"
     static let providerScope = "all"
     static let historyProviderScope = "history"
+    static let syncLeaseProviderScope = "syncLease"
 }
 
 enum CloudKitRuntimeEntitlements {
@@ -325,17 +326,25 @@ enum CloudKitLeaderboardRecordMapper {
     static func historyPoint(from record: CKRecord,
                              metric: LeaderboardMetric,
                              window: LeaderboardPeriodWindow) -> LeaderboardScoreHistoryPoint? {
-        guard let scoreNumber = record[Field.score] as? NSNumber else { return nil }
-        let updatedAt = (record[Field.updatedAt] as? Date)
-            ?? (record[Field.updatedAt] as? NSDate).map { $0 as Date }
+        guard let score = int64Value(record[Field.score]) else { return nil }
+        let updatedAt = dateValue(record[Field.updatedAt])
             ?? record.modificationDate
         return LeaderboardScoreHistoryPoint(
             metric: metric,
             period: window.period,
             window: window,
-            score: scoreNumber.int64Value,
+            score: score,
             updatedAt: updatedAt
         )
+    }
+
+    static func int64Value(_ value: Any?) -> Int64? {
+        (value as? NSNumber)?.int64Value
+    }
+
+    static func dateValue(_ value: Any?) -> Date? {
+        (value as? Date)
+            ?? (value as? NSDate).map { $0 as Date }
     }
 
     private static func encodeFavoriteModels(_ favoriteModels: [LeaderboardFavoriteModel]) -> String? {
@@ -383,7 +392,10 @@ struct CloudKitLeaderboardClient: LeaderboardCloudServicing {
 
     func saveProfile(_ profile: LeaderboardProfileDraft) async throws -> LeaderboardProfile {
         let userHash = try await availableUserHash()
-        let record = CloudKitLeaderboardRecordMapper.profileRecord(userHash: userHash, profile: profile)
+        let remoteProfile = try await fetchProfileRecord(userHash: userHash)
+            .flatMap(CloudKitLeaderboardRecordMapper.profile(from:))
+        let mergedProfile = LeaderboardProfileMergePolicy.merge(local: profile, remote: remoteProfile).draft
+        let record = CloudKitLeaderboardRecordMapper.profileRecord(userHash: userHash, profile: mergedProfile)
         let result = try await publicDatabase.modifyRecords(
             saving: [record],
             deleting: [],
@@ -399,30 +411,13 @@ struct CloudKitLeaderboardClient: LeaderboardCloudServicing {
         if let first = failures.first {
             throw LeaderboardCloudError.partialFailure(first)
         }
-        return LeaderboardProfile(
-            userHash: userHash,
-            nickname: profile.nickname,
-            avatarSeed: profile.avatarSeed,
-            historyStartMonthKey: profile.historyStartMonthKey,
-            favoriteModels: profile.favoriteModels,
-            updatedAt: profile.updatedAt
-        )
+        return Self.profile(userHash: userHash, draft: mergedProfile)
     }
 
     func fetchProfile(userHash: String) async throws -> LeaderboardProfile? {
         try ensureCloudKitEntitlement()
-        let recordID = CKRecord.ID(recordName: CloudKitLeaderboardRecordMapper.profileRecordName(userHash: userHash))
-        do {
-            let results = try await publicDatabase.records(
-                for: [recordID],
-                desiredKeys: CloudKitLeaderboardRecordMapper.profileDesiredKeys
-            )
-            guard let result = results[recordID],
-                  case .success(let record) = result else { return nil }
-            return CloudKitLeaderboardRecordMapper.profile(from: record)
-        } catch {
-            throw LeaderboardCloudError.cloudKit(Self.shortCloudKitMessage(error))
-        }
+        return try await fetchProfileRecord(userHash: userHash)
+            .flatMap(CloudKitLeaderboardRecordMapper.profile(from:))
     }
 
     func submit(_ submissions: [LeaderboardSubmission],
@@ -430,10 +425,15 @@ struct CloudKitLeaderboardClient: LeaderboardCloudServicing {
                 profile: LeaderboardProfileDraft) async throws -> LeaderboardProfile {
         guard !submissions.isEmpty || !historySubmissions.isEmpty else { return try await saveProfile(profile) }
         let userHash = try await availableUserHash()
-        let profileRecord = CloudKitLeaderboardRecordMapper.profileRecord(userHash: userHash, profile: profile)
+        let remoteProfile = try await fetchProfileRecord(userHash: userHash)
+            .flatMap(CloudKitLeaderboardRecordMapper.profile(from:))
+        let mergedProfile = LeaderboardProfileMergePolicy.merge(local: profile, remote: remoteProfile).draft
+        let mergedSubmissions = try await resolveScoreConflicts(submissions, userHash: userHash)
+        let mergedHistorySubmissions = try await resolveHistoryConflicts(historySubmissions, userHash: userHash)
+        let profileRecord = CloudKitLeaderboardRecordMapper.profileRecord(userHash: userHash, profile: mergedProfile)
         let records = [profileRecord]
-            + submissions.map { CloudKitLeaderboardRecordMapper.record(from: $0, userHash: userHash) }
-            + historySubmissions.map { CloudKitLeaderboardRecordMapper.historyRecord(from: $0, userHash: userHash) }
+            + mergedSubmissions.map { CloudKitLeaderboardRecordMapper.record(from: $0, userHash: userHash) }
+            + mergedHistorySubmissions.map { CloudKitLeaderboardRecordMapper.historyRecord(from: $0, userHash: userHash) }
         let result = try await publicDatabase.modifyRecords(
             saving: records,
             deleting: [],
@@ -449,14 +449,7 @@ struct CloudKitLeaderboardClient: LeaderboardCloudServicing {
         if let first = failures.first {
             throw LeaderboardCloudError.partialFailure(first)
         }
-        return LeaderboardProfile(
-            userHash: userHash,
-            nickname: profile.nickname,
-            avatarSeed: profile.avatarSeed,
-            historyStartMonthKey: profile.historyStartMonthKey,
-            favoriteModels: profile.favoriteModels,
-            updatedAt: profile.updatedAt
-        )
+        return Self.profile(userHash: userHash, draft: mergedProfile)
     }
 
     func fetchScores(metric: LeaderboardMetric,
@@ -537,6 +530,115 @@ struct CloudKitLeaderboardClient: LeaderboardCloudServicing {
         container.publicCloudDatabase
     }
 
+    private func fetchProfileRecord(userHash: String) async throws -> CKRecord? {
+        let recordID = CKRecord.ID(recordName: CloudKitLeaderboardRecordMapper.profileRecordName(userHash: userHash))
+        do {
+            let results = try await publicDatabase.records(
+                for: [recordID],
+                desiredKeys: CloudKitLeaderboardRecordMapper.profileDesiredKeys
+            )
+            guard let result = results[recordID] else { return nil }
+            switch result {
+            case .success(let record):
+                return record
+            case .failure(let error):
+                if Self.isUnknownItem(error) {
+                    return nil
+                }
+                throw LeaderboardCloudError.cloudKit(Self.shortCloudKitMessage(error))
+            }
+        } catch let error as LeaderboardCloudError {
+            throw error
+        } catch {
+            throw LeaderboardCloudError.cloudKit(Self.shortCloudKitMessage(error))
+        }
+    }
+
+    private func resolveScoreConflicts(_ submissions: [LeaderboardSubmission],
+                                       userHash: String) async throws -> [LeaderboardSubmission] {
+        let pairs = submissions.map { submission in
+            (
+                submission,
+                CKRecord.ID(recordName: CloudKitLeaderboardRecordMapper.recordName(
+                    userHash: userHash,
+                    metric: submission.metric,
+                    period: submission.period,
+                    periodKey: submission.periodKey
+                ))
+            )
+        }
+        let records = try await existingRecords(
+            for: pairs.map { $0.1 },
+            desiredKeys: [
+                CloudKitLeaderboardRecordMapper.Field.score,
+                CloudKitLeaderboardRecordMapper.Field.updatedAt,
+            ]
+        )
+        return pairs.map { submission, recordID in
+            let record = records[recordID]
+            return LeaderboardSubmissionMergePolicy.merge(
+                local: submission,
+                remoteScore: record.flatMap { CloudKitLeaderboardRecordMapper.int64Value($0[CloudKitLeaderboardRecordMapper.Field.score]) },
+                remoteUpdatedAt: record.flatMap { CloudKitLeaderboardRecordMapper.dateValue($0[CloudKitLeaderboardRecordMapper.Field.updatedAt]) }
+            )
+        }
+    }
+
+    private func resolveHistoryConflicts(_ submissions: [LeaderboardHistorySubmission],
+                                         userHash: String) async throws -> [LeaderboardHistorySubmission] {
+        let pairs = submissions.map { submission in
+            (
+                submission,
+                CKRecord.ID(recordName: CloudKitLeaderboardRecordMapper.historyRecordName(
+                    userHash: userHash,
+                    metric: submission.metric,
+                    bucketPeriod: submission.bucketPeriod,
+                    periodKey: submission.periodKey
+                ))
+            )
+        }
+        let records = try await existingRecords(
+            for: pairs.map { $0.1 },
+            desiredKeys: [
+                CloudKitLeaderboardRecordMapper.Field.score,
+                CloudKitLeaderboardRecordMapper.Field.updatedAt,
+            ]
+        )
+        return pairs.map { submission, recordID in
+            let record = records[recordID]
+            return LeaderboardSubmissionMergePolicy.merge(
+                local: submission,
+                remoteScore: record.flatMap { CloudKitLeaderboardRecordMapper.int64Value($0[CloudKitLeaderboardRecordMapper.Field.score]) },
+                remoteUpdatedAt: record.flatMap { CloudKitLeaderboardRecordMapper.dateValue($0[CloudKitLeaderboardRecordMapper.Field.updatedAt]) }
+            )
+        }
+    }
+
+    private func existingRecords(for recordIDs: [CKRecord.ID],
+                                 desiredKeys: [String]) async throws -> [CKRecord.ID: CKRecord] {
+        guard !recordIDs.isEmpty else { return [:] }
+        do {
+            let results = try await publicDatabase.records(
+                for: recordIDs,
+                desiredKeys: desiredKeys
+            )
+            return try results.reduce(into: [:]) { partial, entry in
+                switch entry.value {
+                case .success(let record):
+                    partial[entry.key] = record
+                case .failure(let error):
+                    if !Self.isUnknownItem(error) {
+                        throw LeaderboardCloudError.cloudKit(Self.shortCloudKitMessage(error))
+                    }
+                }
+            }
+        } catch let error as LeaderboardCloudError {
+            throw error
+        } catch {
+            throw LeaderboardCloudError.cloudKit(Self.shortCloudKitMessage(error))
+        }
+    }
+
     private func profiles(for records: [CKRecord]) async -> [String: LeaderboardProfile] {
         let userHashes = records
             .compactMap(CloudKitLeaderboardRecordMapper.userHash(from:))
@@ -593,6 +695,21 @@ struct CloudKitLeaderboardClient: LeaderboardCloudServicing {
     }
 
     private static let missingEntitlementMessage = "CloudKit entitlement is missing or incomplete in this build."
+
+    private static func profile(userHash: String, draft: LeaderboardProfileDraft) -> LeaderboardProfile {
+        LeaderboardProfile(
+            userHash: userHash,
+            nickname: draft.nickname,
+            avatarSeed: draft.avatarSeed,
+            historyStartMonthKey: draft.historyStartMonthKey,
+            favoriteModels: draft.favoriteModels,
+            updatedAt: draft.updatedAt
+        )
+    }
+
+    private static func isUnknownItem(_ error: Error) -> Bool {
+        (error as? CKError)?.code == .unknownItem
+    }
 
     private static func state(from status: CKAccountStatus) -> LeaderboardCloudAccountState {
         switch status {

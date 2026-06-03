@@ -446,6 +446,61 @@ struct LeaderboardSyncViewModelTests {
         #expect(fixture.viewModel.currentUserHash == "userhash")
     }
 
+    @Test("Remote profile fills an empty local nickname")
+    func remoteProfileFillsEmptyNickname() async {
+        let fixture = makeFixture(enabled: true)
+        fixture.preferences.leaderboardNickname = ""
+        await fixture.client.setProfile(
+            userHash: "userhash",
+            nickname: "Remote Ada",
+            avatarSeed: "avatar-remote",
+            historyStartMonthKey: "2026-05"
+        )
+
+        await fixture.viewModel.checkAccountStatus()
+
+        #expect(fixture.preferences.leaderboardNickname == "Remote Ada")
+        #expect(fixture.preferences.leaderboardAvatarSeed == "avatar-remote")
+        #expect(fixture.viewModel.syncStatus == .idle)
+    }
+
+    @Test("Local profile nickname wins over a remote nickname")
+    func localNicknameWinsOverRemoteNickname() async {
+        let fixture = makeFixture(enabled: true)
+        fixture.preferences.leaderboardNickname = "Local Ada"
+        await fixture.client.setProfile(
+            userHash: "userhash",
+            nickname: "Remote Ada",
+            avatarSeed: "avatar-remote",
+            historyStartMonthKey: "2026-05"
+        )
+
+        await fixture.viewModel.checkAccountStatus()
+
+        #expect(fixture.preferences.leaderboardNickname == "Local Ada")
+        #expect(fixture.preferences.leaderboardAvatarSeed == "avatar-remote")
+    }
+
+    @Test("Silent automatic sync skips upload when another variant holds the lease")
+    func silentSyncSkipsWhenLeaseIsDenied() async {
+        let fixture = makeFixture(enabled: true)
+        let now = Date()
+        await fixture.syncLease.setDecision(.denied(active: LeaderboardSyncLease(
+            userHash: "userhash",
+            ownerID: "full-owner",
+            variant: .full,
+            priority: 100,
+            acquiredAt: now,
+            expiresAt: now.addingTimeInterval(120)
+        )))
+
+        fixture.viewModel.start()
+        try? await Task.sleep(for: .milliseconds(50))
+
+        #expect(await fixture.syncLease.requestCount() == 1)
+        #expect(await fixture.client.submittedCount() == 0)
+    }
+
     @Test("Randomizing avatar updates local seed and immediately saves the profile when available")
     func randomizeAvatarSavesProfile() async {
         let fixture = makeFixture(enabled: true)
@@ -664,6 +719,7 @@ struct LeaderboardSyncViewModelTests {
         let client = FakeLeaderboardClient()
         let localStore = FakeLeaderboardLocalStore()
         let realtimeCloud = FakeLeaderboardRealtimeCloudService()
+        let syncLease = FakeLeaderboardSyncLease()
         let notificationRegistrar = FakeLeaderboardRemoteNotificationRegistrar()
         let viewModel = LeaderboardSyncViewModel(
             preferences: preferences,
@@ -675,6 +731,13 @@ struct LeaderboardSyncViewModelTests {
             silentSyncDebounceInterval: silentSyncDebounceInterval,
             silentSyncMinimumInterval: silentSyncMinimumInterval,
             realtimeCoordinator: LeaderboardRealtimeCoordinator(cloud: realtimeCloud, localStore: localStore),
+            syncLease: syncLease,
+            syncLeasePolicy: LeaderboardSyncLeasePolicy(
+                variant: .full,
+                ownerID: "test-owner",
+                priority: 100,
+                duration: 120
+            ),
             remoteNotificationRegistrar: notificationRegistrar,
             realtimeRefreshDebounceInterval: realtimeRefreshDebounceInterval
         )
@@ -684,6 +747,7 @@ struct LeaderboardSyncViewModelTests {
             client: client,
             localStore: localStore,
             realtimeCloud: realtimeCloud,
+            syncLease: syncLease,
             notificationRegistrar: notificationRegistrar
         )
     }
@@ -750,6 +814,7 @@ struct LeaderboardSyncViewModelTests {
         let client: FakeLeaderboardClient
         let localStore: FakeLeaderboardLocalStore
         let realtimeCloud: FakeLeaderboardRealtimeCloudService
+        let syncLease: FakeLeaderboardSyncLease
         let notificationRegistrar: FakeLeaderboardRemoteNotificationRegistrar
     }
 }
@@ -805,11 +870,14 @@ private actor FakeLeaderboardClient: LeaderboardCloudServicing {
         self.historyByPeriodKey = historyByPeriodKey
     }
 
-    func setProfile(userHash: String, historyStartMonthKey: String?) {
+    func setProfile(userHash: String,
+                    nickname: String = "Remote User",
+                    avatarSeed: String? = nil,
+                    historyStartMonthKey: String?) {
         profilesByHash[userHash] = LeaderboardProfile(
             userHash: userHash,
-            nickname: "Remote User",
-            avatarSeed: "avatar-\(userHash)",
+            nickname: nickname,
+            avatarSeed: avatarSeed ?? "avatar-\(userHash)",
             historyStartMonthKey: historyStartMonthKey,
             updatedAt: Date()
         )
@@ -896,6 +964,24 @@ private actor FakeLeaderboardClient: LeaderboardCloudServicing {
                 updatedAt: nil
             )
         }
+    }
+}
+
+private actor FakeLeaderboardSyncLease: LeaderboardSyncLeasing {
+    private var nextDecision: LeaderboardSyncLeaseDecision?
+    private var requests: [LeaderboardSyncLeaseRequest] = []
+
+    func setDecision(_ decision: LeaderboardSyncLeaseDecision?) {
+        nextDecision = decision
+    }
+
+    func requestCount() -> Int {
+        requests.count
+    }
+
+    func acquire(_ request: LeaderboardSyncLeaseRequest) async throws -> LeaderboardSyncLeaseDecision {
+        requests.append(request)
+        return nextDecision ?? .acquired(request.lease)
     }
 }
 
