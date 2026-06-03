@@ -77,16 +77,33 @@ struct UsageLimitWindow: Codable, Sendable, Hashable, Identifiable {
         100 - clampedUsedPercent
     }
 
-    func isCoreSevenDayLimit(for provider: ProviderKind) -> Bool {
-        guard windowMinutes == UsageLimitWindowCatalog.sevenDayWindowMinutes else { return false }
+    func forecastHorizon(for provider: ProviderKind) -> UsageLimitForecastHorizon? {
         switch provider {
         case .codex:
-            return id == "secondary"
+            switch (id, windowMinutes) {
+            case ("primary", UsageLimitWindowCatalog.fiveHourWindowMinutes):
+                .fiveHour
+            case ("secondary", UsageLimitWindowCatalog.sevenDayWindowMinutes):
+                .sevenDay
+            default:
+                nil
+            }
         case .claude:
-            return id == "seven_day"
+            switch (id, windowMinutes) {
+            case ("five_hour", UsageLimitWindowCatalog.fiveHourWindowMinutes):
+                .fiveHour
+            case ("seven_day", UsageLimitWindowCatalog.sevenDayWindowMinutes):
+                .sevenDay
+            default:
+                nil
+            }
         case .gemini, .kimi, .minimax:
-            return false
+            nil
         }
+    }
+
+    func isCoreSevenDayLimit(for provider: ProviderKind) -> Bool {
+        forecastHorizon(for: provider) == .sevenDay
     }
 }
 
@@ -97,6 +114,7 @@ struct UsageLimitWindowMetadata: Sendable, Hashable {
 }
 
 enum UsageLimitWindowCatalog {
+    static let fiveHourWindowMinutes = 300
     static let sevenDayWindowMinutes = 10_080
 
     static let claudeCoreWindowIDs: Set<String> = ["five_hour", "seven_day"]
@@ -104,7 +122,7 @@ enum UsageLimitWindowCatalog {
     static let claudeOptionalWindowIDs: [String] = ["weekly_claude_design", "sonnet_only"]
 
     static let claudeWindowDefinitions: [UsageLimitWindowMetadata] = [
-        UsageLimitWindowMetadata(id: "five_hour", label: "5h", minutes: 300),
+        UsageLimitWindowMetadata(id: "five_hour", label: "5h", minutes: fiveHourWindowMinutes),
         UsageLimitWindowMetadata(id: "seven_day", label: "7d", minutes: sevenDayWindowMinutes),
         UsageLimitWindowMetadata(id: "weekly_claude_design", label: "Claude Design", minutes: sevenDayWindowMinutes),
         UsageLimitWindowMetadata(id: "sonnet_only", label: "Sonnet", minutes: sevenDayWindowMinutes),

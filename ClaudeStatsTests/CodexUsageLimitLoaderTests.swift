@@ -68,8 +68,8 @@ struct CodexUsageLimitLoaderTests {
         #expect(report.snapshot?.planType == "pro")
     }
 
-    @Test("Reads 7d secondary history from recent rollout logs")
-    func readsSecondaryHistory() throws {
+    @Test("Reads primary and secondary history from recent rollout logs")
+    func readsPrimaryAndSecondaryHistory() throws {
         let root = try TempDir.make()
         defer { try? FileManager.default.removeItem(at: root) }
         let day = root.appendingPathComponent("sessions/2026/01/10", isDirectory: true)
@@ -87,12 +87,12 @@ struct CodexUsageLimitLoaderTests {
         let history = CodexUsageLimitLoader(paths: CodexPaths(homeDirectory: root))
             .history(since: now.addingTimeInterval(-7 * 86_400), now: now)
 
-        #expect(history.map(\.windowID) == ["secondary", "secondary"])
-        #expect(history.map(\.usedPercent) == [10, 12])
+        #expect(history.map(\.windowID) == ["primary", "secondary", "primary", "secondary"])
+        #expect(history.map(\.usedPercent) == [25, 10, 30, 12])
     }
 
-    @Test("History ignores expired secondary windows")
-    func historyIgnoresExpiredSecondaryWindows() throws {
+    @Test("History ignores expired usage windows")
+    func historyIgnoresExpiredUsageWindows() throws {
         let root = try TempDir.make()
         defer { try? FileManager.default.removeItem(at: root) }
         let day = root.appendingPathComponent("sessions/2026/01/10", isDirectory: true)

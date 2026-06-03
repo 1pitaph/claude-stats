@@ -398,7 +398,7 @@ struct UsageLimitWindowCardModel: Equatable, Identifiable, Sendable {
         switch forecast.status {
         case .forecast:
             if let interval = forecast.reachInterval {
-                let title = "ETA \(Format.shortTime(interval.start))-\(Format.shortTime(interval.end))"
+                let title = "\(forecast.horizon.displayText) ETA \(Format.shortTime(interval.start))-\(Format.shortTime(interval.end))"
                 let median = forecast.medianReachAt.map { "Median \(Format.shortTime($0))" }
                 let detail = [median, forecast.confidence.displayText].compactMap { $0 }.joined(separator: " · ")
                 return ForecastSummary(title: title, detail: detail, tintLevel: .forecast)
@@ -406,17 +406,17 @@ struct UsageLimitWindowCardModel: Equatable, Identifiable, Sendable {
             return ForecastSummary(title: "Prediction unavailable", detail: forecast.diagnostics.first, tintLevel: .unavailable)
         case .collecting:
             return ForecastSummary(
-                title: "Prediction collecting data",
-                detail: forecast.diagnostics.first ?? "Needs more 7-day usage snapshots.",
+                title: "\(forecast.horizon.displayText) prediction collecting data",
+                detail: forecast.diagnostics.first ?? "Needs more \(forecast.horizon.displayText) usage snapshots.",
                 tintLevel: .collecting
             )
         case .willNotReachBeforeReset:
             let reset = forecast.resetAt.map { "Before reset \(Format.relativeDate($0))" }
-            return ForecastSummary(title: "No 7d limit hit expected", detail: reset ?? forecast.diagnostics.first, tintLevel: .safe)
+            return ForecastSummary(title: "No \(forecast.horizon.displayText) limit hit expected", detail: reset ?? forecast.diagnostics.first, tintLevel: .safe)
         case .limitReached:
-            return ForecastSummary(title: "Limit reached", detail: forecast.diagnostics.first, tintLevel: .unavailable)
+            return ForecastSummary(title: "\(forecast.horizon.displayText) limit reached", detail: forecast.diagnostics.first, tintLevel: .unavailable)
         case .unavailable:
-            return ForecastSummary(title: "Prediction unavailable", detail: forecast.diagnostics.first, tintLevel: .unavailable)
+            return ForecastSummary(title: "\(forecast.horizon.displayText) prediction unavailable", detail: forecast.diagnostics.first, tintLevel: .unavailable)
         }
     }
 

@@ -14,10 +14,25 @@ enum UsageLimitForecastConfidence: String, Codable, Sendable, Hashable {
     case high
 }
 
+enum UsageLimitForecastHorizon: String, Codable, Sendable, Hashable {
+    case fiveHour
+    case sevenDay
+
+    var displayText: String {
+        switch self {
+        case .fiveHour:
+            "5h"
+        case .sevenDay:
+            "7d"
+        }
+    }
+}
+
 struct UsageLimitForecast: Codable, Sendable, Hashable, Identifiable {
     let provider: ProviderKind
     let windowID: String
     let label: String
+    let horizon: UsageLimitForecastHorizon
     let capturedAt: Date
     let currentUsedPercent: Double
     let resetAt: Date?
@@ -28,6 +43,34 @@ struct UsageLimitForecast: Codable, Sendable, Hashable, Identifiable {
     let diagnostics: [String]
 
     var id: String { "\(provider.rawValue)|\(windowID)" }
+
+    init(
+        provider: ProviderKind,
+        windowID: String,
+        label: String,
+        horizon: UsageLimitForecastHorizon = .sevenDay,
+        capturedAt: Date,
+        currentUsedPercent: Double,
+        resetAt: Date?,
+        reachInterval: DateInterval?,
+        medianReachAt: Date?,
+        confidence: UsageLimitForecastConfidence,
+        status: UsageLimitForecastStatus,
+        diagnostics: [String]
+    ) {
+        self.provider = provider
+        self.windowID = windowID
+        self.label = label
+        self.horizon = horizon
+        self.capturedAt = capturedAt
+        self.currentUsedPercent = currentUsedPercent
+        self.resetAt = resetAt
+        self.reachInterval = reachInterval
+        self.medianReachAt = medianReachAt
+        self.confidence = confidence
+        self.status = status
+        self.diagnostics = diagnostics
+    }
 
     func matches(provider: ProviderKind, window: UsageLimitWindow) -> Bool {
         self.provider == provider && windowID == window.id

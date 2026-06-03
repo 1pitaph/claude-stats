@@ -52,6 +52,7 @@ struct UsageLimitSegmentLayoutTests {
             provider: .codex,
             windowID: "secondary",
             label: "7d",
+            horizon: .sevenDay,
             capturedAt: now,
             currentUsedPercent: 72,
             resetAt: resetAt,
@@ -64,7 +65,40 @@ struct UsageLimitSegmentLayoutTests {
 
         let model = UsageLimitWindowCardModel(window: window, forecast: forecast)
 
-        #expect(model.forecastText?.hasPrefix("ETA ") == true)
+        #expect(model.forecastText?.hasPrefix("7d ETA ") == true)
+        #expect(model.forecastDetailText?.contains("Medium confidence") == true)
+        #expect(model.forecastTintLevel == .forecast)
+    }
+
+    @Test("Window card model exposes 5h forecast summary")
+    func windowCardModelExposesFiveHourForecastSummary() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let resetAt = now.addingTimeInterval(7_200)
+        let window = UsageLimitWindow(
+            id: "primary",
+            label: "5h",
+            usedPercent: 72,
+            resetAt: resetAt,
+            windowMinutes: UsageLimitWindowCatalog.fiveHourWindowMinutes
+        )
+        let forecast = UsageLimitForecast(
+            provider: .codex,
+            windowID: "primary",
+            label: "5h",
+            horizon: .fiveHour,
+            capturedAt: now,
+            currentUsedPercent: 72,
+            resetAt: resetAt,
+            reachInterval: DateInterval(start: now.addingTimeInterval(1_800), end: now.addingTimeInterval(2_700)),
+            medianReachAt: now.addingTimeInterval(2_100),
+            confidence: .medium,
+            status: .forecast,
+            diagnostics: []
+        )
+
+        let model = UsageLimitWindowCardModel(window: window, forecast: forecast)
+
+        #expect(model.forecastText?.hasPrefix("5h ETA ") == true)
         #expect(model.forecastDetailText?.contains("Medium confidence") == true)
         #expect(model.forecastTintLevel == .forecast)
     }
@@ -84,6 +118,7 @@ struct UsageLimitSegmentLayoutTests {
             provider: .codex,
             windowID: "secondary",
             label: "7d",
+            horizon: .sevenDay,
             capturedAt: now,
             currentUsedPercent: 72,
             resetAt: resetAt,
@@ -96,7 +131,7 @@ struct UsageLimitSegmentLayoutTests {
 
         let model = UsageLimitWindowCardModel(window: window, forecast: forecast)
 
-        #expect(model.forecastText == "Prediction collecting data")
+        #expect(model.forecastText == "7d prediction collecting data")
         #expect(model.forecastDetailText == "Collecting 7-day usage snapshots.")
         #expect(model.forecastTintLevel == .collecting)
     }

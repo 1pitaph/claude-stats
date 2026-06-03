@@ -4,8 +4,8 @@ import Testing
 
 @Suite("UsageLimitHistoryStore")
 struct UsageLimitHistoryStoreTests {
-    @Test("Fresh reports append core 7d entries and dedupe")
-    func freshReportsAppendCoreSevenDayEntries() throws {
+    @Test("Fresh reports append forecastable entries and dedupe")
+    func freshReportsAppendForecastableEntries() throws {
         let root = try TempDir.make()
         defer { try? FileManager.default.removeItem(at: root) }
         let store = UsageLimitHistoryStore(url: root.appendingPathComponent("history.json"))
@@ -15,10 +15,10 @@ struct UsageLimitHistoryStoreTests {
         _ = try store.append(report: report, now: now)
         let entries = try store.append(report: report, now: now)
 
-        #expect(entries.count == 1)
-        #expect(entries.first?.provider == .codex)
-        #expect(entries.first?.windowID == "secondary")
-        #expect(entries.first?.usedPercent == 42)
+        #expect(entries.count == 2)
+        #expect(entries.map(\.provider) == [.codex, .codex])
+        #expect(entries.map(\.windowID) == ["primary", "secondary"])
+        #expect(entries.map(\.usedPercent) == [80, 42])
     }
 
     @Test("Cached reports do not append history")
@@ -90,4 +90,3 @@ struct UsageLimitHistoryStoreTests {
         )
     }
 }
-

@@ -100,7 +100,7 @@ struct UsageLimitHistoryStore: Sendable {
 
     static func entries(from snapshot: UsageLimitSnapshot) -> [UsageLimitHistoryEntry] {
         snapshot.windows
-            .filter { $0.isCoreSevenDayLimit(for: snapshot.provider) }
+            .filter { $0.forecastHorizon(for: snapshot.provider) != nil }
             .map {
                 UsageLimitHistoryEntry(
                     provider: snapshot.provider,
@@ -136,4 +136,3 @@ struct UsageLimitHistoryStore: Sendable {
         try data.write(to: url, options: [.atomic])
     }
 }
-

@@ -1794,7 +1794,7 @@ private struct GanttTimelineRenderPlan {
                     let interval = forecast.reachInterval.map {
                         "\(timeID($0.start))-\(timeID($0.end))"
                     } ?? "none"
-                    return "\(forecast.id):\(forecast.status.rawValue):\(interval)"
+                    return "\(forecast.id):\(forecast.horizon.rawValue):\(forecast.status.rawValue):\(interval)"
                 }
                 .joined(separator: ",")
             let commits = snapshot.commitMarkers
@@ -1860,6 +1860,7 @@ private struct GanttTimelineRenderPlan {
         let startRatio: CGFloat
         let endRatio: CGFloat
         let confidence: UsageLimitForecastConfidence
+        let horizon: UsageLimitForecastHorizon
     }
 
     struct HitTarget: Identifiable {
@@ -1930,7 +1931,7 @@ private struct GanttTimelineRenderPlan {
         self.usageLimitBands = snapshot.load.groups
             .first { $0.kind == .usageLimit }?
             .lanes
-            .filter { !Self.isCoreSevenDayUsageLimitLane($0) }
+            .filter { !Self.isCoreForecastUsageLimitLane($0) }
             .flatMap { lane in
                 lane.segments.map { segment in
                     UsageLimitBand(
@@ -1953,7 +1954,8 @@ private struct GanttTimelineRenderPlan {
                 title: "\(forecast.provider.shortName) \(forecast.label)",
                 startRatio: GanttTimelineScale.ratio(for: clipped.start, domain: snapshot.domain),
                 endRatio: GanttTimelineScale.ratio(for: clipped.end, domain: snapshot.domain),
-                confidence: forecast.confidence
+                confidence: forecast.confidence,
+                horizon: forecast.horizon
             )
         }
         let commitMarkersByProjectID = Dictionary(grouping: snapshot.commitMarkers, by: \.projectID)
@@ -2034,8 +2036,11 @@ private struct GanttTimelineRenderPlan {
         self.hitTargets = hitTargets
     }
 
-    private static func isCoreSevenDayUsageLimitLane(_ lane: GanttLoadLane) -> Bool {
-        lane.id == "codex|secondary" || lane.id == "claude|seven_day"
+    private static func isCoreForecastUsageLimitLane(_ lane: GanttLoadLane) -> Bool {
+        lane.id == "codex|primary"
+            || lane.id == "claude|five_hour"
+            || lane.id == "codex|secondary"
+            || lane.id == "claude|seven_day"
     }
 
     var contentRevisionID: String {
@@ -2384,8 +2389,11 @@ private struct GanttTimelineLegend: View {
             GanttLegendChip(title: String(localized: "Focus overlap"), sample: .focusOverlap)
             GanttLegendChip(title: String(localized: "Token peak"), sample: .tokenPeak)
             GanttLegendChip(title: String(localized: "Usage limit"), sample: .usageLimit)
-            if !renderPlan.limitReachForecastBands.isEmpty {
-                GanttLegendChip(title: String(localized: "Limit forecast"), sample: .limitForecast)
+            if renderPlan.limitReachForecastBands.contains(where: { $0.horizon == .fiveHour }) {
+                GanttLegendChip(title: String(localized: "5h forecast"), sample: .limitForecast(.fiveHour))
+            }
+            if renderPlan.limitReachForecastBands.contains(where: { $0.horizon == .sevenDay }) {
+                GanttLegendChip(title: String(localized: "7d forecast"), sample: .limitForecast(.sevenDay))
             }
             GanttLegendChip(title: String(localized: "Commit"), sample: .commit)
         }
@@ -2507,7 +2515,7 @@ private enum GanttLegendSample {
     case focusOverlap
     case tokenPeak
     case usageLimit
-    case limitForecast
+    case limitForecast(UsageLimitForecastHorizon)
     case commit
 }
 
@@ -2541,10 +2549,12 @@ private struct GanttLegendSampleView: View {
                 let rect = CGRect(x: 4, y: 1, width: size.width - 8, height: size.height - 2)
                 context.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(Color.red.opacity(0.22)))
                 context.stroke(Path(roundedRect: rect, cornerRadius: 2), with: .color(Color.red.opacity(0.74)), style: StrokeStyle(lineWidth: 1, dash: [2, 2]))
-            case .limitForecast:
+            case .limitForecast(let horizon):
                 let rect = CGRect(x: 3, y: 4, width: size.width - 6, height: size.height - 8)
-                context.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(Color.orange.opacity(0.32)))
-                context.stroke(Path(roundedRect: rect, cornerRadius: 2), with: .color(Color.red.opacity(0.82)), lineWidth: 1.1)
+                let fill = horizon == .fiveHour ? Color.red.opacity(0.28) : Color.orange.opacity(0.32)
+                let stroke = horizon == .fiveHour ? Color.orange.opacity(0.88) : Color.red.opacity(0.82)
+                context.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(fill))
+                context.stroke(Path(roundedRect: rect, cornerRadius: 2), with: .color(stroke), lineWidth: 1.1)
             case .commit:
                 var path = Path()
                 let center = CGPoint(x: size.width / 2, y: size.height / 2)
@@ -2876,16 +2886,23 @@ private struct GanttTimelineCanvas: View {
             let width = min(size.width - startX, max(3, endX - startX))
             guard width > 0 else { continue }
 
-            let rect = CGRect(x: startX, y: 4, width: width, height: 8)
+            let y: CGFloat = band.horizon == .fiveHour ? 3 : 13
+            let rect = CGRect(x: startX, y: y, width: width, height: 7)
             let opacity: Double = switch band.confidence {
             case .high: 0.34
             case .medium: 0.28
             case .low: 0.22
             }
-            context.fill(Path(roundedRect: rect, cornerRadius: 3), with: .color(Color.orange.opacity(opacity)))
+            let fill = band.horizon == .fiveHour
+                ? Color.red.opacity(opacity)
+                : Color.orange.opacity(opacity)
+            let stroke = band.horizon == .fiveHour
+                ? Color.orange.opacity(0.78)
+                : Color.red.opacity(0.70)
+            context.fill(Path(roundedRect: rect, cornerRadius: 3), with: .color(fill))
             context.stroke(
                 Path(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), cornerRadius: 2.5),
-                with: .color(Color.red.opacity(0.70)),
+                with: .color(stroke),
                 lineWidth: 1
             )
         }
