@@ -1680,7 +1680,7 @@ private struct GanttChartPanel: View {
                     GanttHorizontalTimelineScrollView(
                         contentWidth: timelineWidth,
                         contentHeight: totalHeight,
-                        contentRevisionID: renderPlan.contentRevisionID(selectedSegmentID: selectedSegment?.segmentID),
+                        contentRevisionID: renderPlan.contentRevisionID,
                         viewport: $viewport
                     ) {
                         GanttTimelineDocument(
@@ -1985,8 +1985,8 @@ private struct GanttTimelineRenderPlan {
         self.hitTargets = hitTargets
     }
 
-    func contentRevisionID(selectedSegmentID: String?) -> String {
-        "\(key.revisionID)|\(key.annotationID)|selection:\(selectedSegmentID ?? "none")"
+    var contentRevisionID: String {
+        "\(key.revisionID)|\(key.annotationID)"
     }
 
     func ratio(for date: Date) -> CGFloat {
@@ -2028,11 +2028,23 @@ private struct GanttSegmentPopoverSource: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, NSPopoverDelegate {
+        private struct PendingPresentation {
+            let selection: GanttTimelinePopoverSelection
+            let sourceRect: CGRect
+        }
+
         var selectedSegment: Binding<GanttTimelinePopoverSelection?>?
         private var popover: NSPopover?
         private var hostingController: NSHostingController<GanttSegmentInspector>?
-        private var isClosingFromUpdate = false
         private var presentedSelectionID: String?
+        private var pendingPresentation: PendingPresentation?
+        private weak var pendingSourceView: FlippedPopoverSourceView?
+        private var pendingPresentationTask: Task<Void, Never>?
+        private var programmaticCloseIDs: Set<ObjectIdentifier> = []
+
+        deinit {
+            pendingPresentationTask?.cancel()
+        }
 
         func update(
             selection: GanttTimelinePopoverSelection?,
@@ -2051,6 +2063,15 @@ private struct GanttSegmentPopoverSource: NSViewRepresentable {
             guard sourceView.window != nil else { return }
             let sourceRect = Self.sourceRect(for: anchorPoint)
             guard sourceRect.width > 0, sourceRect.height > 0 else { return }
+
+            if let popover, popover.isShown, presentedSelectionID != selection.segmentID {
+                pendingPresentation = PendingPresentation(selection: selection, sourceRect: sourceRect)
+                pendingSourceView = sourceView
+                pendingPresentationTask?.cancel()
+                closePopoverForPendingPresentation(popover)
+                return
+            }
+
             let popover = ensurePopover(for: selection.detail)
             updateContentSize(popover)
             presentedSelectionID = selection.segmentID
@@ -2067,43 +2088,129 @@ private struct GanttSegmentPopoverSource: NSViewRepresentable {
         }
 
         func closeFromSelectionChange() {
-            presentedSelectionID = nil
-            guard let popover else { return }
-            isClosingFromUpdate = true
-            popover.close()
+            cancelPendingPresentation()
+            closeActivePopover()
         }
 
         func closeFromViewRemoval() {
-            popover?.close()
-            popover = nil
-            hostingController = nil
-            presentedSelectionID = nil
+            cancelPendingPresentation()
+            closeActivePopover()
         }
 
         func popoverDidClose(_ notification: Notification) {
-            defer { isClosingFromUpdate = false }
-            guard !isClosingFromUpdate else { return }
-            if selectedSegment?.wrappedValue?.segmentID == presentedSelectionID {
+            guard let closedPopover = notification.object as? NSPopover else { return }
+
+            let closeID = ObjectIdentifier(closedPopover)
+            if programmaticCloseIDs.remove(closeID) != nil {
+                if closedPopover === popover {
+                    popover = nil
+                    hostingController = nil
+                    presentedSelectionID = nil
+                }
+                if pendingPresentation != nil {
+                    schedulePendingPresentation()
+                }
+                return
+            }
+
+            guard closedPopover === popover else { return }
+            let closedSelectionID = presentedSelectionID
+            popover = nil
+            hostingController = nil
+            presentedSelectionID = nil
+            if selectedSegment?.wrappedValue?.segmentID == closedSelectionID {
                 selectedSegment?.wrappedValue = nil
             }
+        }
+
+        private func cancelPendingPresentation() {
+            pendingPresentationTask?.cancel()
+            pendingPresentationTask = nil
+            pendingPresentation = nil
+            pendingSourceView = nil
+        }
+
+        private func closeActivePopover() {
             presentedSelectionID = nil
+            guard let popover else { return }
+            self.popover = nil
+            hostingController = nil
+            closePopover(popover)
+        }
+
+        private func closePopoverForPendingPresentation(_ popover: NSPopover) {
+            if popover === self.popover {
+                self.popover = nil
+                hostingController = nil
+                presentedSelectionID = nil
+            }
+            closePopover(popover)
+            if !popover.isShown {
+                schedulePendingPresentation()
+            }
+        }
+
+        private func closePopover(_ popover: NSPopover) {
+            let closeID = ObjectIdentifier(popover)
+            programmaticCloseIDs.insert(closeID)
+            popover.close()
+            if !popover.isShown {
+                programmaticCloseIDs.remove(closeID)
+            }
+        }
+
+        private func schedulePendingPresentation() {
+            pendingPresentationTask?.cancel()
+            pendingPresentationTask = Task { @MainActor [weak self] in
+                await Task.yield()
+                guard !Task.isCancelled else { return }
+                self?.presentPendingSelection()
+            }
+        }
+
+        private func presentPendingSelection() {
+            pendingPresentationTask = nil
+            guard let pendingPresentation else { return }
+            guard selectedSegment?.wrappedValue?.segmentID == pendingPresentation.selection.segmentID,
+                  let sourceView = pendingSourceView,
+                  sourceView.window != nil
+            else {
+                cancelPendingPresentation()
+                return
+            }
+
+            let popover = ensurePopover(for: pendingPresentation.selection.detail)
+            updateContentSize(popover)
+            presentedSelectionID = pendingPresentation.selection.segmentID
+            let sourceRect = pendingPresentation.sourceRect
+            self.pendingPresentation = nil
+            pendingSourceView = nil
+
+            if popover.isShown {
+                popover.positioningRect = sourceRect
+            } else {
+                popover.show(relativeTo: sourceRect, of: sourceView, preferredEdge: .minY)
+            }
+            if popover.delegate == nil {
+                popover.delegate = self
+            }
+            self.popover = popover
         }
 
         private func ensurePopover(for detail: GanttTimelineRenderPlan.SegmentDetail) -> NSPopover {
-            if let hostingController {
+            if let popover, popover.isShown, let hostingController {
                 hostingController.rootView = GanttSegmentInspector(detail: detail)
-            } else {
-                hostingController = NSHostingController(rootView: GanttSegmentInspector(detail: detail))
-            }
-            if let popover {
                 popover.contentViewController = hostingController
                 return popover
             }
+
+            let hostingController = NSHostingController(rootView: GanttSegmentInspector(detail: detail))
             let popover = NSPopover()
             popover.behavior = .transient
             popover.animates = true
             popover.delegate = self
             popover.contentViewController = hostingController
+            self.hostingController = hostingController
             self.popover = popover
             return popover
         }
