@@ -32,8 +32,11 @@ name: Release
 #   KEYCHAIN_PASSWORD         any string — password for the throwaway CI keychain
 #   APPLE_TEAM_ID             10-character Apple Developer Team ID
 #   BUILD_PROVISION_PROFILE_BASE64
-#                             Developer ID provisioning profile with the
+#                             Full app Developer ID provisioning profile with the
 #                             iCloud/CloudKit capability enabled, base64-encoded
+#   BUILD_LITE_PROVISION_PROFILE_BASE64
+#                             Lite app Developer ID provisioning profile with the
+#                             same CloudKit container enabled, base64-encoded
 #   NOTARY_APPLE_ID           Apple ID email used for notarization
 #   NOTARY_PASSWORD           app-specific password for that Apple ID (appleid.apple.com)
 #
@@ -113,11 +116,13 @@ jobs:
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
+          BUILD_LITE_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_LITE_PROVISION_PROFILE_BASE64 }}
           NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
           NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
         run: |
           if [[ -n "$BUILD_CERTIFICATE_BASE64" && -n "$P12_PASSWORD" && -n "$KEYCHAIN_PASSWORD" \
                 && -n "$APPLE_TEAM_ID" && -n "$BUILD_PROVISION_PROFILE_BASE64" \
+                && -n "$BUILD_LITE_PROVISION_PROFILE_BASE64" \
                 && -n "$NOTARY_APPLE_ID" && -n "$NOTARY_PASSWORD" ]]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
             echo "Signing secrets present — will build notarized DMGs."
@@ -188,30 +193,52 @@ jobs:
           echo "SIGN_IDENTITY=$SIGN_IDENTITY" >> "$GITHUB_ENV"
           rm -f "$CERT_PATH"
 
-      - name: Install Developer ID provisioning profile
+      - name: Install Developer ID provisioning profiles
         if: steps.signing.outputs.enabled == 'true'
         env:
           BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
+          BUILD_LITE_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_LITE_PROVISION_PROFILE_BASE64 }}
         run: |
-          PROFILE_PATH="$RUNNER_TEMP/cloudkit.provisionprofile"
-          PROFILE_PLIST="$RUNNER_TEMP/cloudkit-profile.plist"
-          echo -n "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode -o "$PROFILE_PATH"
-          security cms -D -i "$PROFILE_PATH" > "$PROFILE_PLIST"
-          PROFILE_UUID="$(/usr/libexec/PlistBuddy -c 'Print UUID' "$PROFILE_PLIST")"
-          PROFILE_NAME="$(/usr/libexec/PlistBuddy -c 'Print Name' "$PROFILE_PLIST")"
-          PROFILE_APP_ID="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.application-identifier' "$PROFILE_PLIST")"
-          /usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.icloud-services' "$PROFILE_PLIST" | grep -Eq '(^|[[:space:]])(CloudKit|\*)($|[[:space:]])' || {
-            echo "::error::provisioning profile is missing the CloudKit service entitlement"
-            exit 1
+          set -euo pipefail
+
+          install_profile() {
+            local encoded="$1"
+            local label="$2"
+            local expected_bundle_id="$3"
+            local env_prefix="$4"
+            local profile_path="$RUNNER_TEMP/$label.provisionprofile"
+            local profile_plist="$RUNNER_TEMP/$label-profile.plist"
+
+            echo -n "$encoded" | base64 --decode -o "$profile_path"
+            security cms -D -i "$profile_path" > "$profile_plist"
+            local profile_uuid
+            local profile_name
+            local profile_app_id
+            profile_uuid="$(/usr/libexec/PlistBuddy -c 'Print UUID' "$profile_plist")"
+            profile_name="$(/usr/libexec/PlistBuddy -c 'Print Name' "$profile_plist")"
+            profile_app_id="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.application-identifier' "$profile_plist")"
+
+            if [[ "$profile_app_id" != *".$expected_bundle_id" ]]; then
+              echo "::error::$label provisioning profile app id '$profile_app_id' does not match '$expected_bundle_id'"
+              exit 1
+            fi
+            /usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.icloud-services' "$profile_plist" | grep -Eq '(^|[[:space:]])(CloudKit|\*)($|[[:space:]])' || {
+              echo "::error::$label provisioning profile is missing the CloudKit service entitlement"
+              exit 1
+            }
+            /usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.icloud-container-identifiers' "$profile_plist" | grep -q 'iCloud.com.claudestats.ClaudeStats' || {
+              echo "::error::$label provisioning profile is missing iCloud.com.claudestats.ClaudeStats"
+              exit 1
+            }
+
+            mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+            cp "$profile_path" "$HOME/Library/MobileDevice/Provisioning Profiles/$profile_uuid.provisionprofile"
+            echo "${env_prefix}_PROVISIONING_PROFILE_SPECIFIER=$profile_name" >> "$GITHUB_ENV"
+            echo "Installed $label provisioning profile: $profile_name ($profile_uuid, app id: $profile_app_id)"
           }
-          /usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.icloud-container-identifiers' "$PROFILE_PLIST" | grep -q 'iCloud.com.claudestats.ClaudeStats' || {
-            echo "::error::provisioning profile is missing iCloud.com.claudestats.ClaudeStats"
-            exit 1
-          }
-          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.provisionprofile"
-          echo "PROVISIONING_PROFILE_SPECIFIER=$PROFILE_NAME" >> "$GITHUB_ENV"
-          echo "Installed provisioning profile: $PROFILE_NAME ($PROFILE_UUID, app id: $PROFILE_APP_ID)"
+
+          install_profile "$BUILD_PROVISION_PROFILE_BASE64" "claude-stats-cloudkit" "com.claudestats.ClaudeStats" "CLAUDE_STATS"
+          install_profile "$BUILD_LITE_PROVISION_PROFILE_BASE64" "claude-stats-lite-cloudkit" "com.claudestats.ClaudeStatsLite" "CLAUDE_STATS_LITE"
 
       - name: Bump version in project.yml
         run: bash scripts/bump-version.sh "${{ steps.version.outputs.version }}" "${{ steps.version.outputs.build }}"

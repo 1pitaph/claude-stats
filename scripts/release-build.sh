@@ -24,9 +24,12 @@
 # Environment (signed mode):
 #   SIGN_IDENTITY              codesign identity, e.g. "Developer ID Application: Foo (TEAMID)"
 #   APPLE_TEAM_ID              10-char Apple Developer Team ID
-#   PROVISIONING_PROFILE_SPECIFIER
-#                              Developer ID provisioning profile with the
-#                              iCloud/CloudKit capability enabled
+#   PROVISIONING_PROFILE_SPECIFIER or CLAUDE_STATS_PROVISIONING_PROFILE_SPECIFIER
+#                              Full app Developer ID provisioning profile with
+#                              the iCloud/CloudKit capability enabled
+#   CLAUDE_STATS_LITE_PROVISIONING_PROFILE_SPECIFIER
+#                              Lite app Developer ID provisioning profile with
+#                              the same CloudKit container enabled
 #   APPLE_ID + APP_PASSWORD    Apple ID + app-specific password for notarytool
 #   NOTARY_KEYCHAIN_PROFILE    (alternative to APPLE_ID/APP_PASSWORD) a stored notarytool profile
 #
@@ -84,13 +87,23 @@ if [[ $SIGNED -eq 1 ]]; then
         echo "error: signed CloudKit builds require APPLE_TEAM_ID" >&2
         exit 1
     }
-    [[ -n "${PROVISIONING_PROFILE_SPECIFIER:-}" || -n "${PROVISIONING_PROFILE:-}" ]] || {
-        echo "error: signed CloudKit builds require PROVISIONING_PROFILE_SPECIFIER (or PROVISIONING_PROFILE) for a CloudKit-capable Developer ID profile" >&2
+    FULL_PROFILE_SPECIFIER="${CLAUDE_STATS_PROVISIONING_PROFILE_SPECIFIER:-${PROVISIONING_PROFILE_SPECIFIER:-}}"
+    FULL_PROFILE_UUID="${CLAUDE_STATS_PROVISIONING_PROFILE:-${PROVISIONING_PROFILE:-}}"
+    LITE_PROFILE_SPECIFIER="${CLAUDE_STATS_LITE_PROVISIONING_PROFILE_SPECIFIER:-}"
+    LITE_PROFILE_UUID="${CLAUDE_STATS_LITE_PROVISIONING_PROFILE:-}"
+    [[ -n "$FULL_PROFILE_SPECIFIER" || -n "$FULL_PROFILE_UUID" ]] || {
+        echo "error: signed CloudKit builds require CLAUDE_STATS_PROVISIONING_PROFILE_SPECIFIER (or legacy PROVISIONING_PROFILE_SPECIFIER) for the full app profile" >&2
+        exit 1
+    }
+    [[ -n "$LITE_PROFILE_SPECIFIER" || -n "$LITE_PROFILE_UUID" ]] || {
+        echo "error: signed CloudKit builds require CLAUDE_STATS_LITE_PROVISIONING_PROFILE_SPECIFIER for the Lite app profile" >&2
         exit 1
     }
     echo "==> Signing with: $SIGN_IDENTITY (hardened runtime)"
-    export CLAUDE_STATS_PROVISIONING_PROFILE_SPECIFIER="${PROVISIONING_PROFILE_SPECIFIER:-}"
-    export CLAUDE_STATS_PROVISIONING_PROFILE="${PROVISIONING_PROFILE:-}"
+    export CLAUDE_STATS_PROVISIONING_PROFILE_SPECIFIER="$FULL_PROFILE_SPECIFIER"
+    export CLAUDE_STATS_PROVISIONING_PROFILE="$FULL_PROFILE_UUID"
+    export CLAUDE_STATS_LITE_PROVISIONING_PROFILE_SPECIFIER="$LITE_PROFILE_SPECIFIER"
+    export CLAUDE_STATS_LITE_PROVISIONING_PROFILE="$LITE_PROFILE_UUID"
     CONFIGURATION=ReleaseSigned
 else
     XCODE_BUILD_ARGS+=(CODE_SIGN_IDENTITY="-" CODE_SIGN_STYLE=Automatic ENABLE_HARDENED_RUNTIME=NO)
