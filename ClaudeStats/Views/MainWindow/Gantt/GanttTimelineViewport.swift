@@ -141,12 +141,39 @@ enum GanttTimelineViewportMetrics {
 }
 
 enum GanttAdaptiveLayoutMetrics {
+    static let compactSwitchHysteresis: CGFloat = 16
+
     static func isCompact(width: CGFloat, threshold: CGFloat) -> Bool {
         width.isFinite && width > 0 && width < threshold
     }
 
-    static func shouldUpdateCompactState(current: Bool, width: CGFloat, threshold: CGFloat) -> Bool {
-        current != isCompact(width: width, threshold: threshold)
+    static func shouldUpdateCompactState(
+        current: Bool,
+        width: CGFloat,
+        threshold: CGFloat,
+        hysteresis: CGFloat = 0
+    ) -> Bool {
+        current != compactState(
+            current: current,
+            width: width,
+            threshold: threshold,
+            hysteresis: hysteresis
+        )
+    }
+
+    private static func compactState(
+        current: Bool,
+        width: CGFloat,
+        threshold: CGFloat,
+        hysteresis: CGFloat
+    ) -> Bool {
+        guard width.isFinite, width > 0 else { return current }
+
+        let band = max(0, hysteresis)
+        if current {
+            return width <= threshold + band
+        }
+        return width < threshold - band
     }
 }
 

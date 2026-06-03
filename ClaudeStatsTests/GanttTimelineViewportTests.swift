@@ -120,4 +120,34 @@ struct GanttTimelineViewportTests {
         #expect(GanttAdaptiveLayoutMetrics.shouldUpdateCompactState(current: true, width: 720, threshold: 760) == false)
         #expect(GanttAdaptiveLayoutMetrics.shouldUpdateCompactState(current: true, width: 820, threshold: 760) == true)
     }
+
+    @Test("adaptive compact metrics can keep a hysteresis band around threshold")
+    func adaptiveCompactMetricsKeepHysteresisBand() {
+        let hysteresis: CGFloat = 16
+
+        #expect(GanttAdaptiveLayoutMetrics.shouldUpdateCompactState(
+            current: false,
+            width: 752,
+            threshold: 760,
+            hysteresis: hysteresis
+        ) == false)
+        #expect(GanttAdaptiveLayoutMetrics.shouldUpdateCompactState(
+            current: false,
+            width: 743,
+            threshold: 760,
+            hysteresis: hysteresis
+        ) == true)
+        #expect(GanttAdaptiveLayoutMetrics.shouldUpdateCompactState(
+            current: true,
+            width: 768,
+            threshold: 760,
+            hysteresis: hysteresis
+        ) == false)
+        #expect(GanttAdaptiveLayoutMetrics.shouldUpdateCompactState(
+            current: true,
+            width: 777,
+            threshold: 760,
+            hysteresis: hysteresis
+        ) == true)
+    }
 }

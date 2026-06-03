@@ -32,7 +32,7 @@ struct MainGanttView: View {
         let cliHostBundleIDs = env.preferences.effectiveCLIHostBundleIDs
 
         AppScrollView {
-            LazyVStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 20) {
                 header
                 controls(
                     range: $bvm.range,
@@ -255,6 +255,7 @@ private struct GanttAdaptiveSwitch<Regular: View, Compact: View>: View {
     @ViewBuilder var regular: () -> Regular
     @ViewBuilder var compact: () -> Compact
     @State private var isCompact = false
+    @State private var hasMeasuredWidth = false
 
     var body: some View {
         Group {
@@ -267,16 +268,31 @@ private struct GanttAdaptiveSwitch<Regular: View, Compact: View>: View {
         .background {
             GeometryReader { proxy in
                 Color.clear.preference(
-                    key: GanttAdaptiveCompactPreferenceKey.self,
-                    value: GanttAdaptiveLayoutMetrics.isCompact(
-                        width: proxy.size.width,
-                        threshold: compactThreshold
-                    )
+                    key: GanttAdaptiveWidthPreferenceKey.self,
+                    value: proxy.size.width
                 )
             }
         }
-        .onPreferenceChange(GanttAdaptiveCompactPreferenceKey.self) { nextIsCompact in
-            guard isCompact != nextIsCompact else { return }
+        .onPreferenceChange(GanttAdaptiveWidthPreferenceKey.self) { width in
+            guard width.isFinite, width > 0 else { return }
+
+            let nextIsCompact: Bool
+            if hasMeasuredWidth {
+                guard GanttAdaptiveLayoutMetrics.shouldUpdateCompactState(
+                    current: isCompact,
+                    width: width,
+                    threshold: compactThreshold,
+                    hysteresis: GanttAdaptiveLayoutMetrics.compactSwitchHysteresis
+                ) else {
+                    return
+                }
+                nextIsCompact = GanttAdaptiveLayoutMetrics.isCompact(width: width, threshold: compactThreshold)
+            } else {
+                hasMeasuredWidth = true
+                nextIsCompact = GanttAdaptiveLayoutMetrics.isCompact(width: width, threshold: compactThreshold)
+                guard isCompact != nextIsCompact else { return }
+            }
+
             var transaction = Transaction(animation: nil)
             transaction.disablesAnimations = true
             withTransaction(transaction) {
@@ -286,11 +302,14 @@ private struct GanttAdaptiveSwitch<Regular: View, Compact: View>: View {
     }
 }
 
-private struct GanttAdaptiveCompactPreferenceKey: PreferenceKey {
-    static let defaultValue = false
+private struct GanttAdaptiveWidthPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
 
-    static func reduce(value: inout Bool, nextValue: () -> Bool) {
-        value = nextValue()
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        let next = nextValue()
+        if next > 0 {
+            value = next
+        }
     }
 }
 
