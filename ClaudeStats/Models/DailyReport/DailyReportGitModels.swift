@@ -127,6 +127,53 @@ struct DailyReportGitDayLLMSummary: Codable, Hashable, Sendable, Identifiable {
         copy.isCached = true
         return copy
     }
+
+    var markdown: String {
+        var sections = ["# LLM Summary"]
+        let body = Self.trimmed(summary)
+        if !body.isEmpty {
+            sections.append(body)
+        }
+        if !keyChangesMarkdown.isEmpty {
+            sections.append(keyChangesMarkdown)
+        }
+        if !risksOrNotesMarkdown.isEmpty {
+            sections.append(risksOrNotesMarkdown)
+        }
+        return sections.joined(separator: "\n\n")
+    }
+
+    var summaryMarkdown: String {
+        Self.markdownBodySection(title: "Summary", body: summary)
+    }
+
+    var keyChangesMarkdown: String {
+        Self.markdownListSection(title: "Key Changes", rows: keyChanges)
+    }
+
+    var risksOrNotesMarkdown: String {
+        Self.markdownListSection(title: "Risks / Notes", rows: risksOrNotes)
+    }
+
+    private static func markdownBodySection(title: String, body: String) -> String {
+        let body = trimmed(body)
+        guard !body.isEmpty else { return "" }
+        return "## \(title)\n\n\(body)"
+    }
+
+    private static func markdownListSection(title: String, rows: [String]) -> String {
+        let items = rows.map(trimmed).filter { !$0.isEmpty }
+        guard !items.isEmpty else { return "" }
+        return "## \(title)\n\n" + items.map { "- \(markdownListItem($0))" }.joined(separator: "\n")
+    }
+
+    private static func markdownListItem(_ value: String) -> String {
+        value.replacingOccurrences(of: "\n", with: "\n  ")
+    }
+
+    private static func trimmed(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }
 
 enum DailyReportGitDayLoadState: Hashable, Sendable {

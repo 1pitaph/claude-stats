@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct DailyReportProjectGitDetailSheet: View {
@@ -123,7 +124,14 @@ struct DailyReportProjectGitDetailSheet: View {
 
     private var summaryPanel: some View {
         VStack(alignment: .leading, spacing: 12) {
-            panelHeader(title: "LLM SUMMARY", badge: summaryBadge)
+            panelHeader(title: "LLM SUMMARY", badge: summaryBadge) {
+                if let summary = vm.summary {
+                    DailyReportGitSummaryCopyButton(
+                        markdown: summary.markdown,
+                        label: "Copy LLM summary as Markdown"
+                    )
+                }
+            }
             AppScrollView {
                 summaryContent
                     .padding(.trailing, 4)
@@ -211,11 +219,22 @@ struct DailyReportProjectGitDetailSheet: View {
     }
 
     private func panelHeader(title: String, badge: String?) -> some View {
+        panelHeader(title: title, badge: badge) {
+            EmptyView()
+        }
+    }
+
+    private func panelHeader<Trailing: View>(
+        title: String,
+        badge: String?,
+        @ViewBuilder trailing: () -> Trailing
+    ) -> some View {
         HStack(spacing: 8) {
             Text(title)
                 .font(.sora(10, weight: .semibold))
                 .tracking(0.8)
                 .foregroundStyle(Color.stxMuted)
+            trailing()
             Spacer(minLength: 8)
             if let badge {
                 StatusSeverityBadge(label: badge, indicatorTint: Color.stxMuted)
@@ -421,49 +440,139 @@ private struct DailyReportGitSummaryBody: View {
                 StatusSeverityBadge(label: summary.generatedAt.formatted(.dateTime.hour().minute()), indicatorTint: Color.stxMuted)
             }
 
-            Text(summary.summary)
-                .font(.sora(12))
-                .foregroundStyle(.primary)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
+            DailyReportGitSummaryCopyableSection(
+                markdown: summary.summaryMarkdown,
+                label: "Copy summary as Markdown"
+            ) {
+                Text(summary.summary)
+                    .font(.sora(12))
+                    .foregroundStyle(.primary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             if !summary.keyChanges.isEmpty {
-                DailyReportGitSummaryList(title: "KEY CHANGES", rows: summary.keyChanges)
+                DailyReportGitSummaryList(
+                    title: "KEY CHANGES",
+                    rows: summary.keyChanges,
+                    markdown: summary.keyChangesMarkdown,
+                    copyLabel: "Copy key changes as Markdown"
+                )
             }
 
             if !summary.risksOrNotes.isEmpty {
-                DailyReportGitSummaryList(title: "RISKS / NOTES", rows: summary.risksOrNotes)
+                DailyReportGitSummaryList(
+                    title: "RISKS / NOTES",
+                    rows: summary.risksOrNotes,
+                    markdown: summary.risksOrNotesMarkdown,
+                    copyLabel: "Copy risks and notes as Markdown"
+                )
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
+private struct DailyReportGitSummaryCopyableSection<Content: View>: View {
+    let markdown: String
+    let label: String
+    let content: Content
+
+    @State private var isHovering = false
+
+    init(
+        markdown: String,
+        label: String,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.markdown = markdown
+        self.label = label
+        self.content = content()
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            content
+                .frame(maxWidth: .infinity, alignment: .leading)
+            DailyReportGitSummaryCopyButton(markdown: markdown, label: label)
+                .opacity(isHovering ? 1 : 0)
+                .allowsHitTesting(isHovering)
+                .accessibilityHidden(!isHovering)
+        }
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.12)) {
+                isHovering = hovering
+            }
+        }
+    }
+}
+
+private struct DailyReportGitSummaryCopyButton: View {
+    let markdown: String
+    let label: String
+
+    var body: some View {
+        Button {
+            DailyReportGitSummaryClipboard.copy(markdown)
+        } label: {
+            Image(systemName: AppIcon.Action.copy)
+                .font(.system(size: 10, weight: .semibold))
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(markdown.isEmpty)
+        .foregroundStyle(markdown.isEmpty ? Color.stxMuted.opacity(0.45) : Color.stxMuted)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color.primary.opacity(0.055))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(Color.stxStroke.opacity(0.55), lineWidth: 1)
+        )
+        .help(label)
+        .accessibilityLabel(label)
+    }
+}
+
 private struct DailyReportGitSummaryList: View {
     let title: String
     let rows: [String]
+    let markdown: String
+    let copyLabel: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(title)
-                .font(.sora(10, weight: .semibold))
-                .tracking(0.8)
-                .foregroundStyle(Color.stxMuted)
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(rows, id: \.self) { row in
-                    HStack(alignment: .top, spacing: 7) {
-                        Circle()
-                            .fill(Color.stxMuted.opacity(0.8))
-                            .frame(width: 4, height: 4)
-                            .padding(.top, 6)
-                        Text(row)
-                            .font(.sora(11))
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
+        DailyReportGitSummaryCopyableSection(markdown: markdown, label: copyLabel) {
+            VStack(alignment: .leading, spacing: 7) {
+                Text(title)
+                    .font(.sora(10, weight: .semibold))
+                    .tracking(0.8)
+                    .foregroundStyle(Color.stxMuted)
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(rows, id: \.self) { row in
+                        HStack(alignment: .top, spacing: 7) {
+                            Circle()
+                                .fill(Color.stxMuted.opacity(0.8))
+                                .frame(width: 4, height: 4)
+                                .padding(.top, 6)
+                            Text(row)
+                                .font(.sora(11))
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+private enum DailyReportGitSummaryClipboard {
+    static func copy(_ value: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
     }
 }
 

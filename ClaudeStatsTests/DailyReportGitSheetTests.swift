@@ -116,6 +116,58 @@ struct DailyReportGitSheetTests {
         #expect(await diffProvider.callCount() == 0)
     }
 
+    @Test("LLM summary Markdown preserves document and section structure")
+    func summaryMarkdownStructure() {
+        let summary = DailyReportGitDayLLMSummary(
+            summary: "Implemented the daily report git sheet.",
+            keyChanges: ["Added the timeline", "Added LLM summary caching"],
+            risksOrNotes: ["Verify local LLM setup.", "Multi-line\nnote keeps indentation."],
+            modelName: "test-model",
+            usage: .zero,
+            isCached: false,
+            generatedAt: date(2026, 1, 10, 18, 38),
+            language: "English",
+            inputMode: .diffAware,
+            commitCount: 2,
+            contentHash: "hash"
+        )
+
+        #expect(summary.markdown == """
+        # LLM Summary
+
+        Implemented the daily report git sheet.
+
+        ## Key Changes
+
+        - Added the timeline
+        - Added LLM summary caching
+
+        ## Risks / Notes
+
+        - Verify local LLM setup.
+        - Multi-line
+          note keeps indentation.
+        """)
+        #expect(summary.summaryMarkdown == """
+        ## Summary
+
+        Implemented the daily report git sheet.
+        """)
+        #expect(summary.keyChangesMarkdown == """
+        ## Key Changes
+
+        - Added the timeline
+        - Added LLM summary caching
+        """)
+        #expect(summary.risksOrNotesMarkdown == """
+        ## Risks / Notes
+
+        - Verify local LLM setup.
+        - Multi-line
+          note keeps indentation.
+        """)
+    }
+
     private func date(_ year: Int, _ month: Int, _ day: Int, _ hour: Int = 0, _ minute: Int = 0) -> Date {
         DateComponents(
             calendar: calendar,
