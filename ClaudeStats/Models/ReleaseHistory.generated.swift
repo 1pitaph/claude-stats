@@ -3,6 +3,18 @@
 extension ReleaseHistoryCatalog {
     static let generatedEntries: [ReleaseHistoryEntry] = [
         ReleaseHistoryEntry(
+            version: "1.8.4",
+            date: "June 3, 2026",
+            headline: "添加了完整的使用限额预测系统，包括：",
+            changes: [
+                "新增UsageLimitForecast相关模型与存储结构",
+                "为Codex提供商添加历史限额数据加载能力",
+                "实现限额预测计算服务与历史记录持久化",
+                "在Gantt图表与使用限额面板中展示预测结果",
+                "新增相关测试用例覆盖核心功能逻辑",
+            ]
+        ),
+        ReleaseHistoryEntry(
             version: "1.8.3",
             date: "June 2, 2026",
             headline: "新增GanttCommitMarker模型用于存储提交信息",
