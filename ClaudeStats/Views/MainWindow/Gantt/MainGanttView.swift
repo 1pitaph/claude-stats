@@ -1585,12 +1585,12 @@ private struct GanttChartPanel: View {
 
         return VStack(alignment: .leading, spacing: 12) {
             panelHeader
-            GanttTimelineLegend(renderPlan: renderPlan, hasSelection: selectedSegment != nil)
 
             if snapshot.isEmpty {
                 emptyState
             } else {
                 chart(renderPlan)
+                GanttTimelineLegend(renderPlan: renderPlan)
             }
         }
         .mainWindowPanel(padding: 16)
@@ -2317,14 +2317,9 @@ private struct GanttProviderBadges: View {
 
 private struct GanttTimelineLegend: View {
     let renderPlan: GanttTimelineRenderPlan
-    let hasSelection: Bool
 
     var body: some View {
-        LazyVGrid(
-            columns: [GridItem(.adaptive(minimum: 118), spacing: 6, alignment: .leading)],
-            alignment: .leading,
-            spacing: 6
-        ) {
+        GanttLegendFlowLayout(spacing: 10, rowSpacing: 8, horizontalAlignment: .trailing) {
             ForEach(renderPlan.providers) { provider in
                 GanttLegendChip(
                     title: provider.displayName,
@@ -2333,20 +2328,99 @@ private struct GanttTimelineLegend: View {
             }
             GanttLegendChip(title: String(localized: "Active time"), sample: .activeBar)
             GanttLegendChip(title: String(localized: "Token intensity"), sample: .tokenIntensity)
-            GanttLegendChip(title: String(localized: "Now"), sample: .nowLine)
             GanttLegendChip(title: String(localized: "Focus overlap"), sample: .focusOverlap)
             GanttLegendChip(title: String(localized: "Token peak"), sample: .tokenPeak)
             GanttLegendChip(title: String(localized: "Usage limit"), sample: .usageLimit)
             GanttLegendChip(title: String(localized: "Commit"), sample: .commit)
-            GanttLegendChip(title: String(localized: "Selected"), sample: .selected)
-                .opacity(hasSelection ? 1 : 0.62)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .trailing)
         .background(Color.primary.opacity(0.018), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
         .accessibilityElement(children: .contain)
         .accessibilityLabel(String(localized: "Gantt visual encoding legend"))
     }
+}
+
+private struct GanttLegendFlowLayout: Layout {
+    var spacing: CGFloat
+    var rowSpacing: CGFloat
+    var horizontalAlignment: GanttLegendHorizontalAlignment = .leading
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = rows(proposal: proposal, subviews: subviews)
+        return CGSize(
+            width: proposal.width ?? rows.map(\.width).max() ?? 0,
+            height: rows.reduce(0) { $0 + $1.height } + CGFloat(max(0, rows.count - 1)) * rowSpacing
+        )
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let rows = rows(proposal: ProposedViewSize(width: bounds.width, height: proposal.height), subviews: subviews)
+        var y = bounds.minY
+        for row in rows {
+            var x = xOffset(for: row, in: bounds)
+            for item in row.items {
+                subviews[item.index].place(
+                    at: CGPoint(x: x, y: y + (row.height - item.size.height) / 2),
+                    proposal: ProposedViewSize(width: item.size.width, height: item.size.height)
+                )
+                x += item.size.width + spacing
+            }
+            y += row.height + rowSpacing
+        }
+    }
+
+    private func xOffset(for row: Row, in bounds: CGRect) -> CGFloat {
+        switch horizontalAlignment {
+        case .center:
+            return bounds.minX + max(0, (bounds.width - row.width) / 2)
+        case .trailing:
+            return max(bounds.minX, bounds.maxX - row.width)
+        default:
+            return bounds.minX
+        }
+    }
+
+    private func rows(proposal: ProposedViewSize, subviews: Subviews) -> [Row] {
+        let maxWidth = proposal.width ?? .infinity
+        var rows: [Row] = []
+        var current = Row()
+
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            let nextWidth = current.items.isEmpty ? size.width : current.width + spacing + size.width
+            if nextWidth > maxWidth, !current.items.isEmpty {
+                rows.append(current)
+                current = Row()
+            }
+            current.items.append(Item(index: index, size: size))
+            current.width = current.items.count == 1 ? size.width : current.width + spacing + size.width
+            current.height = max(current.height, size.height)
+        }
+
+        if !current.items.isEmpty {
+            rows.append(current)
+        }
+        return rows
+    }
+
+    private struct Row {
+        var items: [Item] = []
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+    }
+
+    private struct Item {
+        let index: Int
+        let size: CGSize
+    }
+}
+
+private enum GanttLegendHorizontalAlignment {
+    case leading
+    case center
+    case trailing
 }
 
 private struct GanttLegendChip: View {
@@ -2365,7 +2439,7 @@ private struct GanttLegendChip: View {
         }
         .padding(.horizontal, 7)
         .padding(.vertical, 4)
-        .background(Color.primary.opacity(0.024), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+        .background(Color.primary.opacity(0.018), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
         .accessibilityElement(children: .combine)
     }
 }
@@ -2374,12 +2448,10 @@ private enum GanttLegendSample {
     case provider(Color)
     case activeBar
     case tokenIntensity
-    case nowLine
     case focusOverlap
     case tokenPeak
     case usageLimit
     case commit
-    case selected
 }
 
 private struct GanttLegendSampleView: View {
@@ -2400,8 +2472,6 @@ private struct GanttLegendSampleView: View {
                 let high = CGRect(x: 11, y: 2, width: size.width - 12, height: size.height - 4)
                 context.fill(Path(roundedRect: low, cornerRadius: 2), with: .color(Color.stxAccent.opacity(0.34)))
                 context.fill(Path(roundedRect: high, cornerRadius: 3), with: .color(Color.stxAccent.opacity(0.92)))
-            case .nowLine:
-                drawVerticalLine(context: &context, size: size, x: size.width / 2, color: Color.stxAccent, dash: [3, 3])
             case .focusOverlap:
                 let rect = CGRect(x: 1, y: 3, width: size.width - 2, height: size.height - 6)
                 context.fill(Path(roundedRect: rect, cornerRadius: 3), with: .color(Color.stxAccent.opacity(0.30)))
@@ -2423,25 +2493,9 @@ private struct GanttLegendSampleView: View {
                 path.addLine(to: CGPoint(x: 6, y: center.y))
                 path.closeSubpath()
                 context.fill(path, with: .color(Color.green.opacity(0.82)))
-            case .selected:
-                let rect = CGRect(x: 2, y: 3, width: size.width - 4, height: size.height - 6)
-                context.stroke(Path(roundedRect: rect, cornerRadius: 3), with: .color(Color.primary.opacity(0.86)), lineWidth: 1.5)
             }
         }
         .accessibilityHidden(true)
-    }
-
-    private func drawVerticalLine(
-        context: inout GraphicsContext,
-        size: CGSize,
-        x: CGFloat,
-        color: Color,
-        dash: [CGFloat] = []
-    ) {
-        var path = Path()
-        path.move(to: CGPoint(x: x, y: 0))
-        path.addLine(to: CGPoint(x: x, y: size.height))
-        context.stroke(path, with: .color(color.opacity(0.82)), style: StrokeStyle(lineWidth: 1.2, dash: dash))
     }
 
     private func drawFocusHatch(context: inout GraphicsContext, rect: CGRect, color: Color) {
