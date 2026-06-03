@@ -98,6 +98,18 @@ enum GanttTimelineViewportMetrics {
         range != .day && viewport.isScrollable
     }
 
+    static func shouldPublishViewportChange(
+        from current: GanttTimelineViewport,
+        to next: GanttTimelineViewport
+    ) -> Bool {
+        guard current != next else { return false }
+        guard current.contentWidth > 0, next.contentWidth > 0 else { return true }
+        if abs(current.contentWidth - next.contentWidth) > 0.5 { return true }
+        if abs(current.offsetX - next.offsetX) > 0.5 { return true }
+        if current.isScrollable != next.isScrollable { return true }
+        return abs(current.viewportWidth - next.viewportWidth) >= widthStep / 2
+    }
+
     static func overviewThumbRect(viewport: GanttTimelineViewport, overviewSize: CGSize) -> CGRect {
         let width = max(0, overviewSize.width)
         let height = max(0, overviewSize.height)
@@ -125,5 +137,43 @@ enum GanttTimelineViewportMetrics {
     ) -> CGFloat {
         guard overviewWidth > 0, viewport.contentWidth > 0 else { return 0 }
         return viewport.clampedOffset(thumbX * viewport.contentWidth / overviewWidth)
+    }
+}
+
+enum GanttAdaptiveLayoutMetrics {
+    static func isCompact(width: CGFloat, threshold: CGFloat) -> Bool {
+        width.isFinite && width > 0 && width < threshold
+    }
+
+    static func shouldUpdateCompactState(current: Bool, width: CGFloat, threshold: CGFloat) -> Bool {
+        current != isCompact(width: width, threshold: threshold)
+    }
+}
+
+enum GanttTimelineHitTargetGeometry {
+    static func rect(
+        startRatio: CGFloat,
+        endRatio: CGFloat,
+        rowIndex: Int,
+        rowHeight: CGFloat,
+        timelineWidth: CGFloat
+    ) -> CGRect? {
+        guard timelineWidth > 0, rowHeight > 0, rowIndex >= 0 else { return nil }
+        let startX = startRatio * timelineWidth
+        let endX = endRatio * timelineWidth
+        let barWidth = min(timelineWidth - startX, max(3, endX - startX))
+        let visibleStartX = min(max(startX, 0), timelineWidth)
+        let visibleEndX = min(max(startX + barWidth, 0), timelineWidth)
+        let visibleWidth = max(0, visibleEndX - visibleStartX)
+        guard visibleWidth > 0 else { return nil }
+
+        let hitWidth = max(8, visibleWidth)
+        let rowY = CGFloat(rowIndex) * rowHeight
+        return CGRect(
+            x: visibleStartX + visibleWidth / 2 - hitWidth / 2,
+            y: rowY,
+            width: hitWidth,
+            height: rowHeight
+        )
     }
 }

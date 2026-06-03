@@ -32,7 +32,7 @@ struct MainGanttView: View {
         let cliHostBundleIDs = env.preferences.effectiveCLIHostBundleIDs
 
         AppScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            LazyVStack(alignment: .leading, spacing: 20) {
                 header
                 controls(
                     range: $bvm.range,
@@ -132,7 +132,7 @@ struct MainGanttView: View {
         onStepPeriod: @escaping (Int) -> Void,
         onJumpToToday: @escaping () -> Void
     ) -> some View {
-        ViewThatFits(in: .horizontal) {
+        GanttAdaptiveSwitch(compactThreshold: 860) {
             HStack(alignment: .center, spacing: 12) {
                 GanttModeChips(mode: mode)
                 Spacer(minLength: 12)
@@ -146,7 +146,7 @@ struct MainGanttView: View {
                 )
                 GanttRangeChips(range: range)
             }
-
+        } compact: {
             VStack(alignment: .leading, spacing: 10) {
                 GanttModeChips(mode: mode)
                 HStack(spacing: 8) {
@@ -238,6 +238,50 @@ struct MainGanttView: View {
         timelineResetID &+= 1
     }
 
+}
+
+private struct GanttAdaptiveSwitch<Regular: View, Compact: View>: View {
+    let compactThreshold: CGFloat
+    @ViewBuilder var regular: () -> Regular
+    @ViewBuilder var compact: () -> Compact
+    @State private var isCompact = false
+
+    var body: some View {
+        Group {
+            if isCompact {
+                compact()
+            } else {
+                regular()
+            }
+        }
+        .background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: GanttAdaptiveCompactPreferenceKey.self,
+                    value: GanttAdaptiveLayoutMetrics.isCompact(
+                        width: proxy.size.width,
+                        threshold: compactThreshold
+                    )
+                )
+            }
+        }
+        .onPreferenceChange(GanttAdaptiveCompactPreferenceKey.self) { nextIsCompact in
+            guard isCompact != nextIsCompact else { return }
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                isCompact = nextIsCompact
+            }
+        }
+    }
+}
+
+private struct GanttAdaptiveCompactPreferenceKey: PreferenceKey {
+    static let defaultValue = false
+
+    static func reduce(value: inout Bool, nextValue: () -> Bool) {
+        value = nextValue()
+    }
 }
 
 private struct GanttTodayButton: View {
@@ -365,12 +409,12 @@ private struct GanttOverviewPanel: View {
     let snapshot: GanttTimelineSnapshot
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
+        GanttAdaptiveSwitch(compactThreshold: 760) {
             HStack(spacing: 0) {
                 cards
             }
             .mainWindowPanel(padding: 0)
-
+        } compact: {
             Grid(horizontalSpacing: 0, verticalSpacing: 0) {
                 GridRow {
                     projectCard
@@ -423,7 +467,7 @@ private struct GanttBaselinePanel: View {
     var body: some View {
         if let comparison {
             VStack(alignment: .leading, spacing: 12) {
-                ViewThatFits(in: .horizontal) {
+                GanttAdaptiveSwitch(compactThreshold: 540) {
                     HStack(alignment: .firstTextBaseline) {
                         title
                         Spacer(minLength: 12)
@@ -431,6 +475,7 @@ private struct GanttBaselinePanel: View {
                             .font(.sora(10).monospacedDigit())
                             .foregroundStyle(Color.stxMuted)
                     }
+                } compact: {
                     VStack(alignment: .leading, spacing: 6) {
                         title
                         Text("\(Format.day(comparison.baselineDomain.start)) - \(Format.day(comparison.baselineDomain.end.addingTimeInterval(-1)))")
@@ -439,8 +484,9 @@ private struct GanttBaselinePanel: View {
                     }
                 }
 
-                ViewThatFits(in: .horizontal) {
+                GanttAdaptiveSwitch(compactThreshold: 1_040) {
                     HStack(spacing: 0) { deltaCards(comparison) }
+                } compact: {
                     Grid(horizontalSpacing: 0, verticalSpacing: 0) {
                         GridRow {
                             baselineCard("ACTIVE", Format.signedDuration(comparison.activeDurationDelta))
@@ -695,8 +741,9 @@ private struct GanttLoadPanel: View {
     }
 
     private var summary: some View {
-        ViewThatFits(in: .horizontal) {
+        GanttAdaptiveSwitch(compactThreshold: 940) {
             HStack(spacing: 0) { summaryCards }
+        } compact: {
             Grid(horizontalSpacing: 0, verticalSpacing: 0) {
                 GridRow {
                     loadCard("FOCUS BLOCKS", "\(load.summary.focusBlocks)")
@@ -1065,12 +1112,12 @@ private struct GanttProjectDetailSummaryPanel: View {
     let snapshot: GanttTimelineSnapshot
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
+        GanttAdaptiveSwitch(compactThreshold: 760) {
             HStack(spacing: 0) {
                 cards
             }
             .mainWindowPanel(padding: 0)
-
+        } compact: {
             Grid(horizontalSpacing: 0, verticalSpacing: 0) {
                 GridRow {
                     durationCard
@@ -1158,7 +1205,7 @@ private struct GanttProjectSevenDayChartPanel: View {
     }
 
     private var panelHeader: some View {
-        ViewThatFits(in: .horizontal) {
+        GanttAdaptiveSwitch(compactThreshold: 560) {
             HStack(alignment: .firstTextBaseline) {
                 recentSevenDayTitle
                 Spacer(minLength: 12)
@@ -1166,7 +1213,7 @@ private struct GanttProjectSevenDayChartPanel: View {
                     .font(.sora(10).monospacedDigit())
                     .foregroundStyle(Color.stxMuted)
             }
-
+        } compact: {
             VStack(alignment: .leading, spacing: 6) {
                 recentSevenDayTitle
                 Text(rangeLabel)
@@ -1560,7 +1607,7 @@ private struct GanttChartPanel: View {
     }
 
     private var panelHeader: some View {
-        ViewThatFits(in: .horizontal) {
+        GanttAdaptiveSwitch(compactThreshold: 560) {
             HStack(alignment: .firstTextBaseline) {
                 chartTitle
                 Spacer(minLength: 12)
@@ -1568,7 +1615,7 @@ private struct GanttChartPanel: View {
                     .font(.sora(10).monospacedDigit())
                     .foregroundStyle(Color.stxMuted)
             }
-
+        } compact: {
             VStack(alignment: .leading, spacing: 6) {
                 chartTitle
                 Text(rangeLabel)
@@ -1633,25 +1680,16 @@ private struct GanttChartPanel: View {
                     GanttHorizontalTimelineScrollView(
                         contentWidth: timelineWidth,
                         contentHeight: totalHeight,
+                        contentRevisionID: renderPlan.contentRevisionID(selectedSegmentID: selectedSegment?.segmentID),
                         viewport: $viewport
                     ) {
-                        VStack(spacing: 0) {
-                            GanttTimelineHeader(renderPlan: renderPlan)
-                                .frame(width: timelineWidth, height: headerHeight)
-                            ZStack(alignment: .topLeading) {
-                                GanttTimelineCanvas(
-                                    renderPlan: renderPlan,
-                                    rowHeight: rowHeight,
-                                    selectedSegmentID: selectedSegment?.segmentID
-                                )
-                                GanttTimelineHitLayer(
-                                    renderPlan: renderPlan,
-                                    rowHeight: rowHeight,
-                                    selectedSegment: $selectedSegment
-                                )
-                            }
-                            .frame(width: timelineWidth, height: rowsHeight)
-                        }
+                        GanttTimelineDocument(
+                            renderPlan: renderPlan,
+                            headerHeight: headerHeight,
+                            rowHeight: rowHeight,
+                            rowsHeight: rowsHeight,
+                            selectedSegment: $selectedSegment
+                        )
                     }
                     .frame(minWidth: 0, maxWidth: .infinity, minHeight: totalHeight, maxHeight: totalHeight)
                 }
@@ -1791,6 +1829,14 @@ private struct GanttTimelineRenderPlan {
         let intensity: Double
     }
 
+    struct HitTarget: Identifiable {
+        let id: String
+        let rowIndex: Int
+        let startRatio: CGFloat
+        let endRatio: CGFloat
+        let detail: SegmentDetail
+    }
+
     struct CommitMarker: Identifiable {
         let id: String
         let ratio: CGFloat
@@ -1799,6 +1845,7 @@ private struct GanttTimelineRenderPlan {
 
     struct Row: Identifiable {
         let id: String
+        let index: Int
         let displayName: String
         let pathText: String
         let providers: [ProviderKind]
@@ -1816,6 +1863,7 @@ private struct GanttTimelineRenderPlan {
     let domain: DateInterval
     let ticks: [Tick]
     let rows: [Row]
+    let hitTargets: [HitTarget]
     let providers: [ProviderKind]
     let tokenPeak: TokenPeak?
     let usageLimitBands: [UsageLimitBand]
@@ -1860,6 +1908,7 @@ private struct GanttTimelineRenderPlan {
                 }
             } ?? []
         let commitMarkersByProjectID = Dictionary(grouping: snapshot.commitMarkers, by: \.projectID)
+        var hitTargets: [HitTarget] = []
         self.rows = snapshot.projects.enumerated().map { index, project in
             let providerList = project.providerList
             let durationText = Format.duration(project.totalDuration)
@@ -1879,30 +1928,43 @@ private struct GanttTimelineRenderPlan {
                 let focusRatio = segment.duration > 0
                     ? min(1, max(0, segment.focusOverlapDuration / segment.duration))
                     : 0
+                let detail = SegmentDetail(
+                    id: segment.id,
+                    projectName: project.displayName,
+                    projectPath: project.path ?? String(localized: "No project path"),
+                    interval: segment.interval,
+                    providers: segment.providerList,
+                    sessionCount: segment.sessionIDs.count,
+                    sessionTitles: segment.sessionTitles,
+                    models: segment.models,
+                    tokens: segment.usage.total,
+                    cost: segment.cost,
+                    messageCount: segment.messageCount,
+                    focusOverlapDuration: segment.focusOverlapDuration
+                )
+                let startRatio = GanttTimelineScale.ratio(for: segment.interval.start, domain: snapshot.domain)
+                let endRatio = GanttTimelineScale.ratio(for: segment.interval.end, domain: snapshot.domain)
+                hitTargets.append(
+                    HitTarget(
+                        id: "\(project.id)|\(segment.id)",
+                        rowIndex: index,
+                        startRatio: startRatio,
+                        endRatio: endRatio,
+                        detail: detail
+                    )
+                )
                 return Segment(
                     id: segment.id,
-                    startRatio: GanttTimelineScale.ratio(for: segment.interval.start, domain: snapshot.domain),
-                    endRatio: GanttTimelineScale.ratio(for: segment.interval.end, domain: snapshot.domain),
+                    startRatio: startRatio,
+                    endRatio: endRatio,
                     tokenIntensity: min(1, max(0.12, Double(segment.usage.total) / Double(maxSegmentTokens))),
                     focusRatio: focusRatio,
-                    detail: SegmentDetail(
-                        id: segment.id,
-                        projectName: project.displayName,
-                        projectPath: project.path ?? String(localized: "No project path"),
-                        interval: segment.interval,
-                        providers: segment.providerList,
-                        sessionCount: segment.sessionIDs.count,
-                        sessionTitles: segment.sessionTitles,
-                        models: segment.models,
-                        tokens: segment.usage.total,
-                        cost: segment.cost,
-                        messageCount: segment.messageCount,
-                        focusOverlapDuration: segment.focusOverlapDuration
-                    )
+                    detail: detail
                 )
             }
             return Row(
                 id: project.id,
+                index: index,
                 displayName: project.displayName,
                 pathText: project.path ?? String(localized: "No project path"),
                 providers: providerList,
@@ -1920,6 +1982,11 @@ private struct GanttTimelineRenderPlan {
                 commitMarkers: commitMarkers
             )
         }
+        self.hitTargets = hitTargets
+    }
+
+    func contentRevisionID(selectedSegmentID: String?) -> String {
+        "\(key.revisionID)|\(key.annotationID)|selection:\(selectedSegmentID ?? "none")"
     }
 
     func ratio(for date: Date) -> CGFloat {
@@ -2415,6 +2482,35 @@ private struct GanttSegmentInspector: View {
     }
 }
 
+private struct GanttTimelineDocument: View {
+    let renderPlan: GanttTimelineRenderPlan
+    let headerHeight: CGFloat
+    let rowHeight: CGFloat
+    let rowsHeight: CGFloat
+    @Binding var selectedSegment: GanttTimelinePopoverSelection?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            GanttTimelineHeader(renderPlan: renderPlan)
+                .frame(height: headerHeight)
+            ZStack(alignment: .topLeading) {
+                GanttTimelineCanvas(
+                    renderPlan: renderPlan,
+                    rowHeight: rowHeight,
+                    selectedSegmentID: selectedSegment?.segmentID
+                )
+                GanttTimelineHitLayer(
+                    renderPlan: renderPlan,
+                    rowHeight: rowHeight,
+                    selectedSegment: $selectedSegment
+                )
+            }
+            .frame(height: rowsHeight)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
 private struct GanttTimelineHitLayer: View {
     let renderPlan: GanttTimelineRenderPlan
     let rowHeight: CGFloat
@@ -2423,48 +2519,75 @@ private struct GanttTimelineHitLayer: View {
     var body: some View {
         GeometryReader { proxy in
             ZStack(alignment: .topLeading) {
-                ForEach(Array(renderPlan.rows.enumerated()), id: \.element.id) { index, row in
-                    ForEach(row.segments, id: \.id) { segment in
-                        let selectionID = "\(row.id)|\(segment.id)"
-                        let startX = segment.startRatio * proxy.size.width
-                        let endX = segment.endRatio * proxy.size.width
-                        let barWidth = min(proxy.size.width - startX, max(3, endX - startX))
-                        let visibleStartX = min(max(startX, 0), proxy.size.width)
-                        let visibleEndX = min(max(startX + barWidth, 0), proxy.size.width)
-                        let visibleWidth = max(0, visibleEndX - visibleStartX)
-                        let hitWidth = max(8, visibleWidth)
-                        let rowY = CGFloat(index) * rowHeight
-                        if visibleWidth > 0 {
-                            Button {
-                                selectedSegment = GanttTimelinePopoverSelection(
-                                    segmentID: selectionID,
-                                    detail: segment.detail
-                                )
-                            } label: {
-                                Rectangle()
-                                    .fill(Color.clear)
-                                    .contentShape(Rectangle())
+                Rectangle()
+                    .fill(Color.clear)
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onEnded { value in
+                                guard isTap(value) else { return }
+                                selectTarget(at: value.location, timelineWidth: proxy.size.width)
                             }
-                            .buttonStyle(.plain)
-                            .frame(width: hitWidth, height: rowHeight)
-                            .overlay {
-                                GanttSegmentPopoverSource(
-                                    segmentID: selectionID,
-                                    detail: segment.detail,
-                                    selectedSegment: $selectedSegment
-                                )
-                                .frame(width: 1, height: 1)
-                                .allowsHitTesting(false)
-                            }
-                            .position(x: visibleStartX + visibleWidth / 2, y: rowY + rowHeight / 2)
-                            .help("\(segment.detail.projectName): \(Format.duration(segment.detail.duration)), \(Format.tokens(segment.detail.tokens))")
-                            .accessibilityLabel("\(segment.detail.projectName), \(Format.duration(segment.detail.duration)), \(Format.tokens(segment.detail.tokens))")
-                        }
-                    }
+                    )
+                    .accessibilityLabel(String(localized: "Gantt timeline segments"))
+
+                if let selectedSegment,
+                   let anchorPoint = anchorPoint(for: selectedSegment.segmentID, timelineWidth: proxy.size.width) {
+                    GanttSegmentPopoverSource(
+                        segmentID: selectedSegment.segmentID,
+                        detail: selectedSegment.detail,
+                        selectedSegment: $selectedSegment
+                    )
+                    .frame(width: 1, height: 1)
+                    .position(anchorPoint)
+                    .allowsHitTesting(false)
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
         }
+    }
+
+    private func isTap(_ value: DragGesture.Value) -> Bool {
+        abs(value.translation.width) <= 2 && abs(value.translation.height) <= 2
+    }
+
+    private func selectTarget(at location: CGPoint, timelineWidth: CGFloat) {
+        for target in renderPlan.hitTargets.reversed() {
+            guard let rect = hitRect(for: target, timelineWidth: timelineWidth),
+                  rect.contains(location)
+            else {
+                continue
+            }
+            selectedSegment = GanttTimelinePopoverSelection(
+                segmentID: target.id,
+                detail: target.detail
+            )
+            return
+        }
+        selectedSegment = nil
+    }
+
+    private func anchorPoint(for selectionID: String, timelineWidth: CGFloat) -> CGPoint? {
+        guard let target = renderPlan.hitTargets.first(where: { $0.id == selectionID }),
+              let rect = hitRect(for: target, timelineWidth: timelineWidth)
+        else {
+            return nil
+        }
+        return CGPoint(x: rect.midX, y: rect.midY)
+    }
+
+    private func hitRect(
+        for target: GanttTimelineRenderPlan.HitTarget,
+        timelineWidth: CGFloat
+    ) -> CGRect? {
+        GanttTimelineHitTargetGeometry.rect(
+            startRatio: target.startRatio,
+            endRatio: target.endRatio,
+            rowIndex: target.rowIndex,
+            rowHeight: rowHeight,
+            timelineWidth: timelineWidth
+        )
     }
 }
 
@@ -2536,7 +2659,7 @@ private struct GanttTimelineCanvas: View {
     }
 
     private func drawBars(context: inout GraphicsContext, size: CGSize) {
-        for (index, row) in renderPlan.rows.enumerated() {
+        for row in renderPlan.rows {
             for segment in row.segments {
                 let color = color(for: segment, row: row)
                 let startX = segment.startRatio * size.width
@@ -2545,7 +2668,7 @@ private struct GanttTimelineCanvas: View {
                 guard width > 0 else { continue }
 
                 let height = 10 + CGFloat(segment.tokenIntensity) * 6
-                let y = CGFloat(index) * rowHeight + (rowHeight - height) / 2
+                let y = CGFloat(row.index) * rowHeight + (rowHeight - height) / 2
                 let rect = CGRect(x: startX, y: y, width: width, height: height)
                 let fillOpacity = 0.48 + min(0.44, segment.tokenIntensity * 0.44)
                 context.fill(Path(roundedRect: rect, cornerRadius: 4), with: .color(color.opacity(fillOpacity)))
@@ -2586,8 +2709,8 @@ private struct GanttTimelineCanvas: View {
     }
 
     private func drawCommitMarkers(context: inout GraphicsContext, size: CGSize) {
-        for (index, row) in renderPlan.rows.enumerated() where !row.commitMarkers.isEmpty {
-            let rowTop = CGFloat(index) * rowHeight
+        for row in renderPlan.rows where !row.commitMarkers.isEmpty {
+            let rowTop = CGFloat(row.index) * rowHeight
             let rowMidY = rowTop + rowHeight / 2
             let lineStartY = rowTop + 6
             let lineEndY = rowTop + rowHeight - 6

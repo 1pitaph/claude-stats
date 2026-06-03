@@ -60,4 +60,64 @@ struct GanttTimelineViewportTests {
         #expect(GanttTimelineViewportMetrics.overviewIsInteractive(range: .month, viewport: scrollable) == true)
         #expect(GanttTimelineViewportMetrics.overviewIsInteractive(range: .week, viewport: staticViewport) == false)
     }
+
+    @Test("viewport publish threshold ignores small resize noise but preserves semantic changes")
+    func viewportPublishThresholdKeepsSemanticChanges() {
+        let base = GanttTimelineViewport(contentWidth: 6_860, viewportWidth: 980, offsetX: 320)
+
+        #expect(GanttTimelineViewportMetrics.shouldPublishViewportChange(
+            from: base,
+            to: GanttTimelineViewport(contentWidth: 6_860, viewportWidth: 983, offsetX: 320)
+        ) == false)
+        #expect(GanttTimelineViewportMetrics.shouldPublishViewportChange(
+            from: base,
+            to: GanttTimelineViewport(contentWidth: 6_860, viewportWidth: 988, offsetX: 320)
+        ) == true)
+        #expect(GanttTimelineViewportMetrics.shouldPublishViewportChange(
+            from: base,
+            to: GanttTimelineViewport(contentWidth: 6_876, viewportWidth: 980, offsetX: 320)
+        ) == true)
+        #expect(GanttTimelineViewportMetrics.shouldPublishViewportChange(
+            from: base,
+            to: GanttTimelineViewport(contentWidth: 6_860, viewportWidth: 980, offsetX: 321)
+        ) == true)
+        #expect(GanttTimelineViewportMetrics.shouldPublishViewportChange(
+            from: GanttTimelineViewport(contentWidth: 980, viewportWidth: 980),
+            to: GanttTimelineViewport(contentWidth: 981, viewportWidth: 980)
+        ) == true)
+    }
+
+    @Test("hit target geometry preserves row position and minimum tap width")
+    func hitTargetGeometryPreservesRowAndMinimumWidth() {
+        let normal = GanttTimelineHitTargetGeometry.rect(
+            startRatio: 0.10,
+            endRatio: 0.20,
+            rowIndex: 2,
+            rowHeight: 46,
+            timelineWidth: 1_000
+        )
+        let tiny = GanttTimelineHitTargetGeometry.rect(
+            startRatio: 0.50,
+            endRatio: 0.501,
+            rowIndex: 1,
+            rowHeight: 46,
+            timelineWidth: 1_000
+        )
+
+        #expect(normal == CGRect(x: 100, y: 92, width: 100, height: 46))
+        #expect(tiny == CGRect(x: 497.5, y: 46, width: 8, height: 46))
+    }
+
+    @Test("adaptive compact metrics only update when crossing the threshold")
+    func adaptiveCompactMetricsGateResizeNoise() {
+        #expect(GanttAdaptiveLayoutMetrics.isCompact(width: 720, threshold: 760) == true)
+        #expect(GanttAdaptiveLayoutMetrics.isCompact(width: 760, threshold: 760) == false)
+        #expect(GanttAdaptiveLayoutMetrics.isCompact(width: 820, threshold: 760) == false)
+        #expect(GanttAdaptiveLayoutMetrics.isCompact(width: 0, threshold: 760) == false)
+
+        #expect(GanttAdaptiveLayoutMetrics.shouldUpdateCompactState(current: false, width: 820, threshold: 760) == false)
+        #expect(GanttAdaptiveLayoutMetrics.shouldUpdateCompactState(current: false, width: 720, threshold: 760) == true)
+        #expect(GanttAdaptiveLayoutMetrics.shouldUpdateCompactState(current: true, width: 720, threshold: 760) == false)
+        #expect(GanttAdaptiveLayoutMetrics.shouldUpdateCompactState(current: true, width: 820, threshold: 760) == true)
+    }
 }
