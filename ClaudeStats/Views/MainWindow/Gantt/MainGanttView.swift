@@ -2000,9 +2000,8 @@ private struct GanttTimelinePopoverSelection: Equatable {
 }
 
 private struct GanttSegmentPopoverSource: NSViewRepresentable {
-    let segmentID: String
-    let detail: GanttTimelineRenderPlan.SegmentDetail
     @Binding var selectedSegment: GanttTimelinePopoverSelection?
+    let anchorPoint: CGPoint?
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -2017,8 +2016,8 @@ private struct GanttSegmentPopoverSource: NSViewRepresentable {
     func updateNSView(_ nsView: FlippedPopoverSourceView, context: Context) {
         context.coordinator.selectedSegment = $selectedSegment
         context.coordinator.update(
-            isSelected: selectedSegment?.segmentID == segmentID,
-            detail: selectedSegment?.detail ?? detail,
+            selection: selectedSegment,
+            anchorPoint: anchorPoint,
             in: nsView
         )
     }
@@ -2033,26 +2032,33 @@ private struct GanttSegmentPopoverSource: NSViewRepresentable {
         private var popover: NSPopover?
         private var hostingController: NSHostingController<GanttSegmentInspector>?
         private var isClosingFromUpdate = false
+        private var presentedSelectionID: String?
 
         func update(
-            isSelected: Bool,
-            detail: GanttTimelineRenderPlan.SegmentDetail,
+            selection: GanttTimelinePopoverSelection?,
+            anchorPoint: CGPoint?,
             in sourceView: FlippedPopoverSourceView
         ) {
-            guard isSelected else {
+            guard let selection,
+                  let anchorPoint,
+                  anchorPoint.x.isFinite,
+                  anchorPoint.y.isFinite
+            else {
                 closeFromSelectionChange()
                 return
             }
+
             guard sourceView.window != nil else { return }
-            let sourceRect = sourceView.bounds
+            let sourceRect = Self.sourceRect(for: anchorPoint)
             guard sourceRect.width > 0, sourceRect.height > 0 else { return }
-            let popover = ensurePopover(for: detail)
+            let popover = ensurePopover(for: selection.detail)
             updateContentSize(popover)
+            presentedSelectionID = selection.segmentID
             if popover.isShown {
                 popover.positioningRect = sourceRect
                 return
             }
-            let popoverToShow = self.popover ?? ensurePopover(for: detail)
+            let popoverToShow = self.popover ?? ensurePopover(for: selection.detail)
             popoverToShow.show(relativeTo: sourceRect, of: sourceView, preferredEdge: .minY)
             if popoverToShow.delegate == nil {
                 popoverToShow.delegate = self
@@ -2061,6 +2067,7 @@ private struct GanttSegmentPopoverSource: NSViewRepresentable {
         }
 
         func closeFromSelectionChange() {
+            presentedSelectionID = nil
             guard let popover else { return }
             isClosingFromUpdate = true
             popover.close()
@@ -2070,12 +2077,16 @@ private struct GanttSegmentPopoverSource: NSViewRepresentable {
             popover?.close()
             popover = nil
             hostingController = nil
+            presentedSelectionID = nil
         }
 
         func popoverDidClose(_ notification: Notification) {
             defer { isClosingFromUpdate = false }
             guard !isClosingFromUpdate else { return }
-            selectedSegment?.wrappedValue = nil
+            if selectedSegment?.wrappedValue?.segmentID == presentedSelectionID {
+                selectedSegment?.wrappedValue = nil
+            }
+            presentedSelectionID = nil
         }
 
         private func ensurePopover(for detail: GanttTimelineRenderPlan.SegmentDetail) -> NSPopover {
@@ -2109,6 +2120,10 @@ private struct GanttSegmentPopoverSource: NSViewRepresentable {
                 return
             }
             popover.contentSize = fittingSize
+        }
+
+        private static func sourceRect(for anchorPoint: CGPoint) -> CGRect {
+            CGRect(x: anchorPoint.x - 0.5, y: anchorPoint.y - 0.5, width: 1, height: 1)
         }
     }
 }
@@ -2532,17 +2547,15 @@ private struct GanttTimelineHitLayer: View {
                     )
                     .accessibilityLabel(String(localized: "Gantt timeline segments"))
 
-                if let selectedSegment,
-                   let anchorPoint = anchorPoint(for: selectedSegment.segmentID, timelineWidth: proxy.size.width) {
-                    GanttSegmentPopoverSource(
-                        segmentID: selectedSegment.segmentID,
-                        detail: selectedSegment.detail,
-                        selectedSegment: $selectedSegment
-                    )
-                    .frame(width: 1, height: 1)
-                    .position(anchorPoint)
-                    .allowsHitTesting(false)
-                }
+                GanttSegmentPopoverSource(
+                    selectedSegment: $selectedSegment,
+                    anchorPoint: selectedSegment.flatMap {
+                        anchorPoint(for: $0.segmentID, timelineWidth: proxy.size.width)
+                    }
+                )
+                .frame(width: proxy.size.width, height: proxy.size.height)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
         }
