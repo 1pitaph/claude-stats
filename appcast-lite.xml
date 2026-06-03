@@ -6,6 +6,47 @@
     <description>Most recent updates to Claude Stats Lite.</description>
     <language>en</language>
     <item>
+      <title>Version 1.8.4</title>
+      <sparkle:version>84</sparkle:version>
+      <sparkle:shortVersionString>1.8.4</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0.0</sparkle:minimumSystemVersion>
+      <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+      <description><![CDATA[
+<div class="cs-appcast-notes" style="font-family: -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif; color: #1f2937;">
+  <style>
+    .cs-update-size-fallback { margin: 0 0 14px; }
+    .cs-update-size-pills { display: inline-flex; align-items: center; margin-left: 10px; min-width: 0; vertical-align: middle; }
+    .cs-update-size-pill { display: inline-block; padding: 4px 10px; border: 0; border-radius: 999px; background: #eaf1ff; color: #172033; font-size: 12px; font-weight: 700; line-height: 1.2; white-space: nowrap; }
+    .cs-update-size-delta { display: none; }
+    .cs-update-size-delta.sparkle-installed-version { display: inline-block; }
+    .cs-update-size-delta.sparkle-installed-version ~ .cs-update-size-full { display: none; }
+  </style>
+<div style="margin: 0; color: #1f2937; font-size: 13px; line-height: 1.55;">
+  <p style="margin: 0 0 10px; color: #172033; font-size: 15px; font-weight: 700;">更新内容</p>
+  <div style="margin: 0; padding: 0;">
+<h2>本次更新<span class="cs-update-size-pills"><span class="cs-update-size-pill cs-update-size-delta" data-sparkle-version="83">1.6 MB</span><span class="cs-update-size-pill cs-update-size-delta" data-sparkle-version="82">1.9 MB</span><span class="cs-update-size-pill cs-update-size-full">60.7 MB</span></span></h2>
+<ul>
+<li>添加了完整的使用限额预测系统，包括：</li>
+<li>新增UsageLimitForecast相关模型与存储结构</li>
+<li>为Codex提供商添加历史限额数据加载能力</li>
+<li>实现限额预测计算服务与历史记录持久化</li>
+<li>在Gantt图表与使用限额面板中展示预测结果</li>
+<li>新增相关测试用例覆盖核心功能逻辑</li>
+<li>新增了排行榜数据合并策略、同步租约机制，完善了CloudKit同步逻辑：</li>
+<li>新增实时排行榜和历史提交的合并策略，保留更高分数的记录</li>
+</ul>
+  </div>
+</div>
+</div>
+]]></description>
+      <pubDate>Wed, 03 Jun 2026 06:57:17 GMT</pubDate>
+      <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.8.4/ClaudeStatsLite-1.8.4.dmg" sparkle:edSignature="4+hUi3kBHJ2xSVF7z5qAaotmbL/swfzhCI1loqh46iiI7Pd8FrvRHX8ZNjEgJ0ESewVZyJbEAEokE+K8BJtoCw==" length="60734293" type="application/octet-stream"/>
+      <sparkle:deltas>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.8.4/ClaudeStatsLite-84-from-83.delta" sparkle:deltaFrom="83" sparkle:edSignature="Ov4XETrE9HCJWvhloU4JOWSOVrhTl+31NqCq9KyGPw7i6GhmA63ZxaBeB4sWUtrj5sbxRpGY4WnOLftEMDimBA==" length="1571262" type="application/octet-stream"/>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.8.4/ClaudeStatsLite-84-from-82.delta" sparkle:deltaFrom="82" sparkle:edSignature="GQxabkmVBxFLPz3C4RCD0Gri9RI8apFR6CA6/92S+tLgNJOdI9AFRPpJ4VDTiLFPDKACVkmgM4vf/gUBybx/AA==" length="1898198" type="application/octet-stream"/>
+      </sparkle:deltas>
+    </item>
+    <item>
       <title>Version 1.8.3</title>
       <sparkle:version>83</sparkle:version>
       <sparkle:shortVersionString>1.8.3</sparkle:shortVersionString>
