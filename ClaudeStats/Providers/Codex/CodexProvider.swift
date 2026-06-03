@@ -42,6 +42,10 @@ struct CodexProvider: Provider {
         CodexUsageLimitLoader(paths: paths).report(now: now)
     }
 
+    func usageLimitHistory(since: Date, now: Date) async -> [UsageLimitHistoryEntry] {
+        CodexUsageLimitLoader(paths: paths).history(since: since, now: now)
+    }
+
     func globalConfigurationLocations() -> [ProviderConfigLocation] {
         [
             ProviderConfigLocation(

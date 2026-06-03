@@ -21,5 +21,9 @@ enum UsageLimitCachePaths {
         directory(fileManager: fileManager)
             .appendingPathComponent("claude-statusline-bridge.sh", isDirectory: false)
     }
-}
 
+    static func historyURL(fileManager: FileManager = .default) -> URL {
+        directory(fileManager: fileManager)
+            .appendingPathComponent("usage-limit-history.json", isDirectory: false)
+    }
+}

@@ -6,6 +6,7 @@ struct UsageLimitPanel: View {
     let isLoading: Bool
     let actionMessage: String?
     let visibleWindowIDs: Set<String>?
+    let forecasts: [UsageLimitForecast]
     let onRefresh: () -> Void
     let onInstallClaudeBridge: (() -> Void)?
     let onCopyClaudeSettingsSnippet: (() -> Void)?
@@ -149,7 +150,12 @@ struct UsageLimitPanel: View {
             alignment: .leading,
             spacing: 12
         ) {
-            ForEach(windows.map(UsageLimitWindowCardModel.init(window:))) { model in
+            ForEach(windows.map { window in
+                UsageLimitWindowCardModel(
+                    window: window,
+                    forecast: forecasts.forecast(for: provider, windowID: window.id)
+                )
+            }) { model in
                 UsageLimitWindowCard(model: model)
                     .equatable()
             }
@@ -356,26 +362,72 @@ struct UsageLimitWindowCardModel: Equatable, Identifiable, Sendable {
     let accessibilityValue: String
     let segmentLayout: UsageLimitSegmentLayout
     let tintLevel: UsageLimitTintLevel
+    let forecastText: String?
+    let forecastDetailText: String?
+    let forecastTintLevel: UsageLimitForecastTintLevel?
 
-    init(window: UsageLimitWindow) {
+    init(window: UsageLimitWindow, forecast: UsageLimitForecast? = nil) {
         let remainingText = Format.percentPoints(window.remainingPercent)
         let usedText = Format.percentPoints(window.clampedUsedPercent)
         let resetText = window.resetAt.map {
             L10n.format("usage.limit.resets", defaultValue: "Resets %@", Format.relativeDate($0))
         } ?? L10n.string("usage.limit.reset_unknown", defaultValue: "Reset unknown")
+        let forecastSummary = forecast.map(Self.forecastSummary)
 
         self.id = window.id
         self.label = window.label
         self.resetText = resetText
         self.remainingText = remainingText
         self.usedText = L10n.format("usage.limit.used_value", defaultValue: "%@ used", usedText)
-        self.accessibilityValue = L10n.format("usage.limit.window_accessibility",
-                                              defaultValue: "%@ remaining, %@ used, %@",
-                                              remainingText,
-                                              usedText,
-                                              resetText)
+        let baseAccessibilityValue = L10n.format("usage.limit.window_accessibility",
+                                                 defaultValue: "%@ remaining, %@ used, %@",
+                                                 remainingText,
+                                                 usedText,
+                                                 resetText)
+        self.accessibilityValue = [baseAccessibilityValue, forecastSummary?.accessibilityText]
+            .compactMap { $0 }
+            .joined(separator: ", ")
         self.segmentLayout = UsageLimitSegmentLayout(usedPercent: window.clampedUsedPercent)
         self.tintLevel = UsageLimitTintLevel(remainingPercent: window.remainingPercent)
+        self.forecastText = forecastSummary?.title
+        self.forecastDetailText = forecastSummary?.detail
+        self.forecastTintLevel = forecastSummary?.tintLevel
+    }
+
+    private static func forecastSummary(_ forecast: UsageLimitForecast) -> ForecastSummary {
+        switch forecast.status {
+        case .forecast:
+            if let interval = forecast.reachInterval {
+                let title = "ETA \(Format.shortTime(interval.start))-\(Format.shortTime(interval.end))"
+                let median = forecast.medianReachAt.map { "Median \(Format.shortTime($0))" }
+                let detail = [median, forecast.confidence.displayText].compactMap { $0 }.joined(separator: " · ")
+                return ForecastSummary(title: title, detail: detail, tintLevel: .forecast)
+            }
+            return ForecastSummary(title: "Prediction unavailable", detail: forecast.diagnostics.first, tintLevel: .unavailable)
+        case .collecting:
+            return ForecastSummary(
+                title: "Prediction collecting data",
+                detail: forecast.diagnostics.first ?? "Needs more 7-day usage snapshots.",
+                tintLevel: .collecting
+            )
+        case .willNotReachBeforeReset:
+            let reset = forecast.resetAt.map { "Before reset \(Format.relativeDate($0))" }
+            return ForecastSummary(title: "No 7d limit hit expected", detail: reset ?? forecast.diagnostics.first, tintLevel: .safe)
+        case .limitReached:
+            return ForecastSummary(title: "Limit reached", detail: forecast.diagnostics.first, tintLevel: .unavailable)
+        case .unavailable:
+            return ForecastSummary(title: "Prediction unavailable", detail: forecast.diagnostics.first, tintLevel: .unavailable)
+        }
+    }
+
+    private struct ForecastSummary {
+        let title: String
+        let detail: String?
+        let tintLevel: UsageLimitForecastTintLevel
+
+        var accessibilityText: String {
+            [title, detail].compactMap { $0 }.joined(separator: ", ")
+        }
     }
 }
 
@@ -403,6 +455,39 @@ enum UsageLimitTintLevel: Equatable, Sendable {
             Color.orange
         case .critical:
             Color.red
+        }
+    }
+}
+
+enum UsageLimitForecastTintLevel: Equatable, Sendable {
+    case forecast
+    case collecting
+    case safe
+    case unavailable
+
+    var color: Color {
+        switch self {
+        case .forecast:
+            Color.orange
+        case .collecting:
+            Color.blue
+        case .safe:
+            Color.green
+        case .unavailable:
+            Color.stxMuted
+        }
+    }
+}
+
+extension UsageLimitForecastConfidence {
+    var displayText: String {
+        switch self {
+        case .low:
+            "Low confidence"
+        case .medium:
+            "Medium confidence"
+        case .high:
+            "High confidence"
         }
     }
 }
@@ -445,6 +530,15 @@ private struct UsageLimitWindowCard: View, Equatable {
                 remainingTint: model.tintLevel.color
             )
 
+            if let forecastText = model.forecastText,
+               let forecastTintLevel = model.forecastTintLevel {
+                UsageLimitForecastSummaryView(
+                    title: forecastText,
+                    detail: model.forecastDetailText,
+                    tint: forecastTintLevel.color
+                )
+            }
+
             HStack(spacing: 10) {
                 UsageLimitSegmentLegendItem(label: L10n.string("usage.limit.left", defaultValue: "Left"), tint: model.tintLevel.color, style: .solid)
                 UsageLimitSegmentLegendItem(label: L10n.string("usage.limit.used", defaultValue: "Used"), tint: Color.primary.opacity(0.34), style: .hatched)
@@ -458,6 +552,36 @@ private struct UsageLimitWindowCard: View, Equatable {
                                         defaultValue: "%@ usage limit",
                                         model.label))
         .accessibilityValue(model.accessibilityValue)
+    }
+}
+
+private struct UsageLimitForecastSummaryView: View {
+    let title: String
+    let detail: String?
+    let tint: Color
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Circle()
+                .fill(tint)
+                .frame(width: 6, height: 6)
+                .accessibilityHidden(true)
+            Text(title)
+                .font(.sora(10, weight: .semibold))
+                .foregroundStyle(tint)
+                .lineLimit(1)
+            if let detail, !detail.isEmpty {
+                Text(detail)
+                    .font(.sora(9))
+                    .foregroundStyle(Color.stxMuted)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(tint.opacity(0.10), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -594,6 +718,21 @@ private struct UsageLimitHatchedSwatch: View {
         isLoading: false,
         actionMessage: nil,
         visibleWindowIDs: nil,
+        forecasts: [
+            UsageLimitForecast(
+                provider: .codex,
+                windowID: "secondary",
+                label: "7d",
+                capturedAt: Date().addingTimeInterval(-120),
+                currentUsedPercent: 12,
+                resetAt: Date().addingTimeInterval(400_000),
+                reachInterval: DateInterval(start: Date().addingTimeInterval(22_000), end: Date().addingTimeInterval(32_000)),
+                medianReachAt: Date().addingTimeInterval(26_000),
+                confidence: .medium,
+                status: .forecast,
+                diagnostics: []
+            ),
+        ],
         onRefresh: {},
         onInstallClaudeBridge: nil,
         onCopyClaudeSettingsSnippet: nil,

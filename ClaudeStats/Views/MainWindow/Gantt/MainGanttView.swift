@@ -73,15 +73,23 @@ struct MainGanttView: View {
             vm.refreshPermissionState()
         }
         .task(id: reloadKey(codingSurfaceBundleIDs: codingSurfaceBundleIDs, cliHostBundleIDs: cliHostBundleIDs)) {
+            await env.usageLimits.refreshForecasts(sessions: env.store.sessions)
             await vm.reload(
                 sessions: env.store.sessions,
                 codingSurfaceBundleIDs: codingSurfaceBundleIDs,
                 cliHostBundleIDs: cliHostBundleIDs,
-                usageLimitReports: Array(env.usageLimits.reports.values)
+                usageLimitReports: Array(env.usageLimits.reports.values),
+                usageLimitForecasts: Array(env.usageLimits.forecasts.values)
             )
         }
         .onChange(of: env.usageLimits.reports) { _, reports in
             vm.refreshUsageLimitReports(Array(reports.values))
+            Task {
+                await env.usageLimits.refreshForecasts(sessions: env.store.sessions)
+            }
+        }
+        .onChange(of: env.usageLimits.forecasts) { _, forecasts in
+            vm.refreshUsageLimitForecasts(Array(forecasts.values))
         }
         .onChange(of: vm.range) { _, _ in
             resetTimelineViewport()
@@ -94,6 +102,7 @@ struct MainGanttView: View {
         }
         .task {
             await env.usageLimits.refreshSupportedProviders()
+            await env.usageLimits.refreshForecasts(sessions: env.store.sessions)
         }
         .sheet(item: $selectedProject) { project in
             GanttProjectDetailSheet(
@@ -101,6 +110,7 @@ struct MainGanttView: View {
                 initialMode: vm.activityMode,
                 sessions: env.store.sessions,
                 usageLimitReports: Array(env.usageLimits.reports.values),
+                usageLimitForecasts: Array(env.usageLimits.forecasts.values),
                 codingSurfaceBundleIDs: codingSurfaceBundleIDs,
                 cliHostBundleIDs: cliHostBundleIDs
             )
@@ -873,6 +883,7 @@ private struct GanttProjectDetailSheet: View {
     let project: GanttProjectReference
     let sessions: [Session]
     let usageLimitReports: [UsageLimitReport]
+    let usageLimitForecasts: [UsageLimitForecast]
     let codingSurfaceBundleIDs: Set<String>
     let cliHostBundleIDs: Set<String>
 
@@ -899,12 +910,14 @@ private struct GanttProjectDetailSheet: View {
         initialMode: GanttActivityMode,
         sessions: [Session],
         usageLimitReports: [UsageLimitReport],
+        usageLimitForecasts: [UsageLimitForecast],
         codingSurfaceBundleIDs: Set<String>,
         cliHostBundleIDs: Set<String>
     ) {
         self.project = project
         self.sessions = sessions
         self.usageLimitReports = usageLimitReports
+        self.usageLimitForecasts = usageLimitForecasts
         self.codingSurfaceBundleIDs = codingSurfaceBundleIDs
         self.cliHostBundleIDs = cliHostBundleIDs
         _vm = State(initialValue: GanttProjectDetailViewModel(initialMode: initialMode))
@@ -931,12 +944,16 @@ private struct GanttProjectDetailSheet: View {
                 projectID: project.id,
                 sessions: sessions,
                 usageLimitReports: usageLimitReports,
+                usageLimitForecasts: usageLimitForecasts,
                 codingSurfaceBundleIDs: codingSurfaceBundleIDs,
                 cliHostBundleIDs: cliHostBundleIDs
             )
         }
         .onChange(of: usageLimitReports) { _, reports in
             vm.refreshUsageLimitReports(reports)
+        }
+        .onChange(of: usageLimitForecasts) { _, forecasts in
+            vm.refreshUsageLimitForecasts(forecasts)
         }
     }
 
@@ -1772,10 +1789,18 @@ private struct GanttTimelineRenderPlan {
                     }
                 }
                 .joined(separator: ",") ?? "usage:none"
+            let forecasts = snapshot.usageLimitForecasts
+                .map { forecast in
+                    let interval = forecast.reachInterval.map {
+                        "\(timeID($0.start))-\(timeID($0.end))"
+                    } ?? "none"
+                    return "\(forecast.id):\(forecast.status.rawValue):\(interval)"
+                }
+                .joined(separator: ",")
             let commits = snapshot.commitMarkers
                 .map { "\($0.projectID):\($0.id):\(timeID($0.date))" }
                 .joined(separator: ",")
-            return [peak, usage, commits].joined(separator: "|")
+            return [peak, usage, forecasts, commits].joined(separator: "|")
         }
 
         private static func timeID(_ date: Date) -> String {
@@ -1829,6 +1854,14 @@ private struct GanttTimelineRenderPlan {
         let intensity: Double
     }
 
+    struct LimitReachForecastBand: Identifiable {
+        let id: String
+        let title: String
+        let startRatio: CGFloat
+        let endRatio: CGFloat
+        let confidence: UsageLimitForecastConfidence
+    }
+
     struct HitTarget: Identifiable {
         let id: String
         let rowIndex: Int
@@ -1867,6 +1900,7 @@ private struct GanttTimelineRenderPlan {
     let providers: [ProviderKind]
     let tokenPeak: TokenPeak?
     let usageLimitBands: [UsageLimitBand]
+    let limitReachForecastBands: [LimitReachForecastBand]
 
     init(key: Key, snapshot: GanttTimelineSnapshot) {
         self.key = key
@@ -1896,6 +1930,7 @@ private struct GanttTimelineRenderPlan {
         self.usageLimitBands = snapshot.load.groups
             .first { $0.kind == .usageLimit }?
             .lanes
+            .filter { !Self.isCoreSevenDayUsageLimitLane($0) }
             .flatMap { lane in
                 lane.segments.map { segment in
                     UsageLimitBand(
@@ -1907,6 +1942,20 @@ private struct GanttTimelineRenderPlan {
                     )
                 }
             } ?? []
+        self.limitReachForecastBands = snapshot.usageLimitForecasts.compactMap { forecast in
+            guard forecast.status == .forecast,
+                  let reachInterval = forecast.reachInterval,
+                  let clipped = ActivityAnalyzer.clip(reachInterval, to: snapshot.domain) else {
+                return nil
+            }
+            return LimitReachForecastBand(
+                id: forecast.id,
+                title: "\(forecast.provider.shortName) \(forecast.label)",
+                startRatio: GanttTimelineScale.ratio(for: clipped.start, domain: snapshot.domain),
+                endRatio: GanttTimelineScale.ratio(for: clipped.end, domain: snapshot.domain),
+                confidence: forecast.confidence
+            )
+        }
         let commitMarkersByProjectID = Dictionary(grouping: snapshot.commitMarkers, by: \.projectID)
         var hitTargets: [HitTarget] = []
         self.rows = snapshot.projects.enumerated().map { index, project in
@@ -1983,6 +2032,10 @@ private struct GanttTimelineRenderPlan {
             )
         }
         self.hitTargets = hitTargets
+    }
+
+    private static func isCoreSevenDayUsageLimitLane(_ lane: GanttLoadLane) -> Bool {
+        lane.id == "codex|secondary" || lane.id == "claude|seven_day"
     }
 
     var contentRevisionID: String {
@@ -2331,6 +2384,9 @@ private struct GanttTimelineLegend: View {
             GanttLegendChip(title: String(localized: "Focus overlap"), sample: .focusOverlap)
             GanttLegendChip(title: String(localized: "Token peak"), sample: .tokenPeak)
             GanttLegendChip(title: String(localized: "Usage limit"), sample: .usageLimit)
+            if !renderPlan.limitReachForecastBands.isEmpty {
+                GanttLegendChip(title: String(localized: "Limit forecast"), sample: .limitForecast)
+            }
             GanttLegendChip(title: String(localized: "Commit"), sample: .commit)
         }
         .padding(.horizontal, 10)
@@ -2451,6 +2507,7 @@ private enum GanttLegendSample {
     case focusOverlap
     case tokenPeak
     case usageLimit
+    case limitForecast
     case commit
 }
 
@@ -2484,6 +2541,10 @@ private struct GanttLegendSampleView: View {
                 let rect = CGRect(x: 4, y: 1, width: size.width - 8, height: size.height - 2)
                 context.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(Color.red.opacity(0.22)))
                 context.stroke(Path(roundedRect: rect, cornerRadius: 2), with: .color(Color.red.opacity(0.74)), style: StrokeStyle(lineWidth: 1, dash: [2, 2]))
+            case .limitForecast:
+                let rect = CGRect(x: 3, y: 4, width: size.width - 6, height: size.height - 8)
+                context.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(Color.orange.opacity(0.32)))
+                context.stroke(Path(roundedRect: rect, cornerRadius: 2), with: .color(Color.red.opacity(0.82)), lineWidth: 1.1)
             case .commit:
                 var path = Path()
                 let center = CGPoint(x: size.width / 2, y: size.height / 2)
@@ -2807,6 +2868,26 @@ private struct GanttTimelineCanvas: View {
             let rect = CGRect(x: startX, y: 0, width: width, height: size.height)
             context.fill(Path(rect), with: .color(Color.yellow.opacity(0.085)))
             context.stroke(Path(rect), with: .color(Color.yellow.opacity(0.34)), lineWidth: 1)
+        }
+
+        for band in renderPlan.limitReachForecastBands {
+            let startX = band.startRatio * size.width
+            let endX = band.endRatio * size.width
+            let width = min(size.width - startX, max(3, endX - startX))
+            guard width > 0 else { continue }
+
+            let rect = CGRect(x: startX, y: 4, width: width, height: 8)
+            let opacity: Double = switch band.confidence {
+            case .high: 0.34
+            case .medium: 0.28
+            case .low: 0.22
+            }
+            context.fill(Path(roundedRect: rect, cornerRadius: 3), with: .color(Color.orange.opacity(opacity)))
+            context.stroke(
+                Path(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), cornerRadius: 2.5),
+                with: .color(Color.red.opacity(0.70)),
+                lineWidth: 1
+            )
         }
     }
 

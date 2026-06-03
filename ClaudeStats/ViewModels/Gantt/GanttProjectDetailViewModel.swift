@@ -21,6 +21,8 @@ final class GanttProjectDetailViewModel {
     @ObservationIgnored
     private var currentUsageLimitReports: [UsageLimitReport] = []
     @ObservationIgnored
+    private var currentUsageLimitForecasts: [UsageLimitForecast] = []
+    @ObservationIgnored
     private let focusIntervalLoader: @Sendable (DateInterval, Set<String>) async -> Result<[AppFocusInterval], ScreenTimeService.Failure>
     @ObservationIgnored
     private let gitMetricsLoader: any GanttGitMetricsLoading
@@ -59,6 +61,7 @@ final class GanttProjectDetailViewModel {
         projectID: String,
         sessions: [Session],
         usageLimitReports: [UsageLimitReport] = [],
+        usageLimitForecasts: [UsageLimitForecast] = [],
         codingSurfaceBundleIDs: Set<String>,
         cliHostBundleIDs: Set<String>
     ) async {
@@ -67,6 +70,7 @@ final class GanttProjectDetailViewModel {
         enrichmentTask?.cancel()
         isEnriching = false
         currentUsageLimitReports = usageLimitReports
+        currentUsageLimitForecasts = usageLimitForecasts
         isLoading = true
         defer {
             if reloadID == activeReloadID {
@@ -106,13 +110,7 @@ final class GanttProjectDetailViewModel {
         case .snapshot(let payload):
             permissionState = .ok
             focusDataState = payload.focusDataState
-            snapshot = payload.snapshot.withLoad(
-                GanttTimelineBuilder.loadSnapshot(
-                    replacingUsageLimitReports: currentUsageLimitReports,
-                    in: payload.snapshot.load,
-                    domain: payload.snapshot.domain
-                )
-            )
+            snapshot = snapshotWithUsageAnnotations(payload.snapshot)
             startEnrichment(
                 reloadID: reloadID,
                 sessions: projectSessions,
@@ -127,13 +125,12 @@ final class GanttProjectDetailViewModel {
 
     func refreshUsageLimitReports(_ reports: [UsageLimitReport]) {
         currentUsageLimitReports = reports
-        snapshot = snapshot.withLoad(
-            GanttTimelineBuilder.loadSnapshot(
-                replacingUsageLimitReports: reports,
-                in: snapshot.load,
-                domain: snapshot.domain
-            )
-        )
+        snapshot = snapshotWithUsageAnnotations(snapshot)
+    }
+
+    func refreshUsageLimitForecasts(_ forecasts: [UsageLimitForecast]) {
+        currentUsageLimitForecasts = forecasts
+        snapshot = snapshot.withUsageLimitForecasts(forecasts)
     }
 
     private func startEnrichment(
@@ -162,14 +159,19 @@ final class GanttProjectDetailViewModel {
 
             guard reloadID == activeReloadID, !Task.isCancelled else { return }
             isEnriching = false
-            snapshot = enriched.withLoad(
-                GanttTimelineBuilder.loadSnapshot(
-                    replacingUsageLimitReports: currentUsageLimitReports,
-                    in: enriched.load,
-                    domain: enriched.domain
-                )
-            )
+            snapshot = snapshotWithUsageAnnotations(enriched)
         }
+    }
+
+    private func snapshotWithUsageAnnotations(_ snapshot: GanttTimelineSnapshot) -> GanttTimelineSnapshot {
+        snapshot.withLoad(
+            GanttTimelineBuilder.loadSnapshot(
+                replacingUsageLimitReports: currentUsageLimitReports,
+                in: snapshot.load,
+                domain: snapshot.domain
+            )
+        )
+        .withUsageLimitForecasts(currentUsageLimitForecasts)
     }
 
     nonisolated private static func coreOutcome(

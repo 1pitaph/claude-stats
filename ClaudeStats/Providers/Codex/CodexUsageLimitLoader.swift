@@ -33,6 +33,26 @@ struct CodexUsageLimitLoader: Sendable {
         }
     }
 
+    func history(since: Date, now: Date = .now, fileManager: FileManager = .default) -> [UsageLimitHistoryEntry] {
+        guard fileManager.fileExists(atPath: paths.sessionsDirectory.path) else { return [] }
+        do {
+            return try rolloutCandidates(fileManager: fileManager)
+                .flatMap { candidate in
+                    try snapshots(in: candidate.url, fallbackCapturedAt: candidate.modifiedAt)
+                }
+                .filter { $0.capturedAt >= since && $0.capturedAt <= now.addingTimeInterval(60) }
+                .flatMap { snapshot in
+                    UsageLimitHistoryStore.entries(from: snapshot).filter { entry in
+                        guard let resetAt = entry.resetAt else { return false }
+                        return resetAt > entry.capturedAt
+                    }
+                }
+                .sorted { $0.capturedAt < $1.capturedAt }
+        } catch {
+            return []
+        }
+    }
+
     private func latestSnapshot(fileManager: FileManager) throws -> UsageLimitSnapshot? {
         for candidate in try rolloutCandidates(fileManager: fileManager).prefix(Self.maxCandidateFiles) {
             if let snapshot = try latestSnapshot(in: candidate.url, fallbackCapturedAt: candidate.modifiedAt) {
@@ -66,9 +86,13 @@ struct CodexUsageLimitLoader: Sendable {
     }
 
     private func latestSnapshot(in url: URL, fallbackCapturedAt: Date) throws -> UsageLimitSnapshot? {
+        try snapshots(in: url, fallbackCapturedAt: fallbackCapturedAt).last
+    }
+
+    private func snapshots(in url: URL, fallbackCapturedAt: Date) throws -> [UsageLimitSnapshot] {
         let data = try Data(contentsOf: url)
         let decoder = JSONDecoder()
-        var latest: UsageLimitSnapshot?
+        var snapshots: [UsageLimitSnapshot] = []
         for lineBytes in data.split(separator: 0x0A /* \n */, omittingEmptySubsequences: true) {
             guard let line = try? decoder.decode(CodexUsageLimitLine.self, from: Data(lineBytes)),
                   line.type == "event_msg",
@@ -80,9 +104,9 @@ struct CodexUsageLimitLoader: Sendable {
                   ) else {
                 continue
             }
-            latest = snapshot
+            snapshots.append(snapshot)
         }
-        return latest
+        return snapshots
     }
 
     private struct Candidate {

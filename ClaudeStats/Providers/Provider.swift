@@ -64,6 +64,11 @@ protocol Provider: Sendable {
     /// rate-limit windows keep file formats and source-specific fallback logic
     /// behind this boundary so shared UI can remain provider-agnostic.
     func usageLimitReport(now: Date) async -> UsageLimitReport
+
+    /// Optional provider-owned historical usage-limit snapshots. Providers
+    /// that can reconstruct history from their own logs expose it here; others
+    /// rely on the app-level history store from this point forward.
+    func usageLimitHistory(since: Date, now: Date) async -> [UsageLimitHistoryEntry]
 }
 
 extension Provider {
@@ -77,4 +82,5 @@ extension Provider {
     func globalAIConfigSources() -> [AIConfigSource] { [] }
     func projectAIConfigSources(for projectURL: URL) -> [AIConfigSource] { [] }
     func usageLimitReport(now: Date) async -> UsageLimitReport { .unsupported(provider: kind) }
+    func usageLimitHistory(since: Date, now: Date) async -> [UsageLimitHistoryEntry] { [] }
 }

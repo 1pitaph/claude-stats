@@ -187,6 +187,7 @@ enum GanttTimelineBuilder {
             segmentCount: segmentCount,
             metrics: metrics,
             load: load,
+            usageLimitForecasts: [],
             commitMarkers: externalMetrics.commitMarkers,
             baselineComparison: nil,
             renderRevisionID: GanttTimelineSnapshot.renderRevisionID(

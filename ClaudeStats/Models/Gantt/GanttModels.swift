@@ -113,6 +113,7 @@ struct GanttTimelineSnapshot: Equatable, Sendable {
     let segmentCount: Int
     let metrics: GanttMetricSummary
     let load: GanttLoadSnapshot
+    let usageLimitForecasts: [UsageLimitForecast]
     let commitMarkers: [GanttCommitMarker]
     let baselineComparison: GanttBaselineComparison?
     let renderRevisionID: String
@@ -137,6 +138,7 @@ struct GanttTimelineSnapshot: Equatable, Sendable {
             segmentCount: 0,
             metrics: .zero,
             load: .empty,
+            usageLimitForecasts: [],
             commitMarkers: [],
             baselineComparison: nil,
             renderRevisionID: renderRevisionID(
@@ -206,6 +208,7 @@ struct GanttTimelineSnapshot: Equatable, Sendable {
             segmentCount: segmentCount,
             metrics: metrics,
             load: load,
+            usageLimitForecasts: usageLimitForecasts,
             commitMarkers: commitMarkers,
             baselineComparison: comparison,
             renderRevisionID: renderRevisionID
@@ -224,6 +227,26 @@ struct GanttTimelineSnapshot: Equatable, Sendable {
             segmentCount: segmentCount,
             metrics: metrics,
             load: load,
+            usageLimitForecasts: usageLimitForecasts,
+            commitMarkers: commitMarkers,
+            baselineComparison: baselineComparison,
+            renderRevisionID: renderRevisionID
+        )
+    }
+
+    func withUsageLimitForecasts(_ forecasts: [UsageLimitForecast]) -> GanttTimelineSnapshot {
+        GanttTimelineSnapshot(
+            range: range,
+            activityMode: activityMode,
+            domain: domain,
+            dataRange: dataRange,
+            projects: projects,
+            sourceSessionCount: sourceSessionCount,
+            totalDuration: totalDuration,
+            segmentCount: segmentCount,
+            metrics: metrics,
+            load: load,
+            usageLimitForecasts: forecasts,
             commitMarkers: commitMarkers,
             baselineComparison: baselineComparison,
             renderRevisionID: renderRevisionID

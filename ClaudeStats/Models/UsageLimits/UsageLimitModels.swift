@@ -76,6 +76,18 @@ struct UsageLimitWindow: Codable, Sendable, Hashable, Identifiable {
     var remainingPercent: Double {
         100 - clampedUsedPercent
     }
+
+    func isCoreSevenDayLimit(for provider: ProviderKind) -> Bool {
+        guard windowMinutes == UsageLimitWindowCatalog.sevenDayWindowMinutes else { return false }
+        switch provider {
+        case .codex:
+            return id == "secondary"
+        case .claude:
+            return id == "seven_day"
+        case .gemini, .kimi, .minimax:
+            return false
+        }
+    }
 }
 
 struct UsageLimitWindowMetadata: Sendable, Hashable {
@@ -85,15 +97,17 @@ struct UsageLimitWindowMetadata: Sendable, Hashable {
 }
 
 enum UsageLimitWindowCatalog {
+    static let sevenDayWindowMinutes = 10_080
+
     static let claudeCoreWindowIDs: Set<String> = ["five_hour", "seven_day"]
     static let claudeDefaultVisibleWindowIDs: Set<String> = claudeCoreWindowIDs
     static let claudeOptionalWindowIDs: [String] = ["weekly_claude_design", "sonnet_only"]
 
     static let claudeWindowDefinitions: [UsageLimitWindowMetadata] = [
         UsageLimitWindowMetadata(id: "five_hour", label: "5h", minutes: 300),
-        UsageLimitWindowMetadata(id: "seven_day", label: "7d", minutes: 10_080),
-        UsageLimitWindowMetadata(id: "weekly_claude_design", label: "Claude Design", minutes: 10_080),
-        UsageLimitWindowMetadata(id: "sonnet_only", label: "Sonnet", minutes: 10_080),
+        UsageLimitWindowMetadata(id: "seven_day", label: "7d", minutes: sevenDayWindowMinutes),
+        UsageLimitWindowMetadata(id: "weekly_claude_design", label: "Claude Design", minutes: sevenDayWindowMinutes),
+        UsageLimitWindowMetadata(id: "sonnet_only", label: "Sonnet", minutes: sevenDayWindowMinutes),
     ]
 
     private static let claudeOrderByID = Dictionary(

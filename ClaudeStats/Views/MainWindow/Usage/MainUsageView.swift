@@ -82,8 +82,9 @@ struct MainUsageView: View {
         .onChange(of: env.store.lastRefreshedAt) { _, _ in
             guard env.preferences.selectedProvider.supportsUsageLimits else { return }
             Task {
-                await env.usageLimits.refresh(provider: env.preferences.selectedProvider, force: true)
-            }
+            await env.usageLimits.refresh(provider: env.preferences.selectedProvider, force: true)
+            await env.usageLimits.refreshForecasts(sessions: env.store.sessions)
+        }
         }
         .task(id: claudeDesktopTimedCaptureKey) {
             await runClaudeDesktopTimedCaptureLoop()
@@ -137,8 +138,12 @@ struct MainUsageView: View {
             isLoading: env.usageLimits.isLoading(provider),
             actionMessage: env.usageLimits.actionMessage(for: provider),
             visibleWindowIDs: provider == .claude ? env.preferences.claudeUsageLimitVisibleWindowIDs : nil,
+            forecasts: env.usageLimits.forecasts(for: provider),
             onRefresh: {
-                Task { await env.usageLimits.refresh(provider: provider, force: true) }
+                Task {
+                    await env.usageLimits.refresh(provider: provider, force: true)
+                    await env.usageLimits.refreshForecasts(sessions: env.store.sessions)
+                }
             },
             onInstallClaudeBridge: provider == .claude ? {
                 env.usageLimits.installClaudeBridge()
@@ -163,6 +168,7 @@ struct MainUsageView: View {
         .task(id: provider) {
             await env.usageLimits.refresh(provider: provider)
             await runVisibleClaudeDesktopCaptureIfNeeded(provider: provider)
+            await env.usageLimits.refreshForecasts(sessions: env.store.sessions)
         }
     }
 

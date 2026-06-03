@@ -5,6 +5,7 @@ import Observation
 @Observable
 final class UsageLimitStore {
     private(set) var reports: [ProviderKind: UsageLimitReport] = [:]
+    private(set) var forecasts: [String: UsageLimitForecast] = [:]
     private(set) var loadingProviders: Set<ProviderKind> = []
     private(set) var actionMessages: [ProviderKind: String] = [:]
     private(set) var claudeDesktopPermissionIssue: ClaudeDesktopUsagePermissionIssue?
@@ -12,6 +13,8 @@ final class UsageLimitStore {
     private(set) var claudeDesktopScreenRecordingRecheckPending = false
 
     @ObservationIgnored private let registry: ProviderRegistry
+    @ObservationIgnored private let historyStore: UsageLimitHistoryStore
+    @ObservationIgnored private let forecastService: UsageLimitForecastService
     @ObservationIgnored private let claudeBridgeInstaller: any ClaudeUsageLimitBridgeInstalling
     @ObservationIgnored private let claudeDesktopCaptureService: any ClaudeDesktopUsageCapturing
     @ObservationIgnored private let claudeDesktopAccessibilityPermissionChecker: any ClaudeDesktopAccessibilityPermissionChecking
@@ -19,12 +22,16 @@ final class UsageLimitStore {
 
     init(
         registry: ProviderRegistry,
+        historyStore: UsageLimitHistoryStore = UsageLimitHistoryStore(),
+        forecastService: UsageLimitForecastService = UsageLimitForecastService(),
         claudeBridgeInstaller: any ClaudeUsageLimitBridgeInstalling = ClaudeUsageLimitBridgeInstaller(),
         claudeDesktopCaptureService: any ClaudeDesktopUsageCapturing = ClaudeDesktopUsageCaptureService(),
         claudeDesktopAccessibilityPermissionChecker: any ClaudeDesktopAccessibilityPermissionChecking = SystemClaudeDesktopAccessibilityPermissionChecker(),
         claudeDesktopScreenRecordingPermissionChecker: any ClaudeDesktopScreenRecordingPermissionChecking = SystemClaudeDesktopScreenRecordingPermissionChecker()
     ) {
         self.registry = registry
+        self.historyStore = historyStore
+        self.forecastService = forecastService
         self.claudeBridgeInstaller = claudeBridgeInstaller
         self.claudeDesktopCaptureService = claudeDesktopCaptureService
         self.claudeDesktopAccessibilityPermissionChecker = claudeDesktopAccessibilityPermissionChecker
@@ -33,6 +40,16 @@ final class UsageLimitStore {
 
     func report(for provider: ProviderKind) -> UsageLimitReport? {
         reports[provider]
+    }
+
+    func forecast(for provider: ProviderKind, windowID: String) -> UsageLimitForecast? {
+        forecasts["\(provider.rawValue)|\(windowID)"]
+    }
+
+    func forecasts(for provider: ProviderKind) -> [UsageLimitForecast] {
+        forecasts.values
+            .filter { $0.provider == provider }
+            .sorted { $0.id < $1.id }
     }
 
     func isLoading(_ provider: ProviderKind) -> Bool {
@@ -54,13 +71,34 @@ final class UsageLimitStore {
             reports[provider] = .unsupported(provider: provider)
             return
         }
-        reports[provider] = await source.usageLimitReport(now: now)
+        let report = await source.usageLimitReport(now: now)
+        reports[provider] = report
+        if report.status == .fresh {
+            let historySince = now.addingTimeInterval(-7 * 86_400)
+            let providerHistory = await source.usageLimitHistory(since: historySince, now: now)
+            recordUsageLimitHistory(report: report, providerHistory: providerHistory, now: now)
+        }
     }
 
     func refreshSupportedProviders(force: Bool = false, now: Date = .now) async {
         for provider in ProviderKind.allCases where provider.supportsUsageLimits {
             await refresh(provider: provider, force: force, now: now)
         }
+    }
+
+    func refreshForecasts(sessions: [Session], now: Date = .now) async {
+        let reports = Array(reports.values)
+        let history = historyStore.load()
+        let forecastService = self.forecastService
+        let updated = await Task.detached(priority: .userInitiated) {
+            forecastService.forecasts(
+                sessions: sessions,
+                reports: reports,
+                history: history,
+                now: now
+            )
+        }.value
+        forecasts = Dictionary(uniqueKeysWithValues: updated.map { ($0.id, $0) })
     }
 
     func installClaudeBridge() {
@@ -191,6 +229,21 @@ final class UsageLimitStore {
             beginClaudeDesktopAccessibilityPermissionRecheck()
         case .screenRecording:
             beginClaudeDesktopScreenRecordingPermissionRecheck()
+        }
+    }
+
+    private func recordUsageLimitHistory(
+        report: UsageLimitReport,
+        providerHistory: [UsageLimitHistoryEntry],
+        now: Date
+    ) {
+        do {
+            if !providerHistory.isEmpty {
+                _ = try historyStore.append(entries: providerHistory, now: now)
+            }
+            _ = try historyStore.append(report: report, now: now)
+        } catch {
+            Log.app.error("Could not persist usage-limit history: \(error.localizedDescription, privacy: .public)")
         }
     }
 

@@ -111,6 +111,27 @@ struct GanttViewModelTests {
         #expect(viewModel.snapshot.load.groups.first { $0.kind == .usageLimit }?.lanes.count == 1)
     }
 
+    @Test("Usage limit forecast refresh updates annotations without changing render revision")
+    func usageLimitForecastRefreshOnlyUpdatesAnnotations() async {
+        let viewModel = GanttViewModel(gitMetricsLoader: DelayedGanttGitMetricsLoader(delay: .milliseconds(200), metrics: .zero))
+        viewModel.selectedDate = pastDay()
+        let interval = interval(in: viewModel.period, startOffset: 3_600, duration: 3_600)
+
+        await viewModel.reload(
+            sessions: [session(intervals: [interval])],
+            codingSurfaceBundleIDs: [],
+            cliHostBundleIDs: []
+        )
+
+        let revision = viewModel.snapshot.renderRevisionID
+        let forecast = usageLimitForecast(in: viewModel.snapshot.domain)
+
+        viewModel.refreshUsageLimitForecasts([forecast])
+
+        #expect(viewModel.snapshot.renderRevisionID == revision)
+        #expect(viewModel.snapshot.usageLimitForecasts == [forecast])
+    }
+
     @Test("Focusing inside the same period does not bump the manual reload token")
     func focusInsideSamePeriodDoesNotBumpReloadToken() {
         let viewModel = GanttViewModel()
@@ -255,6 +276,25 @@ struct GanttViewModelTests {
                 planType: nil,
                 limitID: nil
             )
+        )
+    }
+
+    private func usageLimitForecast(in domain: DateInterval) -> UsageLimitForecast {
+        UsageLimitForecast(
+            provider: .codex,
+            windowID: "secondary",
+            label: "7d",
+            capturedAt: domain.start,
+            currentUsedPercent: 72,
+            resetAt: domain.end.addingTimeInterval(86_400),
+            reachInterval: DateInterval(
+                start: domain.start.addingTimeInterval(3_600),
+                end: domain.start.addingTimeInterval(5_400)
+            ),
+            medianReachAt: domain.start.addingTimeInterval(4_200),
+            confidence: .medium,
+            status: .forecast,
+            diagnostics: []
         )
     }
 

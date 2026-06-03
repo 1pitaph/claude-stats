@@ -68,9 +68,54 @@ struct CodexUsageLimitLoaderTests {
         #expect(report.snapshot?.planType == "pro")
     }
 
+    @Test("Reads 7d secondary history from recent rollout logs")
+    func readsSecondaryHistory() throws {
+        let root = try TempDir.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let day = root.appendingPathComponent("sessions/2026/01/10", isDirectory: true)
+        let url = day.appendingPathComponent("rollout-2026-01-10T09-00-00-a.jsonl")
+        try TempDir.write(
+            [
+                Self.rateLimitLine(timestamp: "2026-01-10T09:00:00.000Z", used: 25, reset: 1_768_700_000, secondaryUsed: 10),
+                Self.nullRateLimitLine(timestamp: "2026-01-10T09:10:00.000Z"),
+                Self.rateLimitLine(timestamp: "2026-01-10T10:00:00.000Z", used: 30, reset: 1_768_700_000, secondaryUsed: 12),
+            ].joined(separator: "\n"),
+            to: url
+        )
+
+        let now = try Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse("2026-01-10T11:00:00.000Z")
+        let history = CodexUsageLimitLoader(paths: CodexPaths(homeDirectory: root))
+            .history(since: now.addingTimeInterval(-7 * 86_400), now: now)
+
+        #expect(history.map(\.windowID) == ["secondary", "secondary"])
+        #expect(history.map(\.usedPercent) == [10, 12])
+    }
+
+    @Test("History ignores expired secondary windows")
+    func historyIgnoresExpiredSecondaryWindows() throws {
+        let root = try TempDir.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let day = root.appendingPathComponent("sessions/2026/01/10", isDirectory: true)
+        let url = day.appendingPathComponent("rollout-2026-01-10T09-00-00-a.jsonl")
+        try TempDir.write(
+            Self.rateLimitLine(timestamp: "2026-01-10T09:00:00.000Z", used: 25, reset: 1, secondaryUsed: 10),
+            to: url
+        )
+
+        let now = try Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse("2026-01-10T11:00:00.000Z")
+        let history = CodexUsageLimitLoader(paths: CodexPaths(homeDirectory: root))
+            .history(since: now.addingTimeInterval(-7 * 86_400), now: now)
+
+        #expect(history.isEmpty)
+    }
+
     private static func rateLimitLine(timestamp: String, used: Int, reset: Int) -> String {
+        rateLimitLine(timestamp: timestamp, used: used, reset: reset, secondaryUsed: 1)
+    }
+
+    private static func rateLimitLine(timestamp: String, used: Int, reset: Int, secondaryUsed: Int) -> String {
         """
-        {"timestamp":"\(timestamp)","type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","primary":{"used_percent":\(used),"window_minutes":300,"resets_at":\(reset)},"secondary":{"used_percent":1,"window_minutes":10080,"resets_at":\(reset)}}}}
+        {"timestamp":"\(timestamp)","type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","primary":{"used_percent":\(used),"window_minutes":300,"resets_at":\(reset)},"secondary":{"used_percent":\(secondaryUsed),"window_minutes":10080,"resets_at":\(reset)}}}}
         """
     }
 
