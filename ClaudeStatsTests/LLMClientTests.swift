@@ -69,17 +69,94 @@ struct LLMClientTests {
         #expect(anthropicRequest.url == "https://api.anthropic.com/v1/messages")
         #expect(anthropicRequest.apiKey == "test-key")
         #expect(anthropicRequest.anthropicVersion == "2023-06-01")
+        #expect(!anthropicRequest.body.contains(#""thinking""#))
         #expect(anthropic.text == "anthropic text")
         #expect(anthropic.totalTokens == 23)
     }
 
-    private func endpoint(protocol protocolName: AppLLMProtocol, baseURL: String = "https://api.example.com/v1") -> AppLLMGenerationEndpoint {
+    @Test("Responses protocol accepts chat-shaped compatible responses")
+    func responsesProtocolAcceptsChatShapedCompatibleResponses() async throws {
+        let capture = LLMRequestCapture()
+        let client = AppLLMClient { request in
+            await capture.record(request)
+            let body = """
+            {"model":"compat-model","choices":[{"message":{"content":"compat text"}}],"usage":{"prompt_tokens":19,"completion_tokens":4,"total_tokens":23}}
+            """
+            return (Data(body.utf8), HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+
+        let result = try await client.generate(
+            endpoint: endpoint(protocol: .openAIResponses),
+            request: LLMGenerationRequest(systemPrompt: "sys", userPrompt: "user", maxTokens: 42)
+        )
+        let request = try #require(await capture.last())
+
+        #expect(request.url == "https://api.example.com/v1/responses")
+        #expect(result.text == "compat text")
+        #expect(result.model == "compat-model")
+        #expect(result.inputTokens == 19)
+        #expect(result.outputTokens == 4)
+        #expect(result.totalTokens == 23)
+    }
+
+    @Test("DeepSeek Anthropic JSON requests disable thinking")
+    func deepSeekAnthropicJSONRequestsDisableThinking() async throws {
+        let capture = LLMRequestCapture()
+        let client = AppLLMClient { request in
+            await capture.record(request)
+            let body = """
+            {"model":"deepseek-v4-flash","content":[{"type":"text","text":"{\\"summary\\":\\"ok\\"}"}],"usage":{"input_tokens":21,"output_tokens":5}}
+            """
+            return (Data(body.utf8), HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+
+        _ = try await client.generate(
+            endpoint: endpoint(protocol: .anthropicMessages, baseURL: "https://api.deepseek.com/anthropic", model: "deepseek-v4-flash"),
+            request: LLMGenerationRequest(systemPrompt: "sys", userPrompt: "user", maxTokens: 42, outputShape: .jsonObject)
+        )
+        let request = try #require(await capture.last())
+
+        #expect(request.url == "https://api.deepseek.com/anthropic/v1/messages")
+        #expect(request.body.contains(#""thinking":{"type":"disabled"}"#))
+    }
+
+    @Test("JSON object requests retry once after empty content")
+    func jsonObjectRequestsRetryOnceAfterEmptyContent() async throws {
+        let capture = LLMRequestCapture()
+        let client = AppLLMClient { request in
+            await capture.record(request)
+            let count = await capture.count()
+            let body = if count == 1 {
+                #"{"model":"deepseek-v4-flash","content":[],"usage":{"input_tokens":21,"output_tokens":0}}"#
+            } else {
+                #"{"model":"deepseek-v4-flash","content":[{"type":"text","text":"{\"summary\":\"ok\"}"}],"usage":{"input_tokens":22,"output_tokens":5}}"#
+            }
+            return (Data(body.utf8), HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+
+        let result = try await client.generate(
+            endpoint: endpoint(protocol: .anthropicMessages, baseURL: "https://api.deepseek.com/anthropic", model: "deepseek-v4-flash"),
+            request: LLMGenerationRequest(systemPrompt: "sys", userPrompt: "user", maxTokens: 42, outputShape: .jsonObject)
+        )
+        let requests = await capture.all()
+
+        #expect(result.text == #"{"summary":"ok"}"#)
+        #expect(requests.count == 2)
+        #expect(requests[1].body.contains("previous response was empty"))
+        #expect(requests[1].body.contains("compact JSON object"))
+    }
+
+    private func endpoint(
+        protocol protocolName: AppLLMProtocol,
+        baseURL: String = "https://api.example.com/v1",
+        model: String = "test-model"
+    ) -> AppLLMGenerationEndpoint {
         AppLLMGenerationEndpoint(
             mode: .online,
             protocol: protocolName,
             baseURL: URL(string: baseURL)!,
             apiKey: "test-key",
-            model: "test-model",
+            model: model,
             displayName: "Test"
         )
     }
@@ -94,19 +171,27 @@ private struct CapturedLLMRequest: Sendable {
 }
 
 private actor LLMRequestCapture {
-    private var value: CapturedLLMRequest?
+    private var values: [CapturedLLMRequest] = []
 
     func record(_ request: URLRequest) {
-        value = CapturedLLMRequest(
+        values.append(CapturedLLMRequest(
             url: request.url?.absoluteString ?? "",
             authorization: request.value(forHTTPHeaderField: "Authorization"),
             apiKey: request.value(forHTTPHeaderField: "x-api-key"),
             anthropicVersion: request.value(forHTTPHeaderField: "anthropic-version"),
             body: request.httpBody.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-        )
+        ))
     }
 
     func last() -> CapturedLLMRequest? {
-        value
+        values.last
+    }
+
+    func all() -> [CapturedLLMRequest] {
+        values
+    }
+
+    func count() -> Int {
+        values.count
     }
 }

@@ -1,16 +1,29 @@
 import Foundation
 
+enum LLMGenerationOutputShape: Sendable, Hashable {
+    case text
+    case jsonObject
+}
+
 struct LLMGenerationRequest: Sendable, Hashable {
     var systemPrompt: String
     var userPrompt: String
     var maxTokens: Int
     var temperature: Double
+    var outputShape: LLMGenerationOutputShape
 
-    init(systemPrompt: String, userPrompt: String, maxTokens: Int = 1_200, temperature: Double = 0.2) {
+    init(
+        systemPrompt: String,
+        userPrompt: String,
+        maxTokens: Int = 1_200,
+        temperature: Double = 0.2,
+        outputShape: LLMGenerationOutputShape = .text
+    ) {
         self.systemPrompt = systemPrompt
         self.userPrompt = userPrompt
         self.maxTokens = maxTokens
         self.temperature = temperature
+        self.outputShape = outputShape
     }
 }
 
@@ -56,6 +69,20 @@ struct AppLLMClient: LLMGenerating {
     }
 
     func generate(endpoint: AppLLMGenerationEndpoint, request: LLMGenerationRequest) async throws -> LLMGenerationResult {
+        let maxAttempts = request.outputShape == .jsonObject ? 2 : 1
+        var activeRequest = request
+        for attempt in 1...maxAttempts {
+            do {
+                return try await generateOnce(endpoint: endpoint, request: activeRequest)
+            } catch LLMClientError.emptyOutput where attempt < maxAttempts {
+                activeRequest = request.jsonRetryRequest()
+                continue
+            }
+        }
+        return try await generateOnce(endpoint: endpoint, request: activeRequest)
+    }
+
+    private func generateOnce(endpoint: AppLLMGenerationEndpoint, request: LLMGenerationRequest) async throws -> LLMGenerationResult {
         switch endpoint.protocol {
         case .openAIChatCompletions:
             return try await openAIChat(endpoint: endpoint, generationRequest: request)
@@ -144,11 +171,19 @@ struct AppLLMClient: LLMGenerating {
             struct Usage: Decodable {
                 var input_tokens: Int?
                 var output_tokens: Int?
+                var prompt_tokens: Int?
+                var completion_tokens: Int?
                 var total_tokens: Int?
+            }
+            struct Choice: Decodable {
+                struct Message: Decodable { var content: String? }
+                var message: Message?
+                var text: String?
             }
             var model: String?
             var output_text: String?
             var output: [Output]?
+            var choices: [Choice]?
             var usage: Usage?
         }
 
@@ -174,13 +209,18 @@ struct AppLLMClient: LLMGenerating {
             .flatMap { $0.content ?? [] }
             .compactMap(\.text)
             .joined(separator: "\n")
-        let text = (decoded.output_text ?? contentText ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let choicesText = decoded.choices?
+            .compactMap { $0.message?.content ?? $0.text }
+            .joined(separator: "\n")
+        let text = [decoded.output_text, contentText, choicesText]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty } ?? ""
         guard !text.isEmpty else { throw LLMClientError.emptyOutput }
         return result(
             text: text,
             model: decoded.model ?? endpoint.model,
-            inputTokens: decoded.usage?.input_tokens,
-            outputTokens: decoded.usage?.output_tokens,
+            inputTokens: decoded.usage?.input_tokens ?? decoded.usage?.prompt_tokens,
+            outputTokens: decoded.usage?.output_tokens ?? decoded.usage?.completion_tokens,
             totalTokens: decoded.usage?.total_tokens,
             request: generationRequest
         )
@@ -197,6 +237,10 @@ struct AppLLMClient: LLMGenerating {
             var messages: [Message]
             var max_tokens: Int
             var temperature: Double
+            var thinking: Thinking?
+        }
+        struct Thinking: Encodable {
+            var type: String
         }
         struct Response: Decodable {
             struct Content: Decodable {
@@ -208,7 +252,7 @@ struct AppLLMClient: LLMGenerating {
                 var output_tokens: Int?
             }
             var model: String?
-            var content: [Content]
+            var content: [Content]?
             var usage: Usage?
         }
 
@@ -222,14 +266,17 @@ struct AppLLMClient: LLMGenerating {
                 system: generationRequest.systemPrompt,
                 messages: [Message(role: "user", content: generationRequest.userPrompt)],
                 max_tokens: generationRequest.maxTokens,
-                temperature: generationRequest.temperature
+                temperature: generationRequest.temperature,
+                thinking: shouldDisableAnthropicThinking(endpoint: endpoint, request: generationRequest)
+                    ? Thinking(type: "disabled")
+                    : nil
             )
         )
         urlRequest.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         urlRequest.timeoutInterval = 120
         let data = try await perform(urlRequest)
         let decoded = try JSONDecoder().decode(Response.self, from: data)
-        let text = decoded.content.compactMap(\.text).joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = decoded.content?.compactMap(\.text).joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !text.isEmpty else { throw LLMClientError.emptyOutput }
         return result(
             text: text,
@@ -290,6 +337,23 @@ struct AppLLMClient: LLMGenerating {
 
     private func estimateTokens(_ text: String) -> Int {
         max(1, Int((Double(text.count) / 4.0).rounded(.up)))
+    }
+
+    private func shouldDisableAnthropicThinking(endpoint: AppLLMGenerationEndpoint, request: LLMGenerationRequest) -> Bool {
+        guard request.outputShape == .jsonObject else { return false }
+        return endpoint.baseURL.host?.lowercased().contains("deepseek.com") == true
+    }
+}
+
+private extension LLMGenerationRequest {
+    func jsonRetryRequest() -> LLMGenerationRequest {
+        LLMGenerationRequest(
+            systemPrompt: systemPrompt + "\n\nThe previous response was empty. Return a compact valid JSON object only. Do not include Markdown, code fences, or explanatory text.",
+            userPrompt: userPrompt + "\n\nReturn the compact JSON object now, with double-quoted keys and string values in the requested language.",
+            maxTokens: maxTokens,
+            temperature: min(temperature, 0.2),
+            outputShape: outputShape
+        )
     }
 }
 

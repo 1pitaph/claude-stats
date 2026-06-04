@@ -1,7 +1,7 @@
 import Foundation
 
 struct GitSummaryService: Sendable {
-    static let promptVersion = "git-summary-prompt-v1"
+    static let promptVersion = "git-summary-prompt-v2"
     static let algorithmVersion = "git-summary-algorithm-v1"
 
     private let snapshotBuilder: GitSummarySnapshotBuilder
@@ -93,7 +93,8 @@ struct GitSummaryService: Sendable {
             systemPrompt: finalSystemPrompt(language: language),
             userPrompt: finalUserInstruction(context: prompt, algorithm: plan.algorithm),
             maxTokens: 1_400,
-            temperature: 0.2
+            temperature: 0.2,
+            outputShape: .jsonObject
         )
         let response = try await generator.generate(endpoint: endpoint, request: request)
         var usage = GitSummaryUsage.zero
@@ -154,7 +155,8 @@ struct GitSummaryService: Sendable {
             systemPrompt: finalSystemPrompt(language: language),
             userPrompt: finalUserInstruction(context: reduceContext, algorithm: plan.algorithm),
             maxTokens: 1_600,
-            temperature: 0.2
+            temperature: 0.2,
+            outputShape: .jsonObject
         )
         let reduced = try await generator.generate(endpoint: endpoint, request: reduceRequest)
         usage.add(reduced)
@@ -206,7 +208,8 @@ struct GitSummaryService: Sendable {
                         systemPrompt: chunkSystemPrompt(language: language),
                         userPrompt: chunkPrompt(chunk),
                         maxTokens: 800,
-                        temperature: 0.15
+                        temperature: 0.15,
+                        outputShape: .jsonObject
                     )
                     let response = try await generator.generate(endpoint: endpoint, request: request)
                     return (parseObservation(response.text, fallbackPath: chunk.path, fallbackID: chunk.id), response)
@@ -255,7 +258,13 @@ struct GitSummaryService: Sendable {
         """
         let response = try await generator.generate(
             endpoint: endpoint,
-            request: LLMGenerationRequest(systemPrompt: chunkSystemPrompt(language: language), userPrompt: prompt, maxTokens: 900, temperature: 0.1)
+            request: LLMGenerationRequest(
+                systemPrompt: chunkSystemPrompt(language: language),
+                userPrompt: prompt,
+                maxTokens: 900,
+                temperature: 0.1,
+                outputShape: .jsonObject
+            )
         )
         var usage = GitSummaryUsage.zero
         usage.add(response)
@@ -321,6 +330,8 @@ struct GitSummaryService: Sendable {
             summary: summary,
             commitTitle: title,
             commitBody: body,
+            keyChanges: decoded?.keyChanges ?? [],
+            risksOrNotes: decoded?.risksOrNotes ?? [],
             riskLabels: analysis.riskLabels,
             algorithm: plan.algorithm,
             modelName: modelName,
@@ -393,12 +404,16 @@ private struct GitSummaryObservation: Codable, Hashable, Sendable, Identifiable 
 
 private struct GitSummaryFinalLLMResponse: Decodable {
     var summary: String
+    var keyChanges: [String]?
+    var risksOrNotes: [String]?
     var commitTitle: String
     var commitBody: String
     var verifierNotes: String?
 
     private enum CodingKeys: String, CodingKey {
         case summary
+        case keyChanges = "key_changes"
+        case risksOrNotes = "risks_or_notes"
         case commitTitle = "commit_title"
         case commitBody = "commit_body"
         case verifierNotes = "verifier_notes"
@@ -423,7 +438,7 @@ private func finalSystemPrompt(language: String) -> String {
     """
     You summarize Git changes for developers.
     Write in \(language). Be concise, avoid hype, and ground every claim in the provided diff, file list, and observations.
-    Return only valid JSON with keys: summary, commit_title, commit_body, verifier_notes.
+    Return only valid JSON with keys: summary, key_changes, risks_or_notes, commit_title, commit_body, verifier_notes.
     """
 }
 
@@ -432,10 +447,15 @@ private func finalUserInstruction(context: String, algorithm: GitSummaryAlgorith
     Algorithm: \(algorithm.title)
 
     Produce:
-    - summary: 2-5 concise bullets or sentences covering behavior, files, and risks.
+    - summary: 1-2 concise sentences covering the overall behavior. Do not use Markdown bullets or numbered lists.
+    - key_changes: 2-5 concise strings for concrete changes. Do not prefix items with "-", "*", bullets, or numbers.
+    - risks_or_notes: 0-3 concise strings for risks, caveats, tests, or verification notes. Do not prefix items with "-", "*", bullets, or numbers.
     - commit_title: one imperative commit title under 72 characters.
-    - commit_body: short commit body with important details and risk/test notes.
+    - commit_body: short commit body with important details and risk/test notes. Prefer prose; only use bullets when they are essential for the commit message itself.
     - verifier_notes: empty unless you see uncertainty in the evidence.
+
+    Return compact JSON like:
+    {"summary":"...","key_changes":["..."],"risks_or_notes":[],"commit_title":"...","commit_body":"...","verifier_notes":""}
 
     Context:
     \(context)

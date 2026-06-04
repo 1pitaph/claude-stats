@@ -126,13 +126,98 @@ struct GitSummaryTests {
 
         _ = try await service.summarize(repo: repo, target: .workingTree, endpoint: endpoint, language: "English")
         let callsAfterFirst = await llm.callCount()
+        let firstRequest = try #require(await llm.lastRequest())
         let cached = try await service.summarize(repo: repo, target: .workingTree, endpoint: endpoint, language: "English")
         let callsAfterSecond = await llm.callCount()
         _ = try await service.summarize(repo: repo, target: .workingTree, endpoint: endpoint, language: "Simplified Chinese")
 
+        #expect(firstRequest.outputShape == .jsonObject)
+        #expect(firstRequest.userPrompt.contains(#"{"summary":"...","key_changes":["..."],"risks_or_notes":[],"commit_title":"...","commit_body":"...","verifier_notes":""}"#))
         #expect(cached.isCached)
         #expect(callsAfterSecond == callsAfterFirst)
         #expect(await llm.callCount() == callsAfterFirst + 1)
+    }
+
+    @Test("Summary result Markdown preserves copied sections")
+    func summaryResultMarkdown() {
+        let result = GitAISummaryResult(
+            summary: "Stabilized the Gantt layout during sidebar changes.",
+            commitTitle: "Fix Gantt sidebar layout jitter",
+            commitBody: "Adds a hysteresis band and stabilizes the scroll stack.",
+            keyChanges: [
+                "Added a hysteresis band.",
+                "Stabilized compact layout state."
+            ],
+            risksOrNotes: [
+                "Verified with focused tests."
+            ],
+            riskLabels: [],
+            algorithm: .singleShot,
+            modelName: "test-model",
+            usage: .zero,
+            isCached: false,
+            generatedAt: Date(timeIntervalSince1970: 0),
+            language: "English",
+            diffHash: "hash",
+            targetTitle: "Working Tree",
+            verifierNotes: "No material issues found."
+        )
+
+        #expect(result.markdown == """
+        # AI Summary
+
+        Stabilized the Gantt layout during sidebar changes.
+
+        ## Key Changes
+
+        - Added a hysteresis band.
+        - Stabilized compact layout state.
+
+        ## Risks / Notes
+
+        - Verified with focused tests.
+
+        ## Commit Message
+
+        Fix Gantt sidebar layout jitter
+
+        Adds a hysteresis band and stabilizes the scroll stack.
+
+        ## Verifier Notes
+
+        No material issues found.
+        """)
+    }
+
+    @Test("Summary result decoding upgrades legacy Markdown list text")
+    func summaryResultDecodingUpgradesLegacyMarkdownListText() throws {
+        let json = """
+        {
+          "summary": "Updated the Git summary UI.\\n- Added header copy button.\\n- Rendered key changes as native rows.\\n- Risk: cached summaries may need regeneration.",
+          "commitTitle": "Update Git summary UI",
+          "commitBody": "Aligns the Git summary panel with the daily report.",
+          "riskLabels": [],
+          "algorithm": "singleShot",
+          "modelName": "test-model",
+          "usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3, "requestCount": 1},
+          "isCached": true,
+          "generatedAt": "1970-01-01T00:00:00Z",
+          "language": "English",
+          "diffHash": "hash",
+          "targetTitle": "Working Tree"
+        }
+        """
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let result = try decoder.decode(GitAISummaryResult.self, from: Data(json.utf8))
+
+        #expect(result.summary == "Updated the Git summary UI.")
+        #expect(result.keyChanges == [
+            "Added header copy button.",
+            "Rendered key changes as native rows."
+        ])
+        #expect(result.risksOrNotes == ["Risk: cached summaries may need regeneration."])
     }
 
     private func snapshot(diff: String, files: [GitSummaryFileChange]) -> GitSummarySnapshot {
@@ -162,9 +247,11 @@ struct GitSummaryTests {
 
 private actor CountingLLM: LLMGenerating {
     private var calls = 0
+    private var requests: [LLMGenerationRequest] = []
 
     func generate(endpoint: AppLLMGenerationEndpoint, request: LLMGenerationRequest) async throws -> LLMGenerationResult {
         calls += 1
+        requests.append(request)
         return LLMGenerationResult(
             text: #"{"summary":"Updated hello text.","commit_title":"Update hello text","commit_body":"Updates hello.txt.","verifier_notes":""}"#,
             model: endpoint.model,
@@ -176,6 +263,10 @@ private actor CountingLLM: LLMGenerating {
 
     func callCount() -> Int {
         calls
+    }
+
+    func lastRequest() -> LLMGenerationRequest? {
+        requests.last
     }
 }
 

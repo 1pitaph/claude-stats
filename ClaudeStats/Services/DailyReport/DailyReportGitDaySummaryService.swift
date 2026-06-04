@@ -73,7 +73,7 @@ enum DailyReportGitDaySummaryServiceError: Error, LocalizedError, Sendable {
 }
 
 struct DailyReportGitDaySummaryService: Sendable {
-    static let promptVersion = "daily-report-git-day-summary-prompt-v1"
+    static let promptVersion = "daily-report-git-day-summary-prompt-v2"
 
     private let cache: DailyReportGitDaySummaryCache
     private let generator: any LLMGenerating
@@ -137,7 +137,8 @@ struct DailyReportGitDaySummaryService: Sendable {
                 systemPrompt: systemPrompt(language: language),
                 userPrompt: prompt,
                 maxTokens: 1_200,
-                temperature: 0.2
+                temperature: 0.2,
+                outputShape: .jsonObject
             )
         )
 
@@ -246,6 +247,9 @@ struct DailyReportGitDaySummaryService: Sendable {
         - summary: string
         - key_changes: string[]
         - risks_or_notes: string[]
+
+        Return compact JSON like:
+        {"summary":"...","key_changes":["..."],"risks_or_notes":[]}
         """
     }
 

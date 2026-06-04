@@ -192,6 +192,8 @@ struct GitAISummaryResult: Codable, Hashable, Sendable {
     var summary: String
     var commitTitle: String
     var commitBody: String
+    var keyChanges: [String]
+    var risksOrNotes: [String]
     var riskLabels: [GitSummaryRiskLabel]
     var algorithm: GitSummaryAlgorithm
     var modelName: String
@@ -203,6 +205,45 @@ struct GitAISummaryResult: Codable, Hashable, Sendable {
     var targetTitle: String
     var verifierNotes: String?
 
+    init(
+        summary: String,
+        commitTitle: String,
+        commitBody: String,
+        keyChanges: [String] = [],
+        risksOrNotes: [String] = [],
+        riskLabels: [GitSummaryRiskLabel],
+        algorithm: GitSummaryAlgorithm,
+        modelName: String,
+        usage: GitSummaryUsage,
+        isCached: Bool,
+        generatedAt: Date,
+        language: String,
+        diffHash: String,
+        targetTitle: String,
+        verifierNotes: String?
+    ) {
+        let sections = Self.normalizedSections(
+            summary: summary,
+            keyChanges: keyChanges,
+            risksOrNotes: risksOrNotes
+        )
+        self.summary = sections.summary
+        self.commitTitle = Self.trimmed(commitTitle)
+        self.commitBody = Self.trimmed(commitBody)
+        self.keyChanges = sections.keyChanges
+        self.risksOrNotes = sections.risksOrNotes
+        self.riskLabels = riskLabels
+        self.algorithm = algorithm
+        self.modelName = modelName
+        self.usage = usage
+        self.isCached = isCached
+        self.generatedAt = generatedAt
+        self.language = language
+        self.diffHash = diffHash
+        self.targetTitle = targetTitle
+        self.verifierNotes = verifierNotes
+    }
+
     var commitMessage: String {
         let title = commitTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let body = commitBody.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -210,10 +251,177 @@ struct GitAISummaryResult: Codable, Hashable, Sendable {
         return "\(title)\n\n\(body)"
     }
 
+    var markdown: String {
+        var sections = ["# AI Summary"]
+        let summary = Self.trimmed(summary)
+        if !summary.isEmpty {
+            sections.append(summary)
+        }
+
+        if !keyChangesMarkdown.isEmpty {
+            sections.append(keyChangesMarkdown)
+        }
+        if !risksOrNotesMarkdown.isEmpty {
+            sections.append(risksOrNotesMarkdown)
+        }
+
+        let commitMessage = Self.trimmed(commitMessage)
+        if !commitMessage.isEmpty {
+            sections.append(Self.markdownBodySection(title: "Commit Message", body: commitMessage))
+        }
+
+        let verifierNotes = Self.trimmed(verifierNotes ?? "")
+        if !verifierNotes.isEmpty {
+            sections.append(Self.markdownBodySection(title: "Verifier Notes", body: verifierNotes))
+        }
+
+        return sections.joined(separator: "\n\n")
+    }
+
+    var keyChangesMarkdown: String {
+        Self.markdownListSection(title: "Key Changes", rows: keyChanges)
+    }
+
+    var risksOrNotesMarkdown: String {
+        Self.markdownListSection(title: "Risks / Notes", rows: risksOrNotes)
+    }
+
     func cachedCopy() -> GitAISummaryResult {
         var copy = self
         copy.isCached = true
         return copy
+    }
+
+    private static func markdownBodySection(title: String, body: String) -> String {
+        let body = trimmed(body)
+        guard !body.isEmpty else { return "" }
+        return "## \(title)\n\n\(body)"
+    }
+
+    private static func markdownListSection(title: String, rows: [String]) -> String {
+        let items = normalizedList(rows)
+        guard !items.isEmpty else { return "" }
+        return "## \(title)\n\n" + items.map { "- \(markdownListItem($0))" }.joined(separator: "\n")
+    }
+
+    private static func markdownListItem(_ value: String) -> String {
+        value.replacingOccurrences(of: "\n", with: "\n  ")
+    }
+
+    private static func normalizedSections(
+        summary: String,
+        keyChanges: [String],
+        risksOrNotes: [String]
+    ) -> (summary: String, keyChanges: [String], risksOrNotes: [String]) {
+        var summaryLines: [String] = []
+        var inferredKeyChanges: [String] = []
+        var inferredRisksOrNotes: [String] = []
+
+        for line in summary.components(separatedBy: .newlines) {
+            let trimmed = trimmed(line)
+            guard !trimmed.isEmpty else { continue }
+            if let listItem = markdownListItemText(trimmed) {
+                if listItem.lowercased().hasPrefix("risk") || listItem.lowercased().hasPrefix("risks") {
+                    inferredRisksOrNotes.append(listItem)
+                } else {
+                    inferredKeyChanges.append(listItem)
+                }
+            } else {
+                summaryLines.append(trimmed)
+            }
+        }
+
+        return (
+            summaryLines.joined(separator: "\n"),
+            normalizedList(keyChanges + inferredKeyChanges),
+            normalizedList(risksOrNotes + inferredRisksOrNotes)
+        )
+    }
+
+    private static func normalizedList(_ rows: [String]) -> [String] {
+        rows.map { row in
+            row.components(separatedBy: .newlines)
+                .map(trimmed)
+                .filter { !$0.isEmpty }
+                .map { markdownListItemText($0) ?? $0 }
+                .joined(separator: "\n")
+        }
+        .filter { !$0.isEmpty }
+    }
+
+    private static func markdownListItemText(_ value: String) -> String? {
+        let patterns = [
+            #"^\s*[-*•]\s+"#,
+            #"^\s*\d+[.)]\s+"#
+        ]
+        for pattern in patterns {
+            if let range = value.range(of: pattern, options: .regularExpression) {
+                return trimmed(String(value[range.upperBound...]))
+            }
+        }
+        return nil
+    }
+
+    private static func trimmed(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case summary
+        case commitTitle
+        case commitBody
+        case keyChanges
+        case risksOrNotes
+        case riskLabels
+        case algorithm
+        case modelName
+        case usage
+        case isCached
+        case generatedAt
+        case language
+        case diffHash
+        case targetTitle
+        case verifierNotes
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            summary: try container.decode(String.self, forKey: .summary),
+            commitTitle: try container.decode(String.self, forKey: .commitTitle),
+            commitBody: try container.decode(String.self, forKey: .commitBody),
+            keyChanges: try container.decodeIfPresent([String].self, forKey: .keyChanges) ?? [],
+            risksOrNotes: try container.decodeIfPresent([String].self, forKey: .risksOrNotes) ?? [],
+            riskLabels: try container.decode([GitSummaryRiskLabel].self, forKey: .riskLabels),
+            algorithm: try container.decode(GitSummaryAlgorithm.self, forKey: .algorithm),
+            modelName: try container.decode(String.self, forKey: .modelName),
+            usage: try container.decode(GitSummaryUsage.self, forKey: .usage),
+            isCached: try container.decode(Bool.self, forKey: .isCached),
+            generatedAt: try container.decode(Date.self, forKey: .generatedAt),
+            language: try container.decode(String.self, forKey: .language),
+            diffHash: try container.decode(String.self, forKey: .diffHash),
+            targetTitle: try container.decode(String.self, forKey: .targetTitle),
+            verifierNotes: try container.decodeIfPresent(String.self, forKey: .verifierNotes)
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(summary, forKey: .summary)
+        try container.encode(commitTitle, forKey: .commitTitle)
+        try container.encode(commitBody, forKey: .commitBody)
+        try container.encode(keyChanges, forKey: .keyChanges)
+        try container.encode(risksOrNotes, forKey: .risksOrNotes)
+        try container.encode(riskLabels, forKey: .riskLabels)
+        try container.encode(algorithm, forKey: .algorithm)
+        try container.encode(modelName, forKey: .modelName)
+        try container.encode(usage, forKey: .usage)
+        try container.encode(isCached, forKey: .isCached)
+        try container.encode(generatedAt, forKey: .generatedAt)
+        try container.encode(language, forKey: .language)
+        try container.encode(diffHash, forKey: .diffHash)
+        try container.encode(targetTitle, forKey: .targetTitle)
+        try container.encodeIfPresent(verifierNotes, forKey: .verifierNotes)
     }
 }
 

@@ -30,6 +30,12 @@ struct GitAISummaryCard: View {
                 .font(.sora(10, weight: .semibold))
                 .tracking(0.8)
                 .foregroundStyle(Color.stxMuted)
+            if case .loaded(let result) = vm.state {
+                GitAISummaryCopyButton(
+                    markdown: result.markdown,
+                    label: "Copy AI summary as Markdown"
+                )
+            }
             Spacer(minLength: 0)
             switch vm.state {
             case .loading:
@@ -71,11 +77,23 @@ struct GitAISummaryCard: View {
         case .loaded(let result):
             VStack(alignment: .leading, spacing: 10) {
                 metadata(result)
-                Text(result.summary)
-                    .font(.sora(10))
-                    .foregroundStyle(Color.stxMuted)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
+                if !result.summary.isEmpty {
+                    Text(result.summary)
+                        .font(.sora(10))
+                        .foregroundStyle(Color.stxMuted)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if !result.keyChanges.isEmpty {
+                    GitAISummaryList(title: "KEY CHANGES", rows: result.keyChanges)
+                }
+                if !result.risksOrNotes.isEmpty {
+                    GitAISummaryList(title: "RISKS / NOTES", rows: result.risksOrNotes)
+                }
+                if let verifierNotes = result.verifierNotes?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !verifierNotes.isEmpty {
+                    GitAISummaryList(title: "VERIFIER NOTES", rows: [verifierNotes])
+                }
                 if !result.commitTitle.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("COMMIT MESSAGE")
@@ -88,12 +106,6 @@ struct GitAISummaryCard: View {
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                }
-                if let notes = result.verifierNotes, !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text(notes)
-                        .font(.sora(9))
-                        .foregroundStyle(Color.stxMuted)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
                 controls(result: result)
             }
@@ -131,20 +143,6 @@ struct GitAISummaryCard: View {
                 .disabled(isLoading)
             }
 
-            if let result {
-                Button {
-                    copy(result.summary)
-                } label: {
-                    Label("Copy Summary", systemImage: AppIcon.Action.copy)
-                }
-                .controlSize(.small)
-                Button {
-                    copy(result.commitMessage)
-                } label: {
-                    Label("Copy Commit", systemImage: AppIcon.Git.commitCheck)
-                }
-                .controlSize(.small)
-            }
         }
     }
 
@@ -183,10 +181,71 @@ struct GitAISummaryCard: View {
         }
     }
 
-    private func copy(_ value: String) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(value, forType: .string)
+}
+
+private struct GitAISummaryList: View {
+    let title: String
+    let rows: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title)
+                .font(.sora(9, weight: .semibold))
+                .tracking(0.7)
+                .foregroundStyle(Color.stxMuted)
+
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(rows, id: \.self) { row in
+                    HStack(alignment: .top, spacing: 7) {
+                        Circle()
+                            .fill(Color.stxMuted.opacity(0.8))
+                            .frame(width: 4, height: 4)
+                            .padding(.top, 6)
+                        Text(row)
+                            .font(.sora(10))
+                            .foregroundStyle(Color.stxMuted)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct GitAISummaryCopyButton: View {
+    let markdown: String
+    let label: String
+
+    var body: some View {
+        Button {
+            GitAISummaryClipboard.copy(markdown)
+        } label: {
+            Image(systemName: AppIcon.Action.copy)
+                .font(.system(size: 10, weight: .semibold))
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(markdown.isEmpty)
+        .foregroundStyle(markdown.isEmpty ? Color.stxMuted.opacity(0.45) : Color.stxMuted)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color.primary.opacity(0.055))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(Color.stxStroke.opacity(0.55), lineWidth: 1)
+        )
+        .help(label)
+        .accessibilityLabel(label)
+    }
+}
+
+private enum GitAISummaryClipboard {
+    static func copy(_ value: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
     }
 }
 

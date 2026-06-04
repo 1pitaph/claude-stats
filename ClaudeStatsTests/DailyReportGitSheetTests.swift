@@ -67,7 +67,8 @@ struct DailyReportGitSheetTests {
             inputMode: .diffAware
         )
         let callsAfterFirst = await llm.callCount()
-        let firstPrompt = try #require(await llm.lastRequest()?.userPrompt)
+        let firstRequest = try #require(await llm.lastRequest())
+        let firstPrompt = firstRequest.userPrompt
         let cached = try await service.summarize(
             snapshot: snapshot,
             endpoint: endpoint,
@@ -85,6 +86,8 @@ struct DailyReportGitSheetTests {
 
         #expect(first.summary == "Implemented the daily report git sheet.")
         #expect(first.keyChanges == ["Added the timeline", "Added LLM summary caching"])
+        #expect(firstRequest.outputShape == .jsonObject)
+        #expect(firstPrompt.contains(#"{"summary":"...","key_changes":["..."],"risks_or_notes":[]}"#))
         #expect(firstPrompt.contains("DIFF-SENTINEL"))
         #expect(await diffProvider.callCount() == 2)
         #expect(cached.isCached)
