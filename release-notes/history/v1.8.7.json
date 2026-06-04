@@ -1,0 +1,9 @@
+{
+  "headline": "为所有CloudKit配置文件添加Apple登录权限",
+  "changes": [
+    "新增AppleSignInStore管理苹果账号登录状态",
+    "添加Apple Account设置页面到通用设置",
+    "引入AuthenticationServices系统框架",
+    "完善预览环境与主环境的Apple登录实例注入"
+  ]
+}

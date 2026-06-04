@@ -1,0 +1,10 @@
+{
+  "headline": "本次提交新增了完整的ClaudeStats iOS应用：",
+  "changes": [
+    "搭建iOS项目结构与Xcode配置",
+    "实现CloudKit同步服务ClaudeStatsShared库",
+    "开发iOS端统计数据展示UI，包含仪表盘、使用统计、排行榜等页面",
+    "添加入iCloud权限与测试用例",
+    "适配Swift 6与iOS 17+系统版本"
+  ]
+}

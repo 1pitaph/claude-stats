@@ -3,6 +3,37 @@
 extension ReleaseHistoryCatalog {
     static let generatedEntries: [ReleaseHistoryEntry] = [
         ReleaseHistoryEntry(
+            version: "1.8.9",
+            date: "June 5, 2026",
+            headline: "本次提交新增了完整的ClaudeStats iOS应用：",
+            changes: [
+                "搭建iOS项目结构与Xcode配置",
+                "实现CloudKit同步服务ClaudeStatsShared库",
+                "开发iOS端统计数据展示UI，包含仪表盘、使用统计、排行榜等页面",
+                "添加入iCloud权限与测试用例",
+                "适配Swift 6与iOS 17+系统版本",
+            ]
+        ),
+        ReleaseHistoryEntry(
+            version: "1.8.8",
+            date: "June 5, 2026",
+            headline: "skip",
+            changes: [
+                "skip",
+            ]
+        ),
+        ReleaseHistoryEntry(
+            version: "1.8.7",
+            date: "June 4, 2026",
+            headline: "为所有CloudKit配置文件添加Apple登录权限",
+            changes: [
+                "新增AppleSignInStore管理苹果账号登录状态",
+                "添加Apple Account设置页面到通用设置",
+                "引入AuthenticationServices系统框架",
+                "完善预览环境与主环境的Apple登录实例注入",
+            ]
+        ),
+        ReleaseHistoryEntry(
             version: "1.8.6",
             date: "June 4, 2026",
             headline: "重构并拆分了每日Git摘要服务，将原有的单文件逻辑拆分为计划器、流水线、结果构建器、diff提供器等独立模块，新增了摘要算法配置、缓存键扩展、响应解析器等组件，优化了代码结构与可维护性，同时完善了测试用例。",
