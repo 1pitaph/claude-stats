@@ -513,27 +513,7 @@ private struct GanttBaselinePanel: View {
                     }
                 }
 
-                GanttAdaptiveSwitch(compactThreshold: 1_040) {
-                    HStack(spacing: 0) { deltaCards(comparison) }
-                } compact: {
-                    Grid(horizontalSpacing: 0, verticalSpacing: 0) {
-                        GridRow {
-                            baselineCard("ACTIVE", Format.signedDuration(comparison.activeDurationDelta))
-                            baselineCard("TOKENS", Format.signedTokens(comparison.tokensDelta))
-                        }
-                        GridRow {
-                            baselineCard("COST", Format.signedCurrency(comparison.costDelta))
-                            baselineCard("COMMITS", Format.signedCount(comparison.commitDelta))
-                        }
-                        GridRow {
-                            baselineCard("FAILURES", Format.signedCount(comparison.failureSignalDelta))
-                            baselineCard("RETRIES", Format.signedCount(comparison.retrySignalDelta))
-                        }
-                        GridRow {
-                            baselineCard("SWITCHES", Format.signedCount(comparison.contextSwitchDelta))
-                        }
-                    }
-                }
+                HStack(spacing: 0) { deltaCards(comparison) }
             }
             .mainWindowPanel(padding: 16)
         }
@@ -559,12 +539,6 @@ private struct GanttBaselinePanel: View {
         baselineCard("COST", Format.signedCurrency(comparison.costDelta))
         Divider().opacity(0.5)
         baselineCard("COMMITS", Format.signedCount(comparison.commitDelta))
-        Divider().opacity(0.5)
-        baselineCard("FAILURES", Format.signedCount(comparison.failureSignalDelta))
-        Divider().opacity(0.5)
-        baselineCard("RETRIES", Format.signedCount(comparison.retrySignalDelta))
-        Divider().opacity(0.5)
-        baselineCard("SWITCHES", Format.signedCount(comparison.contextSwitchDelta))
     }
 
     private func baselineCard(_ label: String, _ value: String) -> some View {
