@@ -3,6 +3,7 @@ options:
   bundleIdPrefix: com.claudestats
   deploymentTarget:
     macOS: "14.0"
+    iOS: "17.0"
   xcodeVersion: "26.0"
   generateEmptyDirectories: true
 
@@ -13,6 +14,8 @@ configs:
   ReleaseSigned: release
 
 packages:
+  ClaudeStatsShared:
+    path: ClaudeStatsShared
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
     from: "2.9.1"
@@ -422,6 +425,10 @@ targets:
         type: folder
         buildPhase: resources
     dependencies:
+      - package: ClaudeStatsShared
+        product: ClaudeStatsCore
+      - package: ClaudeStatsShared
+        product: ClaudeStatsSync
       - package: Sparkle
       - target: OpenComputerUseKit
       - target: RockxyBackendEmbed
@@ -455,6 +462,7 @@ targets:
       - framework: ThirdParty/llama.cpp/build-macos/framework/llama.framework
         embed: true
         codeSign: true
+      - sdk: CloudKit.framework
       - sdk: ApplicationServices.framework
       - sdk: Accelerate.framework
       - sdk: Metal.framework
@@ -676,12 +684,17 @@ targets:
         type: folder
         buildPhase: resources
     dependencies:
+      - package: ClaudeStatsShared
+        product: ClaudeStatsCore
+      - package: ClaudeStatsShared
+        product: ClaudeStatsSync
       - package: Sparkle
       - target: OpenComputerUseKit
       - package: Lottie
       - package: SwiftCollections
         product: Collections
       - package: SwiftSoup
+      - sdk: CloudKit.framework
       - sdk: ApplicationServices.framework
       - sdk: Accelerate.framework
       - sdk: Metal.framework
@@ -778,6 +791,52 @@ targets:
           ENABLE_HARDENED_RUNTIME: YES
           OTHER_CODE_SIGN_FLAGS: "--timestamp"
 
+  ClaudeStatsiOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: ClaudeStatsiOS
+      - path: ClaudeStats/AppIcon.icon
+    dependencies:
+      - package: ClaudeStatsShared
+        product: ClaudeStatsCore
+      - package: ClaudeStatsShared
+        product: ClaudeStatsSync
+      - sdk: CloudKit.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.claudestats.ClaudeStatsiOS
+        PRODUCT_NAME: "Claude Stats"
+        PRODUCT_MODULE_NAME: ClaudeStatsiOS
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: "Claude Stats"
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+      configs:
+        Debug:
+          CODE_SIGN_ENTITLEMENTS: ClaudeStatsiOS/ClaudeStatsiOS.entitlements
+          CODE_SIGN_IDENTITY: "-"
+          CODE_SIGN_STYLE: Automatic
+        DebugCloudKit:
+          CODE_SIGN_ENTITLEMENTS: ClaudeStatsiOS/ClaudeStatsiOS.entitlements
+          CODE_SIGN_IDENTITY: Apple Development
+          CODE_SIGN_STYLE: Automatic
+          DEVELOPMENT_TEAM: 24XGLNT76L
+        Release:
+          CODE_SIGN_ENTITLEMENTS: ClaudeStatsiOS/ClaudeStatsiOS.entitlements
+          CODE_SIGN_IDENTITY: "-"
+          CODE_SIGN_STYLE: Automatic
+        ReleaseSigned:
+          CODE_SIGN_ENTITLEMENTS: ClaudeStatsiOS/ClaudeStatsiOS.entitlements
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: "$(SIGN_IDENTITY)"
+          DEVELOPMENT_TEAM: "$(APPLE_TEAM_ID)"
+
   ClaudeStatsTests:
     type: bundle.unit-test
     platform: macOS
@@ -795,6 +854,36 @@ targets:
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Claude Stats.app/Contents/MacOS/Claude Stats"
         BUNDLE_LOADER: "$(TEST_HOST)"
 
+  ClaudeStatsCoreTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: ClaudeStatsCoreTests
+    dependencies:
+      - package: ClaudeStatsShared
+        product: ClaudeStatsCore
+      - package: ClaudeStatsShared
+        product: ClaudeStatsSync
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.claudestats.ClaudeStatsCoreTests
+        GENERATE_INFOPLIST_FILE: YES
+
+  ClaudeStatsiOSTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: ClaudeStatsiOSTests
+    dependencies:
+      - package: ClaudeStatsShared
+        product: ClaudeStatsCore
+      - package: ClaudeStatsShared
+        product: ClaudeStatsSync
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.claudestats.ClaudeStatsiOSTests
+        GENERATE_INFOPLIST_FILE: YES
+
 schemes:
   ClaudeStats:
     build:
@@ -806,6 +895,7 @@ schemes:
       config: Debug
       targets:
         - ClaudeStatsTests
+        - ClaudeStatsCoreTests
     profile:
       config: Release
     analyze:
@@ -849,9 +939,27 @@ schemes:
       config: Debug
       targets:
         - ClaudeStatsTests
+        - ClaudeStatsCoreTests
     profile:
       config: DebugCloudKit
     analyze:
       config: DebugCloudKit
+    archive:
+      config: Release
+
+  ClaudeStats iOS:
+    build:
+      targets:
+        ClaudeStatsiOS: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - ClaudeStatsiOSTests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
     archive:
       config: Release

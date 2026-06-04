@@ -93,6 +93,8 @@ struct PillTimeStepperBar<Label: View>: View {
             .font(style.labelFont)
             .foregroundStyle(isCenterSelected ? style.selectedForeground : style.unselectedForeground)
             .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.horizontal, style.centerHorizontalPadding)
             .frame(minWidth: style.centerMinWidth)
             .frame(height: style.centerHeight)
             .background {
@@ -136,6 +138,7 @@ struct PillTimeStepperBarStyle {
     var arrowWidth: CGFloat
     var arrowHeight: CGFloat
     var centerMinWidth: CGFloat
+    var centerHorizontalPadding: CGFloat
     var centerHeight: CGFloat
     var arrowFont: Font
     var labelFont: Font
@@ -162,6 +165,7 @@ extension PillTimeStepperBarStyle {
         arrowWidth: 24,
         arrowHeight: 25,
         centerMinWidth: 70,
+        centerHorizontalPadding: 8,
         centerHeight: 25,
         arrowFont: .system(size: 11, weight: .semibold),
         labelFont: .sora(12, weight: .medium).monospacedDigit(),
@@ -183,6 +187,7 @@ extension PillTimeStepperBarStyle {
         arrowWidth: 24,
         arrowHeight: 25,
         centerMinWidth: 52,
+        centerHorizontalPadding: 7,
         centerHeight: 25,
         arrowFont: .system(size: 11, weight: .semibold),
         labelFont: .sora(12, weight: .medium).monospacedDigit(),

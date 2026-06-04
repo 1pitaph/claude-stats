@@ -186,16 +186,21 @@ private struct DailyReportCalendarSection: View {
             nextHelp: "Next month",
             centerAccessibilityLabel: "Displayed month",
             accessibilityLabel: "Daily report month navigation",
-            onPrevious: { store.stepMonth(-1) },
-            onNext: { store.stepMonth(1) }
+            onPrevious: { stepMonth(-1) },
+            onNext: { stepMonth(1) }
         ) { _ in
             Text(store.monthTitle)
+                .contentTransition(.opacity)
+                .animation(.easeOut(duration: 0.18), value: store.monthTitle)
         }
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private var todayButton: some View {
         Button {
-            store.showToday()
+            withAnimation(.easeOut(duration: 0.18)) {
+                store.showToday()
+            }
         } label: {
             Text("Today")
                 .font(.sora(12, weight: .medium))
@@ -212,6 +217,12 @@ private struct DailyReportCalendarSection: View {
                 .fill(Color.primary.opacity(0.06))
         )
         .help("Jump to today")
+    }
+
+    private func stepMonth(_ delta: Int) {
+        withAnimation(.easeOut(duration: 0.18)) {
+            store.stepMonth(delta)
+        }
     }
 }
 

@@ -1,4 +1,5 @@
 import Foundation
+import ClaudeStatsSync
 import Observation
 #if !CLAUDE_STATS_LITE
 import WarpEmbed
@@ -23,6 +24,8 @@ final class AppEnvironment {
     let updater = UpdaterController()
     let floatingStatsPanel = FloatingStatsPanelController()
     let cursorCommandOverlay = CursorCommandOverlayController()
+    @ObservationIgnored private let cloudStatsSync = CloudStatsSyncService()
+    @ObservationIgnored private var cloudStatsPublishTask: Task<Void, Never>?
     #if !CLAUDE_STATS_LITE
     let notchIsland = NotchIslandController()
     let warpSessionStore: WarpSessionStore
@@ -195,6 +198,9 @@ final class AppEnvironment {
         store.onRefresh = { [weak self] in
             guard let self else { return }
             self.leaderboards.scheduleSilentSyncAfterDataRefresh()
+            #if CLAUDE_STATS_LITE
+            self.scheduleCloudStatsSnapshotPublish(reason: "data refresh")
+            #endif
             #if !CLAUDE_STATS_LITE
             Task { [weak self] in
                 await self?.syncMemorySourcesFromCurrentState()
@@ -208,6 +214,8 @@ final class AppEnvironment {
             await configurationProfiles.loadIfNeeded()
             #endif
             await store.refresh()
+            await usageLimits.refreshSupportedProviders()
+            await usageLimits.refreshForecasts(sessions: store.sessions)
             #if !CLAUDE_STATS_LITE
             await aiConfigs.reload(sessions: store.sessions)
             #endif
@@ -246,6 +254,26 @@ final class AppEnvironment {
         try appLLMSettings.generationEndpoint(localAI: localAI)
         #endif
     }
+
+    #if CLAUDE_STATS_LITE
+    private func scheduleCloudStatsSnapshotPublish(reason: String) {
+        cloudStatsPublishTask?.cancel()
+        cloudStatsPublishTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            await self?.publishCloudStatsSnapshot(reason: reason)
+        }
+    }
+
+    private func publishCloudStatsSnapshot(reason: String) async {
+        let snapshot = StatsSnapshotBuilder.make(environment: self)
+        do {
+            try await cloudStatsSync.publish(snapshot: snapshot)
+            Log.app.info("Published iCloud stats snapshot for \(reason, privacy: .public)")
+        } catch {
+            Log.app.error("iCloud stats snapshot publish failed for \(reason, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
+    }
+    #endif
 
     #if !CLAUDE_STATS_LITE
     private func syncMemorySourcesFromCurrentState() async {
