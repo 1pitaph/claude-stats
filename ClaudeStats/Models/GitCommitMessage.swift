@@ -257,8 +257,17 @@ struct GitCommitMessageResult: Codable, Hashable, Sendable {
         return "\(title)\n\n\(body)"
     }
 
+    var commitBodyMarkdownItems: [String] {
+        Self.bodyItems(from: commitBody)
+    }
+
     var copyText: String {
-        commitMessage
+        let title = commitTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let items = commitBodyMarkdownItems
+        let body = items.map { "- \($0)" }.joined(separator: "\n")
+        if title.isEmpty { return body }
+        if body.isEmpty { return title }
+        return "\(title)\n\n\(body)"
     }
 
     func cachedCopy() -> GitCommitMessageResult {
@@ -269,6 +278,62 @@ struct GitCommitMessageResult: Codable, Hashable, Sendable {
 
     private static func trimmed(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func bodyItems(from rawBody: String) -> [String] {
+        let normalized = rawBody
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        let lines = normalized
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { cleanedBodyItem(String($0)) }
+            .filter { !$0.isEmpty }
+        if lines.count != 1 {
+            return lines
+        }
+        return sentenceItems(from: lines[0])
+    }
+
+    private static func cleanedBodyItem(_ value: String) -> String {
+        var text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        for prefix in ["- ", "* ", "• "] where text.hasPrefix(prefix) {
+            text.removeFirst(prefix.count)
+            return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return text
+    }
+
+    private static func sentenceItems(from value: String) -> [String] {
+        let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return [] }
+
+        let separators = CharacterSet(charactersIn: ".!?。！？")
+        var items: [String] = []
+        var start = text.startIndex
+        var index = text.startIndex
+        while index < text.endIndex {
+            let next = text.index(after: index)
+            let scalarText = String(text[index])
+            if scalarText.rangeOfCharacter(from: separators) != nil {
+                let item = String(text[start..<next]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !item.isEmpty {
+                    items.append(item)
+                }
+                start = next
+                while start < text.endIndex, text[start].isWhitespace {
+                    start = text.index(after: start)
+                }
+                index = start
+            } else {
+                index = next
+            }
+        }
+
+        let tail = String(text[start...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !tail.isEmpty {
+            items.append(tail)
+        }
+        return items.count > 1 ? items : [text]
     }
 
     private enum CodingKeys: String, CodingKey {

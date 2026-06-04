@@ -209,6 +209,8 @@ struct GitCommitMessageTests {
 
         #expect(firstRequest.outputShape == .jsonObject)
         #expect(firstRequest.userPrompt.contains(#"{"commit_title":"...","commit_body":"..."}"#))
+        #expect(firstRequest.userPrompt.contains("Conventional Commit subject"))
+        #expect(firstRequest.userPrompt.contains("<type>(optional-scope): <imperative summary>"))
         #expect(!firstRequest.userPrompt.contains("risks_or_notes"))
         #expect(!firstRequest.userPrompt.contains("verifier_notes"))
         #expect(cached.isCached)
@@ -441,11 +443,11 @@ struct GitCommitMessageTests {
         #expect(testMirror.path == "/tmp/claude-stats/logs/git-commit-message")
     }
 
-    @Test("Commit message result copy text preserves only commit message")
+    @Test("Commit message result copy text uses Markdown body bullets")
     func commitMessageResultCopyText() {
         let result = GitCommitMessageResult(
-            commitTitle: "Fix Gantt sidebar layout jitter",
-            commitBody: "Adds a hysteresis band and stabilizes the scroll stack.",
+            commitTitle: "fix(gantt): stabilize sidebar layout",
+            commitBody: "Use `cleanedBodyItem(_:)` to preserve Markdown code spans.",
             algorithm: .singleShot,
             modelName: "test-model",
             usage: .zero,
@@ -457,9 +459,9 @@ struct GitCommitMessageTests {
         )
 
         #expect(result.copyText == """
-        Fix Gantt sidebar layout jitter
+        fix(gantt): stabilize sidebar layout
 
-        Adds a hysteresis band and stabilizes the scroll stack.
+        - Use `cleanedBodyItem(_:)` to preserve Markdown code spans.
         """)
     }
 

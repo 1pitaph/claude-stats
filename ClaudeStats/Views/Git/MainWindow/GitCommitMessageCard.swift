@@ -219,7 +219,7 @@ private struct GitCommitMessageContent: View {
     }
 
     private var bodyItems: [String] {
-        Self.bodyItems(from: result.commitBody)
+        result.commitBodyMarkdownItems
     }
 
     var body: some View {
@@ -235,14 +235,16 @@ private struct GitCommitMessageContent: View {
             if !bodyItems.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(Array(bodyItems.enumerated()), id: \.offset) { _, item in
-                        HStack(alignment: .top, spacing: 6) {
-                            Text("-")
-                                .font(GitCommitMessageTextFont.font(for: item, size: 10, weight: .medium))
-                                .foregroundStyle(Color.stxMuted)
-                                .padding(.top, 1)
-                            Text(item)
-                                .font(GitCommitMessageTextFont.font(for: item, size: 10))
-                                .foregroundStyle(Color.stxMuted)
+                        HStack(alignment: .top, spacing: 7) {
+                            Circle()
+                                .fill(Color.stxMuted.opacity(0.8))
+                                .frame(width: 4, height: 4)
+                                .padding(.top, 6)
+                            GitCommitMessageMarkdownText(
+                                text: item,
+                                size: 10,
+                                color: Color.stxMuted
+                            )
                                 .textSelection(.enabled)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -252,61 +254,79 @@ private struct GitCommitMessageContent: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+}
 
-    private static func bodyItems(from rawBody: String) -> [String] {
-        let normalized = rawBody
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-        let lines = normalized
-            .split(separator: "\n", omittingEmptySubsequences: true)
-            .map { cleanedBodyItem(String($0)) }
-            .filter { !$0.isEmpty }
-        if lines.count != 1 {
-            return lines
-        }
-        return sentenceItems(from: lines[0])
+private struct GitCommitMessageMarkdownText: View {
+    let text: String
+    let size: CGFloat
+    let weight: Font.Weight
+    let color: Color
+
+    init(
+        text: String,
+        size: CGFloat,
+        weight: Font.Weight = .regular,
+        color: Color
+    ) {
+        self.text = text
+        self.size = size
+        self.weight = weight
+        self.color = color
     }
 
-    private static func cleanedBodyItem(_ value: String) -> String {
-        var text = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        for prefix in ["- ", "* ", "• "] where text.hasPrefix(prefix) {
-            text.removeFirst(prefix.count)
-            return text.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        return text
+    var body: some View {
+        Text(Self.attributedString(from: text, size: size, weight: weight, color: color))
     }
 
-    private static func sentenceItems(from value: String) -> [String] {
-        let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return [] }
-
-        let separators = CharacterSet(charactersIn: ".!?。！？")
-        var items: [String] = []
-        var start = text.startIndex
-        var index = text.startIndex
-        while index < text.endIndex {
-            let next = text.index(after: index)
-            let scalarText = String(text[index])
-            if scalarText.rangeOfCharacter(from: separators) != nil {
-                let item = String(text[start..<next]).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !item.isEmpty {
-                    items.append(item)
-                }
-                start = next
-                while start < text.endIndex, text[start].isWhitespace {
-                    start = text.index(after: start)
-                }
-                index = start
+    private static func attributedString(
+        from text: String,
+        size: CGFloat,
+        weight: Font.Weight,
+        color: Color
+    ) -> AttributedString {
+        var result = AttributedString()
+        for segment in segments(from: text) {
+            var run = AttributedString(segment.text.addingGitCommitMessageSoftBreaks())
+            if segment.isCode {
+                run.font = .system(size: max(8, size - 1), weight: .medium, design: .monospaced)
+                run.foregroundColor = Color.primary.opacity(0.78)
+                run.backgroundColor = Color.primary.opacity(0.08)
             } else {
-                index = next
+                run.font = GitCommitMessageTextFont.font(for: segment.text, size: size, weight: weight)
+                run.foregroundColor = color
+            }
+            result.append(run)
+        }
+        return result
+    }
+
+    private static func segments(from text: String) -> [Segment] {
+        var segments: [Segment] = []
+        var index = text.startIndex
+
+        while index < text.endIndex {
+            if text[index] == "`" {
+                let contentStart = text.index(after: index)
+                if let closing = text[contentStart...].firstIndex(of: "`"), closing > contentStart {
+                    segments.append(Segment(text: String(text[contentStart..<closing]), isCode: true))
+                    index = text.index(after: closing)
+                } else {
+                    segments.append(Segment(text: String(text[index...]), isCode: false))
+                    break
+                }
+            } else {
+                let nextTick = text[index...].firstIndex(of: "`") ?? text.endIndex
+                segments.append(Segment(text: String(text[index..<nextTick]), isCode: false))
+                index = nextTick
             }
         }
 
-        let tail = String(text[start...]).trimmingCharacters(in: .whitespacesAndNewlines)
-        if !tail.isEmpty {
-            items.append(tail)
-        }
-        return items.count > 1 ? items : [text]
+        return segments.filter { !$0.text.isEmpty }
+    }
+
+    private struct Segment {
+        let text: String
+        let isCode: Bool
     }
 }
 
@@ -321,6 +341,26 @@ private enum GitCommitMessageTextFont {
                 || (0x3400...0x4DBF).contains(scalar.value)
                 || (0x20000...0x2A6DF).contains(scalar.value)
         }
+    }
+}
+
+private extension String {
+    func addingGitCommitMessageSoftBreaks(maxRunLength: Int = 32, chunkLength: Int = 16) -> String {
+        split(separator: " ", omittingEmptySubsequences: false)
+            .map { part -> String in
+                guard part.count > maxRunLength else { return String(part) }
+                var result = ""
+                var count = 0
+                for character in part {
+                    if count > 0 && count.isMultiple(of: chunkLength) {
+                        result += "\u{200B}"
+                    }
+                    result.append(character)
+                    count += 1
+                }
+                return result
+            }
+            .joined(separator: " ")
     }
 }
 

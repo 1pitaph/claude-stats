@@ -91,13 +91,16 @@ struct GitCommitMessagePromptFactory: Sendable {
         Algorithm: \(algorithm.title)
 
         Produce:
-        - commit_title: one imperative commit subject under 72 characters.
+        - commit_title: one Conventional Commit subject under 72 characters, formatted as <type>(optional-scope): <imperative summary>.
         - commit_body: short commit body with important details, tests, or caveats when useful. Use an empty string for trivial changes.
 
         Rules:
+        - Use a lowercased Conventional Commit type such as feat, fix, refactor, perf, test, docs, build, ci, chore, style, or revert.
+        - Add a short kebab-case scope only when it is clear from the changed area, for example refactor(git): or fix(settings):.
+        - Keep the subject after the colon imperative, concise, and sentence-case only when the target language requires it.
         - Return only the two requested keys. Do not add any other keys, Markdown sections, or explanatory text.
         - Do not invent tests or risk notes not supported by the evidence.
-        - Prefer plain prose in the body; use bullets only when they are clearly useful for the commit message.
+        - Prefer short body bullets for multi-detail changes; plain prose is okay for one detail.
 
         Return compact JSON like:
         {"commit_title":"...","commit_body":"..."}

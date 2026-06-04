@@ -1,7 +1,7 @@
 import Foundation
 
 struct GitCommitMessageService: Sendable {
-    static let promptVersion = "git-commit-message-prompt-v1"
+    static let promptVersion = "git-commit-message-prompt-v2"
     static let algorithmVersion = "git-commit-message-algorithm-v1"
 
     private let snapshotBuilder: GitCommitMessageSnapshotBuilder
