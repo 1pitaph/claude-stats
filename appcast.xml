@@ -6,6 +6,48 @@
     <description>Most recent updates to Claude Stats.</description>
     <language>en</language>
     <item>
+      <title>Version 1.8.9</title>
+      <sparkle:version>88</sparkle:version>
+      <sparkle:shortVersionString>1.8.9</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0.0</sparkle:minimumSystemVersion>
+      <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+      <description><![CDATA[
+<div class="cs-appcast-notes" style="font-family: -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif; color: #1f2937;">
+  <style>
+    .cs-update-size-fallback { margin: 0 0 14px; }
+    .cs-update-size-pills { display: inline-flex; align-items: center; margin-left: 10px; min-width: 0; vertical-align: middle; }
+    .cs-update-size-pill { display: inline-block; padding: 4px 10px; border: 0; border-radius: 999px; background: #eaf1ff; color: #172033; font-size: 12px; font-weight: 700; line-height: 1.2; white-space: nowrap; }
+    .cs-update-size-delta { display: none; }
+    .cs-update-size-delta.sparkle-installed-version { display: inline-block; }
+    .cs-update-size-delta.sparkle-installed-version ~ .cs-update-size-full { display: none; }
+  </style>
+<div style="margin: 0; color: #1f2937; font-size: 13px; line-height: 1.55;">
+  <p style="margin: 0 0 10px; color: #172033; font-size: 15px; font-weight: 700;">更新内容</p>
+  <div style="margin: 0; padding: 0;">
+<h2>本次更新<span class="cs-update-size-pills"><span class="cs-update-size-pill cs-update-size-delta" data-sparkle-version="86">2.2 MB</span><span class="cs-update-size-pill cs-update-size-delta" data-sparkle-version="85">2.9 MB</span><span class="cs-update-size-pill cs-update-size-delta" data-sparkle-version="84">2.9 MB</span><span class="cs-update-size-pill cs-update-size-full">90.5 MB</span></span></h2>
+<ul>
+<li>本次提交新增了完整的ClaudeStats iOS应用：</li>
+<li>搭建iOS项目结构与Xcode配置</li>
+<li>实现CloudKit同步服务ClaudeStatsShared库</li>
+<li>开发iOS端统计数据展示UI，包含仪表盘、使用统计、排行榜等页面</li>
+<li>添加入iCloud权限与测试用例</li>
+<li>适配Swift 6与iOS 17+系统版本</li>
+<li>移除自适应切换布局，移除多余分隔线，统一使用横向排列展示统计数据，简化代码结构</li>
+<li>移除了所有Apple Sign In相关的代码、权限配置和UI设置项，清理不再使用的依赖和配置。</li>
+</ul>
+  </div>
+</div>
+</div>
+]]></description>
+      <pubDate>Thu, 04 Jun 2026 23:02:59 GMT</pubDate>
+      <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.8.9/ClaudeStats-1.8.9.dmg" sparkle:edSignature="smbSy2kTgbZZjD6JHVs0Tx6YK8YJHc+Dydd7gi6HJ7u+gZ7b675dIlQmw1NOWKwdKD5SCvUn0gYOt46whkuFBg==" length="90541571" type="application/octet-stream"/>
+      <sparkle:deltas>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.8.9/ClaudeStats-88-from-86.delta" sparkle:deltaFrom="86" sparkle:edSignature="tO1xa1REmqXfXqqpBv6dPIzQx1yUZ5HQPf8bqxGHavpOPVMuesqNMrigBDrAogsnA+jSnviqQATe4jrLzF6mBA==" length="2195658" type="application/octet-stream"/>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.8.9/ClaudeStats-88-from-85.delta" sparkle:deltaFrom="85" sparkle:edSignature="en/zBNCvlyu8KqZq/+Ovo5NJRm+GUrsvaOMjWijU01kydYThILdV9UbOmg3j70qRjH/u2LERYLba8gxXuIJHCA==" length="2885590" type="application/octet-stream"/>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.8.9/ClaudeStats-88-from-84.delta" sparkle:deltaFrom="84" sparkle:edSignature="1VjSmVV9+KLIPnohn1UJuG9TAXE/UG1OgDawouefKhVNcvMIuxGS9l5vOUnI6vhW1/nhlMOlX1SluItiSD6NDw==" length="2940086" type="application/octet-stream"/>
+      </sparkle:deltas>
+    </item>
+    <item>
       <title>Version 1.8.6</title>
       <sparkle:version>86</sparkle:version>
       <sparkle:shortVersionString>1.8.6</sparkle:shortVersionString>
