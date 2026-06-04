@@ -86,8 +86,11 @@ struct DailyReportGitSheetTests {
 
         #expect(first.summary == "Implemented the daily report git sheet.")
         #expect(first.keyChanges == ["Added the timeline", "Added LLM summary caching"])
+        #expect(first.algorithm == .singleShot)
         #expect(firstRequest.outputShape == .jsonObject)
         #expect(firstPrompt.contains(#"{"summary":"...","key_changes":["..."],"risks_or_notes":[]}"#))
+        #expect(!firstPrompt.contains("commit_title"))
+        #expect(!firstPrompt.contains("commit_body"))
         #expect(firstPrompt.contains("DIFF-SENTINEL"))
         #expect(await diffProvider.callCount() == 2)
         #expect(cached.isCached)
@@ -117,6 +120,52 @@ struct DailyReportGitSheetTests {
 
         #expect(!prompt.contains("DIFF-SENTINEL"))
         #expect(await diffProvider.callCount() == 0)
+    }
+
+    @Test("Summary parser extracts three-part JSON from common LLM wrappers")
+    func summaryParserExtractsWrappedJSON() {
+        let pure = DailyReportGitSummaryResponseParser.parse("""
+        {"summary":"Implemented daily report summaries.","key_changes":["Split prompts"],"risks_or_notes":[]}
+        """)
+        let fenced = DailyReportGitSummaryResponseParser.parse("""
+        ```json
+        {"summary":"Trimmed fenced JSON.","key_changes":["Parsed fences"],"risks_or_notes":["Check cache version"]}
+        ```
+        """)
+        let wrapped = DailyReportGitSummaryResponseParser.parse("""
+        Here is the summary:
+        {"summary":"Extracted embedded JSON.","key_changes":["Kept the schema"],"risks_or_notes":[]}
+        Done.
+        """)
+
+        #expect(pure.jsonParseOK)
+        #expect(pure.summary == "Implemented daily report summaries.")
+        #expect(pure.keyChanges == ["Split prompts"])
+        #expect(pure.risksOrNotes == [])
+        #expect(fenced.jsonParseOK)
+        #expect(fenced.summary == "Trimmed fenced JSON.")
+        #expect(fenced.risksOrNotes == ["Check cache version"])
+        #expect(wrapped.jsonParseOK)
+        #expect(wrapped.summary == "Extracted embedded JSON.")
+        #expect(wrapped.keyChanges == ["Kept the schema"])
+    }
+
+    @Test("Summary planner maps input modes to explicit single-shot plans")
+    func summaryPlannerMapsInputModes() {
+        let planner = DailyReportGitSummaryPlanner()
+        let diffAware = planner.plan(inputMode: .diffAware)
+        let metadataOnly = planner.plan(inputMode: .metadataOnly)
+
+        #expect(diffAware.algorithm == .singleShot)
+        #expect(diffAware.inputMode == .diffAware)
+        #expect(diffAware.includeDiffExcerpts)
+        #expect(diffAware.diffPerCommitLimit == 8_000)
+        #expect(diffAware.diffTotalLimit == 30_000)
+        #expect(diffAware.maxTokens == 1_200)
+        #expect(diffAware.temperature == 0.2)
+        #expect(metadataOnly.algorithm == .singleShot)
+        #expect(metadataOnly.inputMode == .metadataOnly)
+        #expect(!metadataOnly.includeDiffExcerpts)
     }
 
     @Test("LLM summary Markdown preserves document and section structure")

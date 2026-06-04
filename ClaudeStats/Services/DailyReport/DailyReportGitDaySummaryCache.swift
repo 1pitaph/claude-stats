@@ -7,9 +7,11 @@ struct DailyReportGitDaySummaryCacheKey: Hashable, Sendable {
     var day: Date
     var contentHash: String
     var inputMode: DailyReportGitSummaryInputMode
+    var algorithm: DailyReportGitSummaryAlgorithm
     var language: String
     var endpointIdentity: String
     var promptVersion: String
+    var algorithmVersion: String
 
     var filename: String {
         let raw = [
@@ -18,9 +20,11 @@ struct DailyReportGitDaySummaryCacheKey: Hashable, Sendable {
             "\(day.timeIntervalSinceReferenceDate)",
             contentHash,
             inputMode.rawValue,
+            algorithm.rawValue,
             language,
             endpointIdentity,
             promptVersion,
+            algorithmVersion,
         ].joined(separator: "\u{1f}")
         let digest = SHA256.hash(data: Data(raw.utf8))
         return digest.map { String(format: "%02x", $0) }.joined() + ".json"

@@ -21,6 +21,26 @@ enum DailyReportGitSummaryInputMode: String, CaseIterable, Identifiable, Codable
     }
 }
 
+enum DailyReportGitSummaryAlgorithm: String, Codable, CaseIterable, Sendable, Hashable {
+    case singleShot
+
+    var title: String {
+        switch self {
+        case .singleShot: "single-shot"
+        }
+    }
+}
+
+struct DailyReportGitSummaryPlan: Hashable, Sendable {
+    var algorithm: DailyReportGitSummaryAlgorithm
+    var inputMode: DailyReportGitSummaryInputMode
+    var includeDiffExcerpts: Bool
+    var diffPerCommitLimit: Int
+    var diffTotalLimit: Int
+    var maxTokens: Int
+    var temperature: Double
+}
+
 struct DailyReportProjectGitSheetSelection: Identifiable, Hashable, Sendable {
     let project: DailyReportProjectDaySummary
     let day: Date
@@ -117,10 +137,39 @@ struct DailyReportGitDayLLMSummary: Codable, Hashable, Sendable, Identifiable {
     var generatedAt: Date
     var language: String
     var inputMode: DailyReportGitSummaryInputMode
+    var algorithm: DailyReportGitSummaryAlgorithm
     var commitCount: Int
     var contentHash: String
 
-    var id: String { "\(contentHash)|\(inputMode.rawValue)|\(generatedAt.timeIntervalSinceReferenceDate)" }
+    init(
+        summary: String,
+        keyChanges: [String],
+        risksOrNotes: [String],
+        modelName: String,
+        usage: GitLLMUsage,
+        isCached: Bool,
+        generatedAt: Date,
+        language: String,
+        inputMode: DailyReportGitSummaryInputMode,
+        algorithm: DailyReportGitSummaryAlgorithm = .singleShot,
+        commitCount: Int,
+        contentHash: String
+    ) {
+        self.summary = Self.trimmed(summary)
+        self.keyChanges = keyChanges.map(Self.trimmed).filter { !$0.isEmpty }
+        self.risksOrNotes = risksOrNotes.map(Self.trimmed).filter { !$0.isEmpty }
+        self.modelName = modelName
+        self.usage = usage
+        self.isCached = isCached
+        self.generatedAt = generatedAt
+        self.language = language
+        self.inputMode = inputMode
+        self.algorithm = algorithm
+        self.commitCount = commitCount
+        self.contentHash = contentHash
+    }
+
+    var id: String { "\(contentHash)|\(inputMode.rawValue)|\(algorithm.rawValue)|\(generatedAt.timeIntervalSinceReferenceDate)" }
 
     func cachedCopy() -> DailyReportGitDayLLMSummary {
         var copy = self
@@ -173,6 +222,55 @@ struct DailyReportGitDayLLMSummary: Codable, Hashable, Sendable, Identifiable {
 
     private static func trimmed(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case summary
+        case keyChanges
+        case risksOrNotes
+        case modelName
+        case usage
+        case isCached
+        case generatedAt
+        case language
+        case inputMode
+        case algorithm
+        case commitCount
+        case contentHash
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            summary: try container.decode(String.self, forKey: .summary),
+            keyChanges: try container.decode([String].self, forKey: .keyChanges),
+            risksOrNotes: try container.decode([String].self, forKey: .risksOrNotes),
+            modelName: try container.decode(String.self, forKey: .modelName),
+            usage: try container.decode(GitLLMUsage.self, forKey: .usage),
+            isCached: try container.decode(Bool.self, forKey: .isCached),
+            generatedAt: try container.decode(Date.self, forKey: .generatedAt),
+            language: try container.decode(String.self, forKey: .language),
+            inputMode: try container.decode(DailyReportGitSummaryInputMode.self, forKey: .inputMode),
+            algorithm: try container.decodeIfPresent(DailyReportGitSummaryAlgorithm.self, forKey: .algorithm) ?? .singleShot,
+            commitCount: try container.decode(Int.self, forKey: .commitCount),
+            contentHash: try container.decode(String.self, forKey: .contentHash)
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(summary, forKey: .summary)
+        try container.encode(keyChanges, forKey: .keyChanges)
+        try container.encode(risksOrNotes, forKey: .risksOrNotes)
+        try container.encode(modelName, forKey: .modelName)
+        try container.encode(usage, forKey: .usage)
+        try container.encode(isCached, forKey: .isCached)
+        try container.encode(generatedAt, forKey: .generatedAt)
+        try container.encode(language, forKey: .language)
+        try container.encode(inputMode, forKey: .inputMode)
+        try container.encode(algorithm, forKey: .algorithm)
+        try container.encode(commitCount, forKey: .commitCount)
+        try container.encode(contentHash, forKey: .contentHash)
     }
 }
 
