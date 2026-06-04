@@ -16,7 +16,13 @@ extension AppEnvironment {
         let suiteName = "com.claudestats.preview"
         let defaults = UserDefaults(suiteName: suiteName) ?? .standard
         defaults.removePersistentDomain(forName: suiteName)
-        return AppEnvironment(pricing: pricing, preferences: Preferences(defaults: defaults), providerRegistry: registry, store: store)
+        return AppEnvironment(
+            pricing: pricing,
+            preferences: Preferences(defaults: defaults),
+            providerRegistry: registry,
+            store: store,
+            appleSignIn: AppleSignInStore(defaults: defaults, entitlementChecker: { false })
+        )
     }
 }
 

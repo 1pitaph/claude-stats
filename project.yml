@@ -455,6 +455,7 @@ targets:
       - framework: ThirdParty/llama.cpp/build-macos/framework/llama.framework
         embed: true
         codeSign: true
+      - sdk: AuthenticationServices.framework
       - sdk: ApplicationServices.framework
       - sdk: Accelerate.framework
       - sdk: Metal.framework
@@ -682,6 +683,7 @@ targets:
       - package: SwiftCollections
         product: Collections
       - package: SwiftSoup
+      - sdk: AuthenticationServices.framework
       - sdk: ApplicationServices.framework
       - sdk: Accelerate.framework
       - sdk: Metal.framework

@@ -38,6 +38,7 @@ final class AppEnvironment {
     #endif
     let claudeStatus: ClaudeStatusViewModel
     let openAIStatus: OpenAIStatusViewModel
+    let appleSignIn: AppleSignInStore
     let leaderboards: LeaderboardSyncViewModel
     let usageLimits: UsageLimitStore
     #if !CLAUDE_STATS_LITE
@@ -70,7 +71,8 @@ final class AppEnvironment {
         providerRegistry: ProviderRegistry,
         store: SessionStore,
         usageLimits: UsageLimitStore? = nil,
-        systemMonitor: SystemMonitorViewModel = SystemMonitorViewModel()
+        systemMonitor: SystemMonitorViewModel = SystemMonitorViewModel(),
+        appleSignIn: AppleSignInStore = AppleSignInStore()
     ) {
         self.pricing = pricing
         self.preferences = preferences
@@ -94,6 +96,7 @@ final class AppEnvironment {
         self.gitActivity = GitActivityViewModel()
         self.claudeStatus = ClaudeStatusViewModel(preferences: preferences)
         self.openAIStatus = OpenAIStatusViewModel(preferences: preferences)
+        self.appleSignIn = appleSignIn
         self.leaderboards = LeaderboardSyncViewModel(
             preferences: preferences,
             store: store,
@@ -114,7 +117,8 @@ final class AppEnvironment {
         systemMonitor: SystemMonitorViewModel = SystemMonitorViewModel(),
         networkDebugger: NetworkDebuggerStore? = nil,
         ops: OpsStore = OpsStore(),
-        linuxDo: LinuxDoStore? = nil
+        linuxDo: LinuxDoStore? = nil,
+        appleSignIn: AppleSignInStore = AppleSignInStore()
     ) {
         self.pricing = pricing
         self.preferences = preferences
@@ -150,6 +154,7 @@ final class AppEnvironment {
         self.gitActivity = GitActivityViewModel()
         self.claudeStatus = ClaudeStatusViewModel(preferences: preferences)
         self.openAIStatus = OpenAIStatusViewModel(preferences: preferences)
+        self.appleSignIn = appleSignIn
         self.leaderboards = LeaderboardSyncViewModel(
             preferences: preferences,
             store: store,
@@ -202,6 +207,7 @@ final class AppEnvironment {
             #endif
         }
         leaderboards.start()
+        appleSignIn.start()
         Task {
             #if !CLAUDE_STATS_LITE
             await apiProviders.loadIfNeeded(keyStorageMode: preferences.apiProviderKeyStorageMode)
