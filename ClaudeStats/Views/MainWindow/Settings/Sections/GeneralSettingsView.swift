@@ -11,8 +11,6 @@ struct GeneralSettingsView: View {
         @Bindable var prefs = env.preferences
 
         VStack(alignment: .leading, spacing: 28) {
-            AppleAccountSettingsView()
-
             SettingGroup(title: "Startup") {
                 VStack(spacing: 0) {
                     SettingRow(title: "Launch at login",

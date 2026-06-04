@@ -20,8 +20,7 @@ extension AppEnvironment {
             pricing: pricing,
             preferences: Preferences(defaults: defaults),
             providerRegistry: registry,
-            store: store,
-            appleSignIn: AppleSignInStore(defaults: defaults, entitlementChecker: { false })
+            store: store
         )
     }
 }
