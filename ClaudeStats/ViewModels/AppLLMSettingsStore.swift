@@ -27,6 +27,7 @@ final class AppLLMSettingsStore {
     private(set) var settings = AppLLMSettings()
     var mode: AppLLMMode = .online
     var selectedProtocol: AppLLMProtocol = .openAIResponses
+    var gitCommitMessageAlgorithmPreference: GitCommitMessageAlgorithmPreference = .automatic
     var providerName = ""
     var providerBaseURL = ""
     var providerModel = ""
@@ -82,6 +83,7 @@ final class AppLLMSettingsStore {
         do {
             var next = settings
             next.mode = mode
+            next.gitCommitMessageAlgorithmPreference = gitCommitMessageAlgorithmPreference
             let existing = next.provider(for: selectedProtocol)
                 ?? AppLLMProvider.defaultProviders().first { $0.protocol == selectedProtocol }
                 ?? AppLLMProvider(
@@ -119,6 +121,28 @@ final class AppLLMSettingsStore {
     func useOnlineModeAndSave() async {
         mode = .online
         await saveModeOnly()
+    }
+
+    func saveGitCommitMessageAlgorithmPreference(_ preference: GitCommitMessageAlgorithmPreference) async {
+        gitCommitMessageAlgorithmPreference = preference
+        guard !isLoading else { return }
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            var next = settings
+            next.gitCommitMessageAlgorithmPreference = preference
+            next.updatedAt = .now
+            try await store.saveSettings(next)
+            settings = next
+            apply(settings: next)
+            setupMessage = "Saved Git commit message algorithm."
+            lastError = nil
+            hasLoaded = true
+        } catch {
+            lastError = error.localizedDescription
+            setupMessage = error.localizedDescription
+        }
     }
 
     func resolvedOnlineProvider() -> AppLLMResolvedOnlineProvider? {
@@ -200,6 +224,7 @@ final class AppLLMSettingsStore {
         do {
             var next = settings
             next.mode = mode
+            next.gitCommitMessageAlgorithmPreference = gitCommitMessageAlgorithmPreference
             next.updatedAt = .now
             try await store.saveSettings(next)
             settings = next
@@ -216,6 +241,7 @@ final class AppLLMSettingsStore {
     private func editedSettings() -> AppLLMSettings {
         var next = settings
         next.mode = mode
+        next.gitCommitMessageAlgorithmPreference = gitCommitMessageAlgorithmPreference
         if var provider = next.provider(for: selectedProtocol) {
             provider.name = providerName
             provider.baseURL = providerBaseURL
@@ -238,6 +264,7 @@ final class AppLLMSettingsStore {
         #endif
         self.settings = normalized
         mode = normalized.mode
+        gitCommitMessageAlgorithmPreference = normalized.gitCommitMessageAlgorithmPreference
         let provider = normalized.selectedProvider
             ?? normalized.provider(for: .openAIResponses)
             ?? AppLLMProvider.defaultProviders().first { $0.protocol == .openAIResponses }

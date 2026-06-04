@@ -142,7 +142,7 @@ struct DailyReportGitDaySummaryService: Sendable {
             )
         )
 
-        var usage = GitSummaryUsage.zero
+        var usage = GitLLMUsage.zero
         usage.add(response)
         let parsed = Self.parseResponse(response.text)
         let summary = DailyReportGitDayLLMSummary(

@@ -69,13 +69,13 @@ struct AppLLMClient: LLMGenerating {
     }
 
     func generate(endpoint: AppLLMGenerationEndpoint, request: LLMGenerationRequest) async throws -> LLMGenerationResult {
-        let maxAttempts = request.outputShape == .jsonObject ? 2 : 1
+        let maxAttempts = 2
         var activeRequest = request
         for attempt in 1...maxAttempts {
             do {
                 return try await generateOnce(endpoint: endpoint, request: activeRequest)
             } catch LLMClientError.emptyOutput where attempt < maxAttempts {
-                activeRequest = request.jsonRetryRequest()
+                activeRequest = request.emptyOutputRetryRequest()
                 continue
             }
         }
@@ -339,21 +339,31 @@ struct AppLLMClient: LLMGenerating {
         max(1, Int((Double(text.count) / 4.0).rounded(.up)))
     }
 
-    private func shouldDisableAnthropicThinking(endpoint: AppLLMGenerationEndpoint, request: LLMGenerationRequest) -> Bool {
-        guard request.outputShape == .jsonObject else { return false }
+    private func shouldDisableAnthropicThinking(endpoint: AppLLMGenerationEndpoint, request _: LLMGenerationRequest) -> Bool {
         return endpoint.baseURL.host?.lowercased().contains("deepseek.com") == true
     }
 }
 
 private extension LLMGenerationRequest {
-    func jsonRetryRequest() -> LLMGenerationRequest {
-        LLMGenerationRequest(
-            systemPrompt: systemPrompt + "\n\nThe previous response was empty. Return a compact valid JSON object only. Do not include Markdown, code fences, or explanatory text.",
-            userPrompt: userPrompt + "\n\nReturn the compact JSON object now, with double-quoted keys and string values in the requested language.",
-            maxTokens: maxTokens,
-            temperature: min(temperature, 0.2),
-            outputShape: outputShape
-        )
+    func emptyOutputRetryRequest() -> LLMGenerationRequest {
+        switch outputShape {
+        case .jsonObject:
+            LLMGenerationRequest(
+                systemPrompt: systemPrompt + "\n\nThe previous response was empty. Return a compact valid JSON object only. Do not include Markdown, code fences, or explanatory text.",
+                userPrompt: userPrompt + "\n\nReturn the compact JSON object now, with double-quoted keys and string values in the requested language.",
+                maxTokens: maxTokens,
+                temperature: min(temperature, 0.2),
+                outputShape: outputShape
+            )
+        case .text:
+            LLMGenerationRequest(
+                systemPrompt: systemPrompt + "\n\nThe previous response was empty. Return concise plain text. Do not return an empty message.",
+                userPrompt: userPrompt + "\n\nReturn concise plain text now. Do not return an empty message.",
+                maxTokens: maxTokens,
+                temperature: min(temperature, 0.2),
+                outputShape: outputShape
+            )
+        }
     }
 }
 

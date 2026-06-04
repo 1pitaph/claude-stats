@@ -150,19 +150,56 @@ struct AppLLMSettings: Codable, Sendable, Hashable {
     var mode: AppLLMMode
     var selectedProviderID: String
     var providers: [AppLLMProvider]
+    var gitCommitMessageAlgorithmPreference: GitCommitMessageAlgorithmPreference
     var updatedAt: Date
 
     init(
         mode: AppLLMMode = .online,
         selectedProviderID: String = AppLLMProvider.openAIResponsesID,
         providers: [AppLLMProvider] = AppLLMProvider.defaultProviders(),
+        gitCommitMessageAlgorithmPreference: GitCommitMessageAlgorithmPreference = .automatic,
         updatedAt: Date = .now
     ) {
         self.mode = mode
         self.selectedProviderID = selectedProviderID
         self.providers = providers
+        self.gitCommitMessageAlgorithmPreference = gitCommitMessageAlgorithmPreference
         self.updatedAt = updatedAt
         normalize()
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case mode
+        case selectedProviderID
+        case providers
+        case gitCommitMessageAlgorithmPreference
+        case gitSummaryAlgorithmPreference
+        case updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        mode = try container.decodeIfPresent(AppLLMMode.self, forKey: .mode) ?? .online
+        selectedProviderID = try container.decodeIfPresent(String.self, forKey: .selectedProviderID) ?? AppLLMProvider.openAIResponsesID
+        providers = try container.decodeIfPresent([AppLLMProvider].self, forKey: .providers) ?? AppLLMProvider.defaultProviders()
+        gitCommitMessageAlgorithmPreference = try container.decodeIfPresent(
+            GitCommitMessageAlgorithmPreference.self,
+            forKey: .gitCommitMessageAlgorithmPreference
+        ) ?? container.decodeIfPresent(
+            GitCommitMessageAlgorithmPreference.self,
+            forKey: .gitSummaryAlgorithmPreference
+        ) ?? .automatic
+        updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .now
+        normalize()
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(mode, forKey: .mode)
+        try container.encode(selectedProviderID, forKey: .selectedProviderID)
+        try container.encode(providers, forKey: .providers)
+        try container.encode(gitCommitMessageAlgorithmPreference, forKey: .gitCommitMessageAlgorithmPreference)
+        try container.encode(updatedAt, forKey: .updatedAt)
     }
 
     var selectedProvider: AppLLMProvider? {

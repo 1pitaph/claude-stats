@@ -1,32 +1,32 @@
 import CryptoKit
 import Foundation
 
-enum GitSummarySnapshotBuilderError: Error, LocalizedError, Sendable {
+enum GitCommitMessageSnapshotBuilderError: Error, LocalizedError, Sendable {
     case gitFailed(String)
     case emptyDiff
 
     var errorDescription: String? {
         switch self {
         case .gitFailed(let message): message
-        case .emptyDiff: "There is no diff to summarize."
+        case .emptyDiff: "There is no diff to generate a commit message for."
         }
     }
 }
 
-struct GitSummarySnapshotBuilder: Sendable {
+struct GitCommitMessageSnapshotBuilder: Sendable {
     private let runner: GitCommandRunner
 
     init(runner: GitCommandRunner = GitCommandRunner()) {
         self.runner = runner
     }
 
-    func snapshot(for target: GitSummaryTarget, repo: GitRepo) async throws -> GitSummarySnapshot {
+    func snapshot(for target: GitCommitMessageTarget, repo: GitRepo) async throws -> GitCommitMessageSnapshot {
         try await Task.detached(priority: .utility) {
             try buildSnapshot(for: target, repo: repo)
         }.value
     }
 
-    private func buildSnapshot(for target: GitSummaryTarget, repo: GitRepo) throws -> GitSummarySnapshot {
+    private func buildSnapshot(for target: GitCommitMessageTarget, repo: GitRepo) throws -> GitCommitMessageSnapshot {
         switch target {
         case .commit(let hash, let subject):
             let diff = try runGit(["-C", repo.rootPath, "show", "--format=", "--no-color", "--find-renames", "--find-copies", hash], timeout: 45)
@@ -35,12 +35,12 @@ struct GitSummarySnapshotBuilder: Sendable {
             let parsedMetadata = parseCommitMetadata(metadata ?? "")
             let files = Self.fileChanges(diffText: diff, numstat: numstat, workingTree: nil)
             guard !diff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !files.isEmpty else {
-                throw GitSummarySnapshotBuilderError.emptyDiff
+                throw GitCommitMessageSnapshotBuilderError.emptyDiff
             }
             let body = parsedMetadata.body
             let targetSubject = subject ?? parsedMetadata.subject
             let hashInput = Self.hashInput(diff: diff, files: files, snippets: [])
-            return GitSummarySnapshot(
+            return GitCommitMessageSnapshot(
                 repo: repo,
                 target: target,
                 targetSubject: targetSubject,
@@ -59,10 +59,10 @@ struct GitSummarySnapshotBuilder: Sendable {
             let snippets = Self.untrackedSnippets(repo: repo, changes: workingTree.changes)
             let files = Self.fileChanges(diffText: diff, numstat: numstat, workingTree: workingTree, snippets: snippets)
             guard !diff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !snippets.isEmpty || !files.isEmpty else {
-                throw GitSummarySnapshotBuilderError.emptyDiff
+                throw GitCommitMessageSnapshotBuilderError.emptyDiff
             }
             let hashInput = Self.hashInput(diff: diff, files: files, snippets: snippets)
-            return GitSummarySnapshot(
+            return GitCommitMessageSnapshot(
                 repo: repo,
                 target: target,
                 targetSubject: nil,
@@ -79,13 +79,13 @@ struct GitSummarySnapshotBuilder: Sendable {
         let result = runner.run(arguments, timeout: timeout)
         guard result.succeeded else {
             if result.timedOut {
-                throw GitSummarySnapshotBuilderError.gitFailed("Git command timed out.")
+                throw GitCommitMessageSnapshotBuilderError.gitFailed("Git command timed out.")
             }
             if result.cancelled {
                 throw CancellationError()
             }
             let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-            throw GitSummarySnapshotBuilderError.gitFailed(detail.isEmpty ? "Git command failed." : detail)
+            throw GitCommitMessageSnapshotBuilderError.gitFailed(detail.isEmpty ? "Git command failed." : detail)
         }
         return result.stdout
     }
@@ -102,9 +102,9 @@ struct GitSummarySnapshotBuilder: Sendable {
         numstat: String,
         workingTree: GitWorkingTreeSummary?,
         snippets: [GitUntrackedSnippet] = []
-    ) -> [GitSummaryFileChange] {
+    ) -> [GitCommitMessageFileChange] {
         let metadata = diffMetadata(diffText)
-        var changes: [GitSummaryFileChange] = []
+        var changes: [GitCommitMessageFileChange] = []
         var seen = Set<String>()
 
         for line in numstat.split(separator: "\n", omittingEmptySubsequences: true) {
@@ -115,7 +115,7 @@ struct GitSummarySnapshotBuilder: Sendable {
             let rawPath = String(cols[2])
             let path = normalizedNumstatPath(rawPath)
             let meta = metadata[path] ?? metadata[rawPath]
-            let change = GitSummaryFileChange(
+            let change = GitCommitMessageFileChange(
                 path: path,
                 oldPath: meta?.oldPath,
                 status: meta?.status ?? .modified,
@@ -130,10 +130,10 @@ struct GitSummarySnapshotBuilder: Sendable {
         if let workingTree {
             for change in workingTree.changes where !seen.contains(change.path) {
                 let snippet = snippets.first { $0.path == change.path }
-                changes.append(GitSummaryFileChange(
+                changes.append(GitCommitMessageFileChange(
                     path: change.path,
                     oldPath: change.oldPath,
-                    status: change.kind.summaryStatus,
+                    status: change.kind.commitMessageStatus,
                     insertions: snippet?.text.split(separator: "\n").count ?? 0,
                     deletions: 0,
                     isBinary: false
@@ -143,7 +143,7 @@ struct GitSummarySnapshotBuilder: Sendable {
         }
 
         for (path, meta) in metadata where !seen.contains(path) {
-            changes.append(GitSummaryFileChange(
+            changes.append(GitCommitMessageFileChange(
                 path: path,
                 oldPath: meta.oldPath,
                 status: meta.status,
@@ -161,15 +161,15 @@ struct GitSummarySnapshotBuilder: Sendable {
         }
     }
 
-    private static func diffMetadata(_ diffText: String) -> [String: (oldPath: String?, status: GitSummaryFileChange.Status, isBinary: Bool)] {
-        var output: [String: (oldPath: String?, status: GitSummaryFileChange.Status, isBinary: Bool)] = [:]
-        for section in splitDiffSections(diffText) {
+    private static func diffMetadata(_ diffText: String) -> [String: (oldPath: String?, status: GitCommitMessageFileChange.Status, isBinary: Bool)] {
+        var output: [String: (oldPath: String?, status: GitCommitMessageFileChange.Status, isBinary: Bool)] = [:]
+        for section in GitDiffSectionParser.splitDiffSections(diffText) {
             let lines = section.components(separatedBy: "\n")
             guard let first = lines.first, first.hasPrefix("diff --git ") else { continue }
-            let paths = parseDiffGitPaths(first)
+            let paths = GitDiffSectionParser.parseDiffGitPaths(first)
             var path = paths.new
             var oldPath = paths.old
-            var status: GitSummaryFileChange.Status = .modified
+            var status: GitCommitMessageFileChange.Status = .modified
             var isBinary = false
 
             for line in lines {
@@ -188,36 +188,7 @@ struct GitSummarySnapshotBuilder: Sendable {
     }
 
     static func splitDiffSections(_ diffText: String) -> [String] {
-        var sections: [String] = []
-        var current: [String] = []
-        for line in diffText.components(separatedBy: "\n") {
-            if line.hasPrefix("diff --git "), !current.isEmpty {
-                sections.append(current.joined(separator: "\n"))
-                current = []
-            }
-            current.append(line)
-        }
-        if !current.isEmpty {
-            sections.append(current.joined(separator: "\n"))
-        }
-        return sections.filter { $0.hasPrefix("diff --git ") }
-    }
-
-    private static func parseDiffGitPaths(_ line: String) -> (old: String, new: String) {
-        let parts = line.split(separator: " ")
-        guard parts.count >= 4 else { return ("", "") }
-        return (stripGitPrefix(String(parts[2])), stripGitPrefix(String(parts[3])))
-    }
-
-    private static func stripGitPrefix(_ path: String) -> String {
-        var output = path
-        if output.hasPrefix("\"") && output.hasSuffix("\""), output.count >= 2 {
-            output = String(output.dropFirst().dropLast())
-        }
-        if output.hasPrefix("a/") || output.hasPrefix("b/") {
-            output = String(output.dropFirst(2))
-        }
-        return output
+        GitDiffSectionParser.splitDiffSections(diffText)
     }
 
     private static func normalizedNumstatPath(_ raw: String) -> String {
@@ -253,7 +224,7 @@ struct GitSummarySnapshotBuilder: Sendable {
             }
     }
 
-    private static func hashInput(diff: String, files: [GitSummaryFileChange], snippets: [GitUntrackedSnippet]) -> String {
+    private static func hashInput(diff: String, files: [GitCommitMessageFileChange], snippets: [GitUntrackedSnippet]) -> String {
         let fileLines = files.map { "\($0.status.rawValue)\t\($0.oldPath ?? "")\t\($0.path)\t\($0.insertions)\t\($0.deletions)\t\($0.isBinary)" }
         let snippetLines = snippets.map { "untracked\t\($0.path)\t\($0.truncated)\n\($0.text)" }
         return ([diff] + fileLines + snippetLines).joined(separator: "\n")
@@ -266,7 +237,7 @@ struct GitSummarySnapshotBuilder: Sendable {
 }
 
 private extension GitWorkingTreeChange.Kind {
-    var summaryStatus: GitSummaryFileChange.Status {
+    var commitMessageStatus: GitCommitMessageFileChange.Status {
         switch self {
         case .added: .added
         case .modified: .modified

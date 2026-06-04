@@ -1,13 +1,14 @@
 import CryptoKit
 import Foundation
 
-struct GitSummaryCacheKey: Hashable, Sendable {
+struct GitCommitMessageCacheKey: Hashable, Sendable {
     var repoKey: String
     var targetKind: String
     var targetID: String
     var diffHash: String
     var language: String
     var modelID: String
+    var algorithmPreference: String
     var promptVersion: String
     var algorithmVersion: String
 
@@ -19,6 +20,7 @@ struct GitSummaryCacheKey: Hashable, Sendable {
             diffHash,
             language,
             modelID,
+            algorithmPreference,
             promptVersion,
             algorithmVersion,
         ].joined(separator: "\u{1f}")
@@ -27,10 +29,10 @@ struct GitSummaryCacheKey: Hashable, Sendable {
     }
 }
 
-actor GitSummaryCache {
+actor GitCommitMessageCache {
     private let rootDirectory: URL
 
-    init(rootDirectory: URL = GitSummaryCache.defaultRootDirectory()) {
+    init(rootDirectory: URL = GitCommitMessageCache.defaultRootDirectory()) {
         self.rootDirectory = rootDirectory
     }
 
@@ -39,23 +41,23 @@ actor GitSummaryCache {
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support", isDirectory: true)
         return base
             .appendingPathComponent("Claude Stats", isDirectory: true)
-            .appendingPathComponent("GitSummaryCache", isDirectory: true)
+            .appendingPathComponent("GitCommitMessageCache", isDirectory: true)
             .appendingPathComponent("v1", isDirectory: true)
     }
 
-    func read(_ key: GitSummaryCacheKey) async -> GitAISummaryResult? {
+    func read(_ key: GitCommitMessageCacheKey) async -> GitCommitMessageResult? {
         let url = rootDirectory.appendingPathComponent(key.filename, isDirectory: false)
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         do {
             let data = try Data(contentsOf: url)
-            return try Self.decoder.decode(GitAISummaryResult.self, from: data)
+            return try Self.decoder.decode(GitCommitMessageResult.self, from: data)
         } catch {
-            Log.git.debug("Git summary cache read failed: \(error.localizedDescription, privacy: .public)")
+            Log.git.debug("Git commit message cache read failed: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
 
-    func write(_ result: GitAISummaryResult, for key: GitSummaryCacheKey) async {
+    func write(_ result: GitCommitMessageResult, for key: GitCommitMessageCacheKey) async {
         do {
             try FileManager.default.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
             var cached = result
@@ -63,7 +65,7 @@ actor GitSummaryCache {
             let data = try Self.encoder.encode(cached)
             try data.write(to: rootDirectory.appendingPathComponent(key.filename, isDirectory: false), options: .atomic)
         } catch {
-            Log.git.debug("Git summary cache write failed: \(error.localizedDescription, privacy: .public)")
+            Log.git.debug("Git commit message cache write failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 

@@ -57,5 +57,6 @@ ClaudeStats/Resources/GitTools/manifest.json
 
 # === Misc === #
 var/memory-logs/
+logs/
 *.log
 *.orig

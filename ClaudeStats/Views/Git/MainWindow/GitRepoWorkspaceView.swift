@@ -313,7 +313,7 @@ private struct GitCommitInspector: View {
                         commitSummary(commit)
                         if let detail = vm.commitDetail {
                             commitMessage(detail)
-                            GitAISummaryCard(
+                            GitCommitMessageCard(
                                 repo: repo,
                                 target: .commit(hash: detail.hash, subject: detail.subject)
                             )
@@ -430,7 +430,7 @@ private struct GitCommitInspector: View {
                 AppScrollView {
                     VStack(alignment: .leading, spacing: 14) {
                         workingTreeSummary(summary)
-                        GitAISummaryCard(repo: repo, target: .workingTree)
+                        GitCommitMessageCard(repo: repo, target: .workingTree)
                         workingTreeFiles(summary)
                     }
                     .padding(14)

@@ -112,7 +112,7 @@ struct DailyReportGitDayLLMSummary: Codable, Hashable, Sendable, Identifiable {
     var keyChanges: [String]
     var risksOrNotes: [String]
     var modelName: String
-    var usage: GitSummaryUsage
+    var usage: GitLLMUsage
     var isCached: Bool
     var generatedAt: Date
     var language: String

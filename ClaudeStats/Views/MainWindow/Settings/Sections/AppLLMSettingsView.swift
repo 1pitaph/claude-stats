@@ -1,7 +1,9 @@
+import AppKit
 import SwiftUI
 
 struct AppLLMSettingsView: View {
     @Environment(AppEnvironment.self) private var env
+    @AppStorage(GitCommitMessageDiagnosticsLog.retentionDefaultsKey) private var gitCommitMessageDiagnosticsRetentionDays = GitCommitMessageDiagnosticsLog.defaultRetentionDays
 
     var body: some View {
         @Bindable var llm = env.appLLMSettings
@@ -12,7 +14,7 @@ struct AppLLMSettingsView: View {
         VStack(alignment: .leading, spacing: 28) {
             SettingGroup(
                 title: "LLM Mode",
-                caption: "Used by AI-powered features such as Git summaries. Generation is still manual, so nothing is sent until you click Generate."
+                caption: "Used by AI-powered features such as Git commit messages. Generation is still manual, so nothing is sent until you click Generate."
             ) {
                 VStack(spacing: 0) {
                     SettingRow(title: "Mode", description: "Choose the default model source.") {
@@ -23,6 +25,22 @@ struct AppLLMSettingsView: View {
                             width: 190,
                             size: .small
                         )
+                    }
+                    SettingRowDivider()
+                    SettingRow(title: "Git commit message", description: "Choose automatic routing or force a single LLM call.") {
+                        AppSelect(
+                            .localized("Git commit message"),
+                            selection: $llm.gitCommitMessageAlgorithmPreference,
+                            options: GitCommitMessageAlgorithmPreference.allCases.map {
+                                AppSelectOption(value: $0, title: .localized($0.title), subtitle: .verbatim($0.subtitle))
+                            },
+                            width: 230,
+                            size: .small,
+                            onSelectionChange: { preference in
+                                Task { await llm.saveGitCommitMessageAlgorithmPreference(preference) }
+                            }
+                        )
+                        .disabled(llm.isLoading)
                     }
                     SettingRowDivider()
                     SettingRow(title: "Status", description: "Current readiness for generation.") {
@@ -49,6 +67,10 @@ struct AppLLMSettingsView: View {
                 localProviderGroup(llm: llm, localAI: localAI)
             }
             #endif
+
+            TimelineView(.periodic(from: .now, by: 1.0)) { context in
+                gitCommitMessageDiagnosticsGroup(refreshDate: context.date)
+            }
 
             if let message = llm.setupMessage {
                 Text(message)
@@ -126,6 +148,93 @@ struct AppLLMSettingsView: View {
         }
     }
 
+    private func gitCommitMessageDiagnosticsGroup(refreshDate: Date) -> some View {
+        let readableLogPath = GitCommitMessageDiagnosticsLog.currentReadableLogURL(date: refreshDate).path
+        let jsonLogPath = GitCommitMessageDiagnosticsLog.currentLogURL(date: refreshDate).path
+        let sourceReadableLogPath = GitCommitMessageDiagnosticsLog.sourceRootLogDirectory()
+            .map { GitCommitMessageDiagnosticsLog.currentReadableLogURL(directory: $0, date: refreshDate).path }
+        let sourceSize = GitCommitMessageDiagnosticsLog.sourceRootLogDirectory().map {
+            GitCommitMessageDiagnosticsLog.currentReadableLogSize(directory: $0, date: refreshDate) +
+                GitCommitMessageDiagnosticsLog.currentLogSize(directory: $0, date: refreshDate)
+        } ?? 0
+        let size = GitCommitMessageDiagnosticsLog.currentReadableLogSize(date: refreshDate) +
+            GitCommitMessageDiagnosticsLog.currentLogSize(date: refreshDate) +
+            sourceSize
+        return SettingGroup(
+            title: "Git Commit Message Diagnostics Log",
+            caption: "Writes redacted metadata for Git commit message LLM calls, cache lookups, parse status, timings, and token counts."
+        ) {
+            VStack(spacing: 0) {
+                SettingRow(title: "Current log", description: readableLogPath.memoryAbbreviatingHomeDirectory) {
+                    GitCommitMessageDiagnosticsCopyButton(value: readableLogPath, label: "Copy Log Path")
+                }
+                SettingRowDivider()
+                SettingRow(title: "JSONL", description: jsonLogPath.memoryAbbreviatingHomeDirectory) {
+                    GitCommitMessageDiagnosticsCopyButton(value: jsonLogPath, label: "Copy JSONL Path")
+                }
+                SettingRowDivider()
+                if let sourceReadableLogPath {
+                    SettingRow(title: "Code root mirror", description: sourceReadableLogPath.memoryAbbreviatingHomeDirectory) {
+                        GitCommitMessageDiagnosticsCopyButton(value: sourceReadableLogPath, label: "Copy Code Root Log Path")
+                    }
+                    SettingRowDivider()
+                }
+                SettingRow(title: "Size", description: ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)) {
+                    EmptyView()
+                }
+                SettingRowDivider()
+                SettingRow(title: "Retention", description: "Old git-commit-message log files are pruned on write and when this setting changes.") {
+                    HStack(spacing: 8) {
+                        AppSelect(
+                            .localized("Retention"),
+                            selection: gitCommitMessageDiagnosticsRetention,
+                            options: GitCommitMessageDiagnosticsRetention.allCases.map {
+                                AppSelectOption(value: $0, title: .localized($0.title))
+                            },
+                            width: 150,
+                            size: .small,
+                            onSelectionChange: { retention in
+                                GitCommitMessageDiagnosticsLog.setConfiguredRetentionDays(retention.rawValue)
+                            }
+                        )
+                        Button {
+                            GitCommitMessageDiagnosticsLog.openCurrentLog()
+                        } label: {
+                            Label("Open Current Log", systemImage: AppIcon.Resource.transcriptSearch)
+                        }
+                        .controlSize(.small)
+
+                        Button {
+                            GitCommitMessageDiagnosticsLog.revealLogFolder()
+                        } label: {
+                            Label("Reveal Log Folder", systemImage: AppIcon.Resource.folder)
+                        }
+                        .controlSize(.small)
+
+                        if sourceReadableLogPath != nil {
+                            Button {
+                                GitCommitMessageDiagnosticsLog.revealSourceRootLogFolder()
+                            } label: {
+                                Label("Reveal Code Logs", systemImage: AppIcon.Resource.folder)
+                            }
+                            .controlSize(.small)
+                        }
+                    }
+                }
+            }
+            .settingCard()
+        }
+    }
+
+    private var gitCommitMessageDiagnosticsRetention: Binding<GitCommitMessageDiagnosticsRetention> {
+        Binding {
+            GitCommitMessageDiagnosticsRetention(rawValue: gitCommitMessageDiagnosticsRetentionDays) ?? .threeDays
+        } set: { retention in
+            gitCommitMessageDiagnosticsRetentionDays = retention.rawValue
+            GitCommitMessageDiagnosticsLog.setConfiguredRetentionDays(retention.rawValue)
+        }
+    }
+
     #if !CLAUDE_STATS_LITE
     private func localProviderGroup(llm: AppLLMSettingsStore, localAI: LocalAIStore) -> some View {
         @Bindable var llm = llm
@@ -183,6 +292,23 @@ struct AppLLMSettingsView: View {
         }
     }
     #endif
+}
+
+private struct GitCommitMessageDiagnosticsCopyButton: View {
+    let value: String
+    let label: String
+
+    var body: some View {
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(value, forType: .string)
+        } label: {
+            Label(label, systemImage: AppIcon.Resource.link)
+        }
+        .controlSize(.small)
+        .disabled(value.isEmpty)
+        .help(label)
+    }
 }
 
 #if DEBUG

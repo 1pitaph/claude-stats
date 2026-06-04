@@ -120,6 +120,26 @@ struct LLMClientTests {
         #expect(request.body.contains(#""thinking":{"type":"disabled"}"#))
     }
 
+    @Test("DeepSeek Anthropic text requests disable thinking")
+    func deepSeekAnthropicTextRequestsDisableThinking() async throws {
+        let capture = LLMRequestCapture()
+        let client = AppLLMClient { request in
+            await capture.record(request)
+            let body = """
+            {"model":"deepseek-v4-flash","content":[{"type":"text","text":"No material issues found."}],"usage":{"input_tokens":21,"output_tokens":5}}
+            """
+            return (Data(body.utf8), HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+
+        _ = try await client.generate(
+            endpoint: endpoint(protocol: .anthropicMessages, baseURL: "https://api.deepseek.com/anthropic", model: "deepseek-v4-flash"),
+            request: LLMGenerationRequest(systemPrompt: "sys", userPrompt: "user", maxTokens: 42, outputShape: .text)
+        )
+        let request = try #require(await capture.last())
+
+        #expect(request.body.contains(#""thinking":{"type":"disabled"}"#))
+    }
+
     @Test("JSON object requests retry once after empty content")
     func jsonObjectRequestsRetryOnceAfterEmptyContent() async throws {
         let capture = LLMRequestCapture()
@@ -144,6 +164,32 @@ struct LLMClientTests {
         #expect(requests.count == 2)
         #expect(requests[1].body.contains("previous response was empty"))
         #expect(requests[1].body.contains("compact JSON object"))
+    }
+
+    @Test("Text requests retry once after empty content")
+    func textRequestsRetryOnceAfterEmptyContent() async throws {
+        let capture = LLMRequestCapture()
+        let client = AppLLMClient { request in
+            await capture.record(request)
+            let count = await capture.count()
+            let body = if count == 1 {
+                #"{"model":"deepseek-v4-flash","content":[],"usage":{"input_tokens":21,"output_tokens":0}}"#
+            } else {
+                #"{"model":"deepseek-v4-flash","content":[{"type":"text","text":"No material issues found."}],"usage":{"input_tokens":22,"output_tokens":5}}"#
+            }
+            return (Data(body.utf8), HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+
+        let result = try await client.generate(
+            endpoint: endpoint(protocol: .anthropicMessages, baseURL: "https://api.deepseek.com/anthropic", model: "deepseek-v4-flash"),
+            request: LLMGenerationRequest(systemPrompt: "sys", userPrompt: "user", maxTokens: 42, outputShape: .text)
+        )
+        let requests = await capture.all()
+
+        #expect(result.text == "No material issues found.")
+        #expect(requests.count == 2)
+        #expect(requests[1].body.contains("previous response was empty"))
+        #expect(requests[1].body.contains("Return concise plain text now"))
     }
 
     private func endpoint(
