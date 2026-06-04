@@ -6,6 +6,48 @@
     <description>Most recent updates to Claude Stats.</description>
     <language>en</language>
     <item>
+      <title>Version 1.8.6</title>
+      <sparkle:version>86</sparkle:version>
+      <sparkle:shortVersionString>1.8.6</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0.0</sparkle:minimumSystemVersion>
+      <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+      <description><![CDATA[
+<div class="cs-appcast-notes" style="font-family: -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif; color: #1f2937;">
+  <style>
+    .cs-update-size-fallback { margin: 0 0 14px; }
+    .cs-update-size-pills { display: inline-flex; align-items: center; margin-left: 10px; min-width: 0; vertical-align: middle; }
+    .cs-update-size-pill { display: inline-block; padding: 4px 10px; border: 0; border-radius: 999px; background: #eaf1ff; color: #172033; font-size: 12px; font-weight: 700; line-height: 1.2; white-space: nowrap; }
+    .cs-update-size-delta { display: none; }
+    .cs-update-size-delta.sparkle-installed-version { display: inline-block; }
+    .cs-update-size-delta.sparkle-installed-version ~ .cs-update-size-full { display: none; }
+  </style>
+<div style="margin: 0; color: #1f2937; font-size: 13px; line-height: 1.55;">
+  <p style="margin: 0 0 10px; color: #172033; font-size: 15px; font-weight: 700;">更新内容</p>
+  <div style="margin: 0; padding: 0;">
+<h2>本次更新<span class="cs-update-size-pills"><span class="cs-update-size-pill cs-update-size-delta" data-sparkle-version="85">2.6 MB</span><span class="cs-update-size-pill cs-update-size-delta" data-sparkle-version="84">2.7 MB</span><span class="cs-update-size-pill cs-update-size-delta" data-sparkle-version="83">2.9 MB</span><span class="cs-update-size-pill cs-update-size-full">90.4 MB</span></span></h2>
+<ul>
+<li>重构并拆分了每日Git摘要服务，将原有的单文件逻辑拆分为计划器、流水线、结果构建器、diff提供器等独立模块，新增了摘要算法配置、缓存键扩展、响应解析器等组件，优化了代码结构与可维护性，同时完善了测试用例。</li>
+<li>新增完整的Git提交消息生成工作流：</li>
+<li>新增Git diff解析、分块、token估算工具</li>
+<li>实现基于LLM的提交消息生成逻辑，支持单轮/分块/映射缩减多种算法</li>
+<li>替换原有的Git摘要功能为专用的提交消息模块</li>
+<li>添加提交消息缓存和配置选项</li>
+<li>新增诊断日志功能用于调试生成流程</li>
+<li>重构LLM客户端重试逻辑，支持文本和JSON请求的差异化重试</li>
+</ul>
+  </div>
+</div>
+</div>
+]]></description>
+      <pubDate>Thu, 04 Jun 2026 06:54:47 GMT</pubDate>
+      <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.8.6/ClaudeStats-1.8.6.dmg" sparkle:edSignature="4Zy3uyX8altZ70vT3J+qL8mcixHcXZagmw7DwwPbQDfYTLYdVcRmhaaxVZXTnwg2DzFCqUY+k3pLUhK3LUu0BA==" length="90401372" type="application/octet-stream"/>
+      <sparkle:deltas>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.8.6/ClaudeStats-86-from-85.delta" sparkle:deltaFrom="85" sparkle:edSignature="J8i2J5ShZyso5bHx8D93DNm9UEXZl3NUPrZ7F7iwPMXs96j9vST+E5Jmtwew+01s7mmn2uUQyGdmvvrKcd3kBg==" length="2614266" type="application/octet-stream"/>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.8.6/ClaudeStats-86-from-84.delta" sparkle:deltaFrom="84" sparkle:edSignature="3+SnChGrYhOKHpNU4BwSvxo8MjB1EzLHfnha5p5lQs2cA9G8EdA54twQwTA0Hb1h1G8rYqK/h4T+tmZw6b1UDQ==" length="2672574" type="application/octet-stream"/>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.8.6/ClaudeStats-86-from-83.delta" sparkle:deltaFrom="83" sparkle:edSignature="ITsLuGt7DEvEJBC/Y2z0NoyCRdOFrT5cEczL6x3JGPdB5yC21PrF/YN81OMZmqZqzNelk5XRmt0ie3hprlZ0Cg==" length="2918394" type="application/octet-stream"/>
+      </sparkle:deltas>
+    </item>
+    <item>
       <title>Version 1.8.5</title>
       <sparkle:version>85</sparkle:version>
       <sparkle:shortVersionString>1.8.5</sparkle:shortVersionString>
