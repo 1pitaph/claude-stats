@@ -6,6 +6,46 @@
     <description>Most recent updates to Claude Stats Lite.</description>
     <language>en</language>
     <item>
+      <title>Version 1.8.10</title>
+      <sparkle:version>89</sparkle:version>
+      <sparkle:shortVersionString>1.8.10</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0.0</sparkle:minimumSystemVersion>
+      <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+      <description><![CDATA[
+<div class="cs-appcast-notes" style="font-family: -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif; color: #1f2937;">
+  <style>
+    .cs-update-size-fallback { margin: 0 0 14px; }
+    .cs-update-size-pills { display: inline-flex; align-items: center; margin-left: 10px; min-width: 0; vertical-align: middle; }
+    .cs-update-size-pill { display: inline-block; padding: 4px 10px; border: 0; border-radius: 999px; background: #eaf1ff; color: #172033; font-size: 12px; font-weight: 700; line-height: 1.2; white-space: nowrap; }
+    .cs-update-size-delta { display: none; }
+    .cs-update-size-delta.sparkle-installed-version { display: inline-block; }
+    .cs-update-size-delta.sparkle-installed-version ~ .cs-update-size-full { display: none; }
+  </style>
+<div style="margin: 0; color: #1f2937; font-size: 13px; line-height: 1.55;">
+  <p style="margin: 0 0 10px; color: #172033; font-size: 15px; font-weight: 700;">更新内容</p>
+  <div style="margin: 0; padding: 0;">
+<h2>本次更新<span class="cs-update-size-pills"><span class="cs-update-size-pill cs-update-size-delta" data-sparkle-version="88">1.6 MB</span><span class="cs-update-size-pill cs-update-size-delta" data-sparkle-version="86">1.9 MB</span><span class="cs-update-size-pill cs-update-size-delta" data-sparkle-version="85">2.1 MB</span><span class="cs-update-size-pill cs-update-size-full">61.1 MB</span></span></h2>
+<ul>
+<li>新增了iCloud同步的设置页面，添加了CloudKit快照同步的相关服务与状态管理，包括：</li>
+<li>新增iCloud Sync设置选项与对应的设置页面</li>
+<li>重构CloudKit客户端配置，抽取公共常量</li>
+<li>添加同步状态管理与测试用例</li>
+<li>完善应用环境中的同步调度逻辑</li>
+<li>本次更新添加了Codex Credits成本估算模式，支持按OpenAI Codex信用点计算费用；重构了成本计算逻辑，新增了成本使用信用点的判断方法；更新了本地化字符串与UI展示，适配新的成本格式；完善了定价模型与测试用例，修复了部分细节问题。</li>
+</ul>
+  </div>
+</div>
+</div>
+]]></description>
+      <pubDate>Fri, 05 Jun 2026 03:22:31 GMT</pubDate>
+      <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.8.10/ClaudeStatsLite-1.8.10.dmg" sparkle:edSignature="g0cdL/bD8c1yg0NMYt/EoZ2W7MuNbKhP2tYaKBXzjYd0GOu5zcROZQ0sbirQ8Af3MDEnLNzcX9ESBVbO1lcwDg==" length="61065028" type="application/octet-stream"/>
+      <sparkle:deltas>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.8.10/ClaudeStatsLite-89-from-88.delta" sparkle:deltaFrom="88" sparkle:edSignature="ll7OfR2T4UCNGT2muWOSfRTysEi7PBbcM+IGkb8WlGa7VThSkbsHHx3RYUsMbi8x/sKuTZTtxrKtMC/9xM6VDw==" length="1571766" type="application/octet-stream"/>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.8.10/ClaudeStatsLite-89-from-86.delta" sparkle:deltaFrom="86" sparkle:edSignature="YduefvFK8CwBzszyWO26+IcqqYSZw2teOjZwPFiXtNYnNndoi/o6dyp0IjKoXyScOGzr6Im38hoYGu0zt1EHAQ==" length="1868306" type="application/octet-stream"/>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.8.10/ClaudeStatsLite-89-from-85.delta" sparkle:deltaFrom="85" sparkle:edSignature="JTjHkcS9WYv6956d1+w1pDT0jIRHGt+Gn9PWeR38ll7VmRtx08AxqiZYkIGCz9e0BTerclJ0PwOt4QAG/JN2Cg==" length="2143902" type="application/octet-stream"/>
+      </sparkle:deltas>
+    </item>
+    <item>
       <title>Version 1.8.9</title>
       <sparkle:version>88</sparkle:version>
       <sparkle:shortVersionString>1.8.9</sparkle:shortVersionString>
