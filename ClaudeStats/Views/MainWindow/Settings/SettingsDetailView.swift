@@ -77,6 +77,7 @@ struct SettingsDetailView: View {
         switch activeSection {
         case .general: GeneralSettingsView()
         case .features: FeaturesSettingsView(onSelectSection: onSelectSection)
+        case .iCloudSync: CloudStatsSyncSettingsView()
         case .menuBar: MenuBarSettingsView()
         case .notchIsland: EmptyView()
         case .platforms: PlatformsSettingsView()

@@ -176,6 +176,7 @@ enum AppIcon {
         static let about = Status.info
         static let features = "switch.2"
         static let general = "gearshape.2"
+        static let iCloudSync = "icloud"
         static let systemSettings = "gear"
         static let llm = "brain.head.profile"
         static let menuBar = "menubar.rectangle"

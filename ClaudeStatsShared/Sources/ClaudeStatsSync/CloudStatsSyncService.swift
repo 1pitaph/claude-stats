@@ -96,10 +96,12 @@ public struct CloudStatsSyncService: Sendable {
 
 public struct CloudStatsCloudKitClient: CloudStatsRemoteClient {
     public static let defaultContainerIdentifier = "iCloud.com.claudestats.ClaudeStats"
+    public static let recordType = "StatsSnapshotV1"
+    public static let latestRecordName = "stats_snapshot_latest_v1"
 
     private enum Record {
-        static let type = "StatsSnapshotV1"
-        static let latestName = "stats_snapshot_latest_v1"
+        static let type = CloudStatsCloudKitClient.recordType
+        static let latestName = CloudStatsCloudKitClient.latestRecordName
     }
 
     private enum Field {

@@ -5,6 +5,7 @@ import Foundation
 enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
     case general
     case features
+    case iCloudSync
     case menuBar
     case notchIsland
     case platforms
@@ -44,6 +45,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .general:   L10n.string("settings.section.general", defaultValue: "General")
         case .features:  L10n.string("settings.section.features", defaultValue: "Features")
+        case .iCloudSync: "iCloud Sync"
         case .menuBar:   L10n.string("settings.section.menu_bar", defaultValue: "Menu Bar")
         case .notchIsland: L10n.string("settings.section.notch_island", defaultValue: "Notch Island")
         case .platforms: L10n.string("settings.section.platforms", defaultValue: "Platforms")
@@ -64,6 +66,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .general:   AppIcon.Settings.general
         case .features:  AppIcon.Settings.features
+        case .iCloudSync: AppIcon.Settings.iCloudSync
         case .menuBar:   AppIcon.Settings.menuBar
         case .notchIsland: AppIcon.Settings.notchIsland
         case .platforms: AppIcon.Settings.platforms

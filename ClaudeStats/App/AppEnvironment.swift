@@ -24,7 +24,9 @@ final class AppEnvironment {
     let updater = UpdaterController()
     let floatingStatsPanel = FloatingStatsPanelController()
     let cursorCommandOverlay = CursorCommandOverlayController()
-    @ObservationIgnored private let cloudStatsSync = CloudStatsSyncService()
+    var cloudStatsSyncState = CloudStatsSnapshotSyncState()
+    @ObservationIgnored private let cloudStatsSync: CloudStatsSyncService
+    @ObservationIgnored private let cloudStatsEntitlementChecker: @Sendable (String) -> Bool
     @ObservationIgnored private var cloudStatsPublishTask: Task<Void, Never>?
     #if !CLAUDE_STATS_LITE
     let notchIsland = NotchIslandController()
@@ -73,12 +75,16 @@ final class AppEnvironment {
         providerRegistry: ProviderRegistry,
         store: SessionStore,
         usageLimits: UsageLimitStore? = nil,
-        systemMonitor: SystemMonitorViewModel = SystemMonitorViewModel()
+        systemMonitor: SystemMonitorViewModel = SystemMonitorViewModel(),
+        cloudStatsSync: CloudStatsSyncService = CloudStatsSyncService(),
+        cloudStatsEntitlementChecker: @escaping @Sendable (String) -> Bool = CloudKitRuntimeEntitlements.hasCloudKitAccess
     ) {
         self.pricing = pricing
         self.preferences = preferences
         self.providerRegistry = providerRegistry
         self.store = store
+        self.cloudStatsSync = cloudStatsSync
+        self.cloudStatsEntitlementChecker = cloudStatsEntitlementChecker
         let technicalTermRepository = TechnicalTermDictionaryRepository()
         self.technicalTerms = TechnicalTermDictionaryStore(repository: technicalTermRepository)
         self.transcriptAnalysis = TranscriptAnalysisStore(
@@ -117,12 +123,16 @@ final class AppEnvironment {
         systemMonitor: SystemMonitorViewModel = SystemMonitorViewModel(),
         networkDebugger: NetworkDebuggerStore? = nil,
         ops: OpsStore = OpsStore(),
-        linuxDo: LinuxDoStore? = nil
+        linuxDo: LinuxDoStore? = nil,
+        cloudStatsSync: CloudStatsSyncService = CloudStatsSyncService(),
+        cloudStatsEntitlementChecker: @escaping @Sendable (String) -> Bool = CloudKitRuntimeEntitlements.hasCloudKitAccess
     ) {
         self.pricing = pricing
         self.preferences = preferences
         self.providerRegistry = providerRegistry
         self.store = store
+        self.cloudStatsSync = cloudStatsSync
+        self.cloudStatsEntitlementChecker = cloudStatsEntitlementChecker
         let technicalTermRepository = TechnicalTermDictionaryRepository()
         self.technicalTerms = TechnicalTermDictionaryStore(repository: technicalTermRepository)
         let localAI = LocalAIStore()
@@ -198,9 +208,7 @@ final class AppEnvironment {
         store.onRefresh = { [weak self] in
             guard let self else { return }
             self.leaderboards.scheduleSilentSyncAfterDataRefresh()
-            #if CLAUDE_STATS_LITE
             self.scheduleCloudStatsSnapshotPublish(reason: "data refresh")
-            #endif
             #if !CLAUDE_STATS_LITE
             Task { [weak self] in
                 await self?.syncMemorySourcesFromCurrentState()
@@ -255,9 +263,31 @@ final class AppEnvironment {
         #endif
     }
 
-    #if CLAUDE_STATS_LITE
+    func refreshCloudStatsSnapshotSyncStatus() async {
+        let hasEntitlement = updateCloudStatsEntitlementState(checkedAt: .now)
+        guard hasEntitlement else { return }
+
+        cloudStatsSyncState.phase = .checkingAccount
+        let status = await cloudStatsSync.accountStatus()
+        cloudStatsSyncState.accountStatus = status
+        cloudStatsSyncState.lastCheckedAt = .now
+        switch status {
+        case .available:
+            cloudStatsSyncState.phase = cloudStatsSyncState.lastPublishedAt == nil ? .ready : .published
+        case .unknown:
+            cloudStatsSyncState.phase = .ready
+        case .noAccount, .restricted, .unavailable:
+            cloudStatsSyncState.phase = .unavailable
+        }
+    }
+
+    func publishCloudStatsSnapshotNow() async {
+        await publishCloudStatsSnapshot(reason: "manual publish", refreshAccount: true)
+    }
+
     private func scheduleCloudStatsSnapshotPublish(reason: String) {
         guard hasCloudStatsCloudKitAccess else {
+            updateCloudStatsEntitlementState(checkedAt: .now)
             Log.app.debug("Skipping iCloud stats snapshot publish for \(reason, privacy: .public): CloudKit entitlement is unavailable")
             return
         }
@@ -268,26 +298,57 @@ final class AppEnvironment {
         }
     }
 
-    private func publishCloudStatsSnapshot(reason: String) async {
-        guard hasCloudStatsCloudKitAccess else {
+    private func publishCloudStatsSnapshot(reason: String, refreshAccount: Bool = false) async {
+        guard updateCloudStatsEntitlementState(checkedAt: .now) else {
             Log.app.debug("Skipping iCloud stats snapshot publish for \(reason, privacy: .public): CloudKit entitlement is unavailable")
             return
         }
+
+        if refreshAccount || cloudStatsSyncState.accountStatus == .unknown {
+            cloudStatsSyncState.phase = .checkingAccount
+            let status = await cloudStatsSync.accountStatus()
+            cloudStatsSyncState.accountStatus = status
+            cloudStatsSyncState.lastCheckedAt = .now
+            guard status == .available || status == .unknown else {
+                cloudStatsSyncState.phase = .unavailable
+                cloudStatsSyncState.lastError = nil
+                Log.app.debug("Skipping iCloud stats snapshot publish for \(reason, privacy: .public): \(status.displayText, privacy: .public)")
+                return
+            }
+        }
+
         let snapshot = StatsSnapshotBuilder.make(environment: self)
+        cloudStatsSyncState.phase = .publishing
+        cloudStatsSyncState.lastPublishReason = reason
+        cloudStatsSyncState.lastSnapshotGeneratedAt = snapshot.generatedAt
+        cloudStatsSyncState.lastError = nil
         do {
             try await cloudStatsSync.publish(snapshot: snapshot)
+            cloudStatsSyncState.phase = .published
+            cloudStatsSyncState.lastPublishedAt = .now
             Log.app.info("Published iCloud stats snapshot for \(reason, privacy: .public)")
         } catch {
+            cloudStatsSyncState.phase = .failed
+            cloudStatsSyncState.lastError = error.localizedDescription
             Log.app.error("iCloud stats snapshot publish failed for \(reason, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
     }
 
     private var hasCloudStatsCloudKitAccess: Bool {
-        CloudKitRuntimeEntitlements.hasCloudKitAccess(
-            containerIdentifier: CloudStatsCloudKitClient.defaultContainerIdentifier
-        )
+        cloudStatsEntitlementChecker(CloudStatsCloudKitClient.defaultContainerIdentifier)
     }
-    #endif
+
+    @discardableResult
+    private func updateCloudStatsEntitlementState(checkedAt: Date) -> Bool {
+        let hasAccess = hasCloudStatsCloudKitAccess
+        cloudStatsSyncState.entitlementAvailable = hasAccess
+        cloudStatsSyncState.lastCheckedAt = checkedAt
+        if !hasAccess {
+            cloudStatsSyncState.phase = .missingEntitlement
+            cloudStatsSyncState.accountStatus = .unknown
+        }
+        return hasAccess
+    }
 
     #if !CLAUDE_STATS_LITE
     private func syncMemorySourcesFromCurrentState() async {
