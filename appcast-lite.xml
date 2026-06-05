@@ -6,6 +6,48 @@
     <description>Most recent updates to Claude Stats Lite.</description>
     <language>en</language>
     <item>
+      <title>Version 1.9.0</title>
+      <sparkle:version>90</sparkle:version>
+      <sparkle:shortVersionString>1.9.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0.0</sparkle:minimumSystemVersion>
+      <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+      <description><![CDATA[
+<div class="cs-appcast-notes" style="font-family: -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif; color: #1f2937;">
+  <style>
+    .cs-update-size-fallback { margin: 0 0 14px; }
+    .cs-update-size-pills { display: inline-flex; align-items: center; margin-left: 10px; min-width: 0; vertical-align: middle; }
+    .cs-update-size-pill { display: inline-block; padding: 4px 10px; border: 0; border-radius: 999px; background: #eaf1ff; color: #172033; font-size: 12px; font-weight: 700; line-height: 1.2; white-space: nowrap; }
+    .cs-update-size-delta { display: none; }
+    .cs-update-size-delta.sparkle-installed-version { display: inline-block; }
+    .cs-update-size-delta.sparkle-installed-version ~ .cs-update-size-full { display: none; }
+  </style>
+<div style="margin: 0; color: #1f2937; font-size: 13px; line-height: 1.55;">
+  <p style="margin: 0 0 10px; color: #172033; font-size: 15px; font-weight: 700;">更新内容</p>
+  <div style="margin: 0; padding: 0;">
+<h2>本次更新<span class="cs-update-size-pills"><span class="cs-update-size-pill cs-update-size-delta" data-sparkle-version="89">1.7 MB</span><span class="cs-update-size-pill cs-update-size-delta" data-sparkle-version="88">1.9 MB</span><span class="cs-update-size-pill cs-update-size-delta" data-sparkle-version="86">2.1 MB</span><span class="cs-update-size-pill cs-update-size-full">61.2 MB</span></span></h2>
+<ul>
+<li>添加了排行榜公开状态枚举，支持6种状态展示</li>
+<li>新增头像旁的状态徽章组件，可编辑设置个人公开状态</li>
+<li>扩展本地偏好和排行榜数据模型，存储最近状态信息</li>
+<li>实现跨设备状态合并同步逻辑，以更新时间优先</li>
+<li>更新CloudKit同步映射，支持上传和拉取状态数据</li>
+<li>在排行榜详情页展示当前用户的公开状态</li>
+<li>调整设置页面隐私说明，更新上传内容描述</li>
+<li>修复iOS测试脚本的模拟器型号为iPhone 17 Pro</li>
+</ul>
+  </div>
+</div>
+</div>
+]]></description>
+      <pubDate>Fri, 05 Jun 2026 07:36:00 GMT</pubDate>
+      <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.9.0/ClaudeStatsLite-1.9.0.dmg" sparkle:edSignature="aDYf3ztcwpdhuSKgWSEoCEbZDRyU5pzqhNcGyhZQio9WoLWa4x/3LWTKTksKfOwTSPiFoD5sl5lcvTcbDzscCA==" length="61247481" type="application/octet-stream"/>
+      <sparkle:deltas>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.9.0/ClaudeStatsLite-90-from-89.delta" sparkle:deltaFrom="89" sparkle:edSignature="D1NIQPJDy/z2LoY91LIzhiCwuGicE3hZuAUktZY3hD+rHrHCqEhYGcYaEAkRH/DEPzKA0cPV2o6Y/QYGIymkAg==" length="1698910" type="application/octet-stream"/>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.9.0/ClaudeStatsLite-90-from-88.delta" sparkle:deltaFrom="88" sparkle:edSignature="Hvv9EYjHO6iwQuIGPqyg4hUjrsva2oTCR8xbMiCq4Idl32+3jW1I2v9iohJVEudh+VWTEsSeZ+vVXEBxclK2CA==" length="1948078" type="application/octet-stream"/>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.9.0/ClaudeStatsLite-90-from-86.delta" sparkle:deltaFrom="86" sparkle:edSignature="Jq3XOi1kA9x7q6OJXzMgpkhVhCFmUaD0q1zjv6rhuNTcuk+TL8walfq0TPPxscJmPs2kfsuDwX+dLOe0/T/CAg==" length="2097962" type="application/octet-stream"/>
+      </sparkle:deltas>
+    </item>
+    <item>
       <title>Version 1.8.10</title>
       <sparkle:version>89</sparkle:version>
       <sparkle:shortVersionString>1.8.10</sparkle:shortVersionString>
