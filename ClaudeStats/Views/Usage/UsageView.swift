@@ -108,7 +108,9 @@ struct UsageView: View {
                 statCell(L10n.string("usage.stat.tokens", defaultValue: "TOKENS"),
                          Format.tokens(s.totalTokens(includingCacheRead: includeCache)))
                 statCell(L10n.string("usage.stat.estimated_cost", defaultValue: "EST. COST"),
-                         Format.cost(s.totalCost(for: costMode)))
+                         Format.costEstimate(s.totalCost(for: costMode),
+                                             mode: costMode,
+                                             usesCredits: s.totalCostUsesCredits(for: costMode)))
             }
             GridRow {
                 statCell(L10n.string("usage.stat.sessions", defaultValue: "SESSIONS"), "\(s.sessionCount)")
@@ -359,9 +361,9 @@ struct UsageView: View {
                                 .font(.sora(10).monospacedDigit())
                                 .stxNumericValueTransition(value: Format.tokens(model.usage.total(includingCacheRead: includeCache)))
                                 .foregroundStyle(.primary)
-                            Text(Format.cost(model.estimatedCost(for: costMode)))
+                            Text(Format.costEstimate(model.costEstimate, mode: costMode))
                                 .font(.sora(10).monospacedDigit())
-                                .stxNumericValueTransition(value: Format.cost(model.estimatedCost(for: costMode)))
+                                .stxNumericValueTransition(value: Format.costEstimate(model.costEstimate, mode: costMode))
                                 .foregroundStyle(Color.stxMuted)
                         }
                         GeometryReader { geo in

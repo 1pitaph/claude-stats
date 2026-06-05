@@ -11,7 +11,7 @@ struct UsageSummaryCards: View {
             Grid(horizontalSpacing: 12, verticalSpacing: 12) {
                 GridRow {
                     card(L10n.string("usage.stat.tokens", defaultValue: "TOKENS"), Format.tokens(summary.totalTokens(includingCacheRead: includeCacheInTokens)))
-                    card(L10n.string("usage.stat.estimated_cost", defaultValue: "EST. COST"), Format.cost(summary.totalCost(for: costEstimationMode)))
+                    card(L10n.string("usage.stat.estimated_cost", defaultValue: "EST. COST"), formattedCost)
                     card(L10n.string("usage.stat.sessions", defaultValue: "SESSIONS"), "\(summary.sessionCount)")
                 }
                 GridRow {
@@ -24,7 +24,7 @@ struct UsageSummaryCards: View {
             Grid(horizontalSpacing: 12, verticalSpacing: 12) {
                 GridRow {
                     card(L10n.string("usage.stat.tokens", defaultValue: "TOKENS"), Format.tokens(summary.totalTokens(includingCacheRead: includeCacheInTokens)))
-                    card(L10n.string("usage.stat.estimated_cost", defaultValue: "EST. COST"), Format.cost(summary.totalCost(for: costEstimationMode)))
+                    card(L10n.string("usage.stat.estimated_cost", defaultValue: "EST. COST"), formattedCost)
                 }
                 GridRow {
                     card(L10n.string("usage.stat.sessions", defaultValue: "SESSIONS"), "\(summary.sessionCount)")
@@ -36,6 +36,12 @@ struct UsageSummaryCards: View {
                 }
             }
         }
+    }
+
+    private var formattedCost: String {
+        Format.costEstimate(summary.totalCost(for: costEstimationMode),
+                            mode: costEstimationMode,
+                            usesCredits: summary.totalCostUsesCredits(for: costEstimationMode))
     }
 
     private func card(_ label: String, _ value: String) -> some View {

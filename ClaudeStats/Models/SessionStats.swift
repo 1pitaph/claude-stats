@@ -32,6 +32,11 @@ struct SessionStats: Sendable, Hashable {
     }
 
     func totalCost(for mode: CostEstimationMode) -> Double {
-        models.reduce(0) { $0 + $1.estimatedCost(for: mode) }
+        let effectiveMode: CostEstimationMode = mode == .codexCredits && !totalCostUsesCredits(for: mode) ? .standardAPI : mode
+        return models.reduce(0) { $0 + $1.estimatedCost(for: effectiveMode) }
+    }
+
+    func totalCostUsesCredits(for mode: CostEstimationMode) -> Bool {
+        mode == .codexCredits && !models.isEmpty && models.allSatisfy { $0.estimatedCostUsesCredits(for: mode) }
     }
 }

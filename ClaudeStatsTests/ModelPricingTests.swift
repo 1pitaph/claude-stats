@@ -16,7 +16,7 @@ struct ModelPricingTests {
     @Test("Current Opus 4.5 and later prices use Anthropic's lower API rate")
     func currentOpusPricing() {
         let pricing = ModelPricing.loadDefault(bundle: .main, userFile: nil)
-        for model in ["claude-opus-4-7", "claude-opus-4-6", "claude-opus-4-5"] {
+        for model in ["claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-opus-4-5"] {
             let rate = pricing.rate(for: model)
             #expect(rate.input == 5)
             #expect(rate.output == 25)
@@ -127,6 +127,73 @@ struct ModelPricingTests {
         #expect(model?.estimatedCost(for: .detailedBilling) == 11)
     }
 
+    @Test("Merged model usage preserves Codex credit estimates")
+    func mergedUsagePreservesCreditMode() {
+        let entries = [
+            ModelUsage(model: "model-a", messageCount: 1, usage: TokenUsage(inputTokens: 1), costEstimate: CostEstimate(standardAPI: 3, detailedBilling: 4, codexCredits: 30)),
+            ModelUsage(model: "model-a", messageCount: 1, usage: TokenUsage(inputTokens: 2), costEstimate: CostEstimate(standardAPI: 5, detailedBilling: 7, codexCredits: 40)),
+        ]
+
+        let merged = entries.merged(pricing: TestPricing.table)
+        let model = merged.first
+        #expect(model?.estimatedCost(for: .standardAPI) == 8)
+        #expect(model?.estimatedCost(for: .detailedBilling) == 11)
+        #expect(model?.estimatedCost(for: .codexCredits) == 70)
+        #expect(model?.estimatedCostUsesCredits(for: .codexCredits) == true)
+    }
+
+    @Test("Claude fast mode uses explicit per-model rates")
+    func claudeFastModeUsesExplicitRates() {
+        let pricing = ModelPricing.loadDefault(bundle: .main, userFile: nil)
+        let usage = TokenUsage(inputTokens: 1_000_000, outputTokens: 1_000_000)
+
+        let opus48 = pricing.claudeCostEstimate(model: "claude-opus-4-8", usage: usage, speed: "fast", webSearchRequests: 0)
+        #expect(abs(opus48.standardAPI - 30) < 1e-9)
+        #expect(abs(opus48.detailedBilling - 60) < 1e-9)
+
+        let opus47 = pricing.claudeCostEstimate(model: "claude-opus-4-7", usage: usage, speed: "fast", webSearchRequests: 0)
+        #expect(abs(opus47.standardAPI - 30) < 1e-9)
+        #expect(abs(opus47.detailedBilling - 180) < 1e-9)
+    }
+
+    @Test("Codex detailed billing uses priority only when explicit")
+    func codexPriorityDetailedBilling() {
+        let pricing = ModelPricing.loadDefault(bundle: .main, userFile: nil)
+        let usage = TokenUsage(inputTokens: 1_000_000, outputTokens: 1_000_000, cacheReadTokens: 1_000_000)
+
+        let standard = pricing.codexCostEstimate(model: "gpt-5.3-codex", usage: usage, contextInputTokens: 2_000_000, serviceTier: nil)
+        let priority = pricing.codexCostEstimate(model: "gpt-5.3-codex", usage: usage, contextInputTokens: 2_000_000, serviceTier: .priority)
+
+        #expect(abs(standard.standardAPI - 15.925) < 1e-9)
+        #expect(abs(standard.detailedBilling - standard.standardAPI) < 1e-9)
+        #expect(abs(priority.detailedBilling - 31.85) < 1e-9)
+        #expect(priority.detailedBilling > priority.standardAPI)
+    }
+
+    @Test("Codex credits use explicit token-type rates")
+    func codexCreditCost() {
+        let pricing = ModelPricing.loadDefault(bundle: .main, userFile: nil)
+        let usage = TokenUsage(inputTokens: 1_000_000, outputTokens: 1_000_000, cacheReadTokens: 1_000_000)
+
+        let estimate = pricing.codexCostEstimate(model: "gpt-5.3-codex", usage: usage, contextInputTokens: 2_000_000, serviceTier: nil)
+
+        #expect(abs((estimate.codexCredits ?? 0) - 398.125) < 1e-9)
+        #expect(abs(estimate.value(for: .codexCredits) - 398.125) < 1e-9)
+        #expect(estimate.usesCredits(for: .codexCredits))
+    }
+
+    @Test("Codex fast credits use explicit credit rates when exposed")
+    func codexFastCreditCost() {
+        let pricing = ModelPricing.loadDefault(bundle: .main, userFile: nil)
+        let usage = TokenUsage(inputTokens: 1_000_000, outputTokens: 1_000_000, cacheReadTokens: 1_000_000)
+
+        let standard = pricing.codexCostEstimate(model: "gpt-5.5", usage: usage, contextInputTokens: 1_000_000, serviceTier: nil)
+        let fast = pricing.codexCostEstimate(model: "gpt-5.5", usage: usage, contextInputTokens: 1_000_000, serviceTier: .fast)
+
+        #expect(abs((standard.codexCredits ?? 0) - 887.5) < 1e-9)
+        #expect(abs((fast.codexCredits ?? 0) - 2218.75) < 1e-9)
+    }
+
     @Test("User pricing files without long context remain compatible")
     func legacyPricingJSONCompatibility() throws {
         let root = try TempDir.make()
@@ -158,16 +225,25 @@ struct ModelPricingTests {
         // In a host-app-backed test bundle, `.main` is the host app bundle,
         // which is where `default-pricing.json` is copied.
         let pricing = ModelPricing.loadDefault(bundle: .main, userFile: nil)
+        #expect(pricing.hasExactRate(for: "claude-opus-4-8"))
+        #expect(pricing.rate(for: "claude-opus-4-8").fast?.output == 50)
         #expect(pricing.hasExactRate(for: "claude-opus-4-7"))
         #expect(pricing.rate(for: "claude-opus-4-7").output == 25)
+        #expect(pricing.rate(for: "claude-opus-4-7").fast?.output == 150)
         #expect(pricing.hasExactRate(for: "gpt-5.4"))
         #expect(pricing.rate(for: "gpt-5.4").input == 2.5)
         #expect(pricing.rate(for: "gpt-5.4").cacheRead == 0.25)
+        #expect(pricing.rate(for: "gpt-5.4").priority?.output == 30)
+        #expect(pricing.rate(for: "gpt-5.4").codexCredits?.cacheRead == 6.25)
+        #expect(pricing.rate(for: "gpt-5.4").codexCreditsFast?.output == 750)
         #expect(pricing.rate(for: "gpt-5.4").longContext?.output == 22.5)
         #expect(pricing.hasExactRate(for: "gpt-5.5"))
         #expect(pricing.rate(for: "gpt-5.5").output == 30)
+        #expect(pricing.rate(for: "gpt-5.5").codexCreditsFast?.output == 1875)
         #expect(pricing.hasExactRate(for: "gpt-5.3-codex"))
         #expect(pricing.rate(for: "gpt-5.3-codex").cacheRead == 0.175)
+        #expect(pricing.rate(for: "gpt-5.3-codex").priority?.cacheRead == 0.35)
+        #expect(pricing.rate(for: "gpt-5.3-codex").codexCredits?.output == 350)
         #expect(pricing.defaultRate.input == 3)
     }
 }

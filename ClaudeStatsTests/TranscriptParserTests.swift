@@ -173,7 +173,18 @@ struct TranscriptParserTests {
         try TempDir.write(text, to: url)
 
         let pricing = ModelPricing(
-            rates: ["claude-opus-4-7": ModelPricing.Rates.derived(input: 5, output: 25)],
+            rates: [
+                "claude-opus-4-7": ModelPricing.Rates(input: 5,
+                                                       output: 25,
+                                                       cacheWrite5m: 6.25,
+                                                       cacheWrite1h: 10,
+                                                       cacheRead: 0.5,
+                                                       fast: ModelPricing.Rates.Tier(input: 30,
+                                                                                    output: 150,
+                                                                                    cacheWrite5m: 37.5,
+                                                                                    cacheWrite1h: 60,
+                                                                                    cacheRead: 3)),
+            ],
             defaultRate: TestPricing.table.defaultRate
         )
         let stats = try #require(await TranscriptParser(pricing: pricing)
@@ -183,5 +194,24 @@ struct TranscriptParserTests {
         #expect(abs(model.estimatedCost(for: .standardAPI) - 30) < 1e-9)
         #expect(abs(model.estimatedCost(for: .detailedBilling) - 180.02) < 1e-9)
         #expect(abs(stats.totalCost(for: .detailedBilling) - 180.02) < 1e-9)
+    }
+
+    @Test("Claude Opus 4.8 fast mode uses the lower 2x fast rate")
+    func opus48FastModeUsesExplicitRate() async throws {
+        let dir = try TempDir.make()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("session.jsonl")
+        let text = """
+        {"type":"assistant","timestamp":"2026-02-01T00:00:01.000Z","message":{"model":"claude-opus-4-8","usage":{"input_tokens":1000000,"output_tokens":1000000,"speed":"fast"}}}
+        """
+        try TempDir.write(text, to: url)
+
+        let pricing = ModelPricing.loadDefault(bundle: .main, userFile: nil)
+        let stats = try #require(await TranscriptParser(pricing: pricing)
+            .parse(transcriptAt: url, fallbackTitle: "demo"))
+        let model = try #require(stats.models.first)
+
+        #expect(abs(model.estimatedCost(for: .standardAPI) - 30) < 1e-9)
+        #expect(abs(model.estimatedCost(for: .detailedBilling) - 60) < 1e-9)
     }
 }

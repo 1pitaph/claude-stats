@@ -54,6 +54,36 @@ struct CodexTranscriptParserTests {
         #expect(abs(rate - (1100.0 / 1400.0)) < 1e-9)
     }
 
+    @Test("Codex priority tier affects detailed billing only when present")
+    func priorityTierAffectsDetailedBilling() async throws {
+        let stats = try await parseLines(Self.codexTierTranscriptLines(serviceTier: "priority"), pricing: Self.codexTierPricing)
+        let model = try #require(stats.models.first)
+
+        #expect(model.usage.inputTokens == 600)
+        #expect(model.usage.outputTokens == 200)
+        #expect(model.usage.cacheReadTokens == 400)
+        #expect(abs(model.estimatedCost(for: .standardAPI) - 0.00264) < 1e-9)
+        #expect(abs(model.estimatedCost(for: .detailedBilling) - 0.00528) < 1e-9)
+    }
+
+    @Test("Codex detailed billing falls back to standard when tier is absent")
+    func absentTierFallsBackToStandard() async throws {
+        let stats = try await parseLines(Self.codexTierTranscriptLines(serviceTier: nil), pricing: Self.codexTierPricing)
+        let model = try #require(stats.models.first)
+
+        #expect(abs(model.estimatedCost(for: .standardAPI) - 0.00264) < 1e-9)
+        #expect(abs(model.estimatedCost(for: .detailedBilling) - 0.00264) < 1e-9)
+    }
+
+    @Test("Codex credits price cached input at cached rate")
+    func codexCreditsPriceCachedInputSeparately() async throws {
+        let stats = try await parseLines(Self.codexTierTranscriptLines(serviceTier: "priority"), pricing: Self.codexTierPricing)
+        let model = try #require(stats.models.first)
+
+        #expect(abs(model.estimatedCost(for: .codexCredits) - 0.066) < 1e-9)
+        #expect(model.estimatedCostUsesCredits(for: .codexCredits))
+    }
+
     @Test("Applies GPT-5.4 long-context pricing per turn")
     func gpt54LongContextCostPerTurn() async throws {
         let stats = try await parseLines(Self.gpt54TranscriptLines([
@@ -172,6 +202,21 @@ struct CodexTranscriptParserTests {
         defaultRate: ModelPricing.Rates(input: 1, output: 2, cacheWrite5m: 1, cacheWrite1h: 1, cacheRead: 1)
     )
 
+    private static let codexTierPricing = ModelPricing(
+        rates: [
+            "gpt-5.3-codex": ModelPricing.Rates(
+                input: 1,
+                output: 10,
+                cacheWrite5m: 1,
+                cacheWrite1h: 1,
+                cacheRead: 0.1,
+                priority: ModelPricing.Rates.Tier(input: 2, output: 20, cacheWrite5m: 2, cacheWrite1h: 2, cacheRead: 0.2),
+                codexCredits: ModelPricing.Rates.Tier(input: 25, output: 250, cacheWrite5m: 25, cacheWrite1h: 25, cacheRead: 2.5)
+            ),
+        ],
+        defaultRate: ModelPricing.Rates(input: 1, output: 2, cacheWrite5m: 1, cacheWrite1h: 1, cacheRead: 1)
+    )
+
     private static func gpt54TranscriptLines(_ turns: [(timestamp: String, input: Int, cached: Int, output: Int)]) -> [String] {
         var lines = [
             #"{"timestamp":"2026-01-10T09:00:00.000Z","type":"session_meta","payload":{"id":"long-context","cwd":"/tmp"}}"#,
@@ -181,5 +226,18 @@ struct CodexTranscriptParserTests {
             lines.append(#"{"timestamp":"\#(turn.timestamp)","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":\#(turn.input),"cached_input_tokens":\#(turn.cached),"output_tokens":\#(turn.output),"reasoning_output_tokens":0,"total_tokens":\#(turn.input + turn.output)}}}}"#)
         }
         return lines
+    }
+
+    private static func codexTierTranscriptLines(serviceTier: String?) -> [String] {
+        var tokenCountFields = #""type":"token_count""#
+        if let serviceTier {
+            tokenCountFields += #","service_tier":"\#(serviceTier)""#
+        }
+        return [
+            #"{"timestamp":"2026-01-10T09:00:00.000Z","type":"session_meta","payload":{"id":"tier","cwd":"/tmp"}}"#,
+            #"{"timestamp":"2026-01-10T09:00:01.000Z","type":"turn_context","payload":{"turn_id":"t1","cwd":"/tmp","model":"gpt-5.3-codex"}}"#,
+            #"{"timestamp":"2026-01-10T09:00:02.000Z","type":"event_msg","payload":{"type":"agent_message","message":"done"}}"#,
+            #"{"timestamp":"2026-01-10T09:00:03.000Z","type":"event_msg","payload":{\#(tokenCountFields),"info":{"last_token_usage":{"input_tokens":1000,"cached_input_tokens":400,"output_tokens":200,"reasoning_output_tokens":0,"total_tokens":1200}}}}"#,
+        ]
     }
 }

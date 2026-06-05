@@ -30,6 +30,30 @@ enum Format {
         String(format: "$%.2f", amount)
     }
 
+    static func credits(_ amount: Double) -> String {
+        let value: String
+        let absAmount = abs(amount)
+        if absAmount >= 1_000_000 {
+            value = String(format: "%.2fM", amount / 1_000_000)
+        } else if absAmount >= 1_000 {
+            value = String(format: "%.2fK", amount / 1_000)
+        } else if abs(amount.rounded() - amount) < 0.005 {
+            value = "\(Int(amount.rounded()))"
+        } else {
+            value = String(format: "%.2f", amount)
+        }
+        return "\(value) credits"
+    }
+
+    static func costEstimate(_ amount: Double, mode: CostEstimationMode, usesCredits: Bool) -> String {
+        if mode == .codexCredits && usesCredits { return credits(amount) }
+        return cost(amount)
+    }
+
+    static func costEstimate(_ estimate: CostEstimate, mode: CostEstimationMode) -> String {
+        costEstimate(estimate.value(for: mode), mode: mode, usesCredits: estimate.usesCredits(for: mode))
+    }
+
     static func relativeDate(_ date: Date, now: Date = .now) -> String {
         let fmt = RelativeDateTimeFormatter()
         fmt.unitsStyle = .abbreviated

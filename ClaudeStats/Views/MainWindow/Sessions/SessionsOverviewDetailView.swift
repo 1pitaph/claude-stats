@@ -153,9 +153,12 @@ struct SessionsOverviewDetailView: View {
     }
 
     private var estimatedCostCard: some View {
-        StatCard(
+        let mode = env.preferences.costEstimationMode
+        return StatCard(
             label: "EST. COST",
-            value: Format.cost(summary.totalCost(for: env.preferences.costEstimationMode))
+            value: Format.costEstimate(summary.totalCost(for: mode),
+                                       mode: mode,
+                                       usesCredits: summary.totalCostUsesCredits(for: mode))
         )
     }
 

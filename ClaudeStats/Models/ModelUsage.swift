@@ -33,6 +33,10 @@ struct ModelUsage: Sendable, Hashable, Identifiable {
     func estimatedCost(for mode: CostEstimationMode) -> Double {
         costEstimate.value(for: mode)
     }
+
+    func estimatedCostUsesCredits(for mode: CostEstimationMode) -> Bool {
+        costEstimate.usesCredits(for: mode)
+    }
 }
 
 extension Array where Element == ModelUsage {
@@ -44,6 +48,7 @@ extension Array where Element == ModelUsage {
                 model.usage.dataRevisionID,
                 String(model.costEstimate.standardAPI.bitPattern),
                 String(model.costEstimate.detailedBilling.bitPattern),
+                model.costEstimate.codexCredits.map { String($0.bitPattern) } ?? "nil",
             ].joined(separator: ":")
         }
         .joined(separator: "|")

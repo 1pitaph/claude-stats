@@ -1693,13 +1693,29 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "API estimate"
+            "value" : "API-equivalent USD"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "API 估算"
+            "value" : "API 等价美元"
+          }
+        }
+      }
+    },
+    "cost_mode.codex_credits" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex Credits"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex Credits"
           }
         }
       }

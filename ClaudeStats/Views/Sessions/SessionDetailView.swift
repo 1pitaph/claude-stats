@@ -84,12 +84,15 @@ struct SessionDetailView: View {
     @ViewBuilder
     private func statCards(_ stats: SessionStats) -> some View {
         let includeCache = env.preferences.includeCacheInTokens
+        let mode = env.preferences.costEstimationMode
         Grid(horizontalSpacing: 12, verticalSpacing: 12) {
             GridRow {
                 StatCard(label: L10n.string("session.stat.total_tokens", defaultValue: "TOTAL TOKENS"),
                          value: Format.tokens(stats.totalTokens(includingCacheRead: includeCache)))
                 StatCard(label: L10n.string("session.stat.estimated_cost", defaultValue: "ESTIMATED COST"),
-                         value: Format.cost(stats.totalCost(for: env.preferences.costEstimationMode)))
+                         value: Format.costEstimate(stats.totalCost(for: mode),
+                                                    mode: mode,
+                                                    usesCredits: stats.totalCostUsesCredits(for: mode)))
                 StatCard(label: L10n.string("session.stat.messages", defaultValue: "MESSAGES"),
                          value: "\(stats.messageCount)")
                 StatCard(label: L10n.string("session.stat.last_activity", defaultValue: "LAST ACTIVITY"),

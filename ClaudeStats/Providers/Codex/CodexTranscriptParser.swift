@@ -27,6 +27,7 @@ struct CodexTranscriptParser: Sendable {
         var threadName: String?
         var firstUserTitle: String?
         var messageTimestamps: [Date] = []
+        var currentServiceTier: ModelPricing.ServiceTier?
         let calendar = Calendar.current
 
         let decoder = JSONDecoder()
@@ -40,6 +41,9 @@ struct CodexTranscriptParser: Sendable {
             case ("turn_context", _):
                 if let m = payload.model, !m.isEmpty { currentModel = m }
                 else if let m = payload.collaborationMode?.settings?.model, !m.isEmpty { currentModel = m }
+                if let tier = payload.billingTier ?? payload.collaborationMode?.settings?.billingTier ?? line.billingTier {
+                    currentServiceTier = tier
+                }
 
             case ("event_msg", "thread_name_updated"):
                 if let t = payload.threadName?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty {
@@ -64,12 +68,18 @@ struct CodexTranscriptParser: Sendable {
                 var acc = perModel[currentModel] ?? (0, .zero, .zero)
                 acc.count += 1
                 acc.usage += usage
-                let cost = pricing.cost(
+                let tier = payload.billingTier
+                    ?? payload.info?.billingTier
+                    ?? delta.billingTier
+                    ?? line.billingTier
+                    ?? currentServiceTier
+                let cost = pricing.codexCostEstimate(
                     model: currentModel,
                     usage: usage,
-                    contextInputTokens: delta.rawInputTokens
+                    contextInputTokens: delta.rawInputTokens,
+                    serviceTier: tier
                 )
-                acc.cost += CostEstimate(standardAPI: cost)
+                acc.cost += cost
                 perModel[currentModel] = acc
                 if let date {
                     let hour = calendar.dateInterval(of: .hour, for: date)?.start ?? calendar.startOfDay(for: date)
@@ -258,6 +268,20 @@ private struct CodexLine: Decodable {
     let timestamp: String?
     let type: String?
     let payload: Payload?
+    let serviceTier: String?
+    let serviceTierSnake: String?
+    let speed: String?
+    let fast: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case timestamp, type, payload, speed, fast
+        case serviceTier
+        case serviceTierSnake = "service_tier"
+    }
+
+    var billingTier: ModelPricing.ServiceTier? {
+        ModelPricing.ServiceTier.parse(serviceTier: serviceTier ?? serviceTierSnake, speed: speed, fast: fast)
+    }
 
     struct Payload: Decodable {
         let type: String?          // inner event type for `event_msg`
@@ -266,25 +290,59 @@ private struct CodexLine: Decodable {
         let threadName: String?    // `thread_name_updated`
         let message: String?       // `user_message` / `agent_message`
         let info: TokenInfo?       // `token_count` (may be null)
+        let serviceTier: String?
+        let serviceTierSnake: String?
+        let speed: String?
+        let fast: Bool?
 
         enum CodingKeys: String, CodingKey {
-            case type, model, message, info
+            case type, model, message, info, serviceTier, speed, fast
+            case serviceTierSnake = "service_tier"
             case collaborationMode = "collaboration_mode"
             case threadName = "thread_name"
+        }
+
+        var billingTier: ModelPricing.ServiceTier? {
+            ModelPricing.ServiceTier.parse(serviceTier: serviceTier ?? serviceTierSnake, speed: speed, fast: fast)
         }
     }
 
     struct CollaborationMode: Decodable {
         let settings: Settings?
-        struct Settings: Decodable { let model: String? }
+        struct Settings: Decodable {
+            let model: String?
+            let serviceTier: String?
+            let serviceTierSnake: String?
+            let speed: String?
+            let fast: Bool?
+
+            enum CodingKeys: String, CodingKey {
+                case model, serviceTier, speed, fast
+                case serviceTierSnake = "service_tier"
+            }
+
+            var billingTier: ModelPricing.ServiceTier? {
+                ModelPricing.ServiceTier.parse(serviceTier: serviceTier ?? serviceTierSnake, speed: speed, fast: fast)
+            }
+        }
     }
 
     struct TokenInfo: Decodable {
         let lastTokenUsage: Usage?
         let totalTokenUsage: Usage?
+        let serviceTier: String?
+        let serviceTierSnake: String?
+        let speed: String?
+        let fast: Bool?
         enum CodingKeys: String, CodingKey {
             case lastTokenUsage = "last_token_usage"
             case totalTokenUsage = "total_token_usage"
+            case serviceTier, speed, fast
+            case serviceTierSnake = "service_tier"
+        }
+
+        var billingTier: ModelPricing.ServiceTier? {
+            ModelPricing.ServiceTier.parse(serviceTier: serviceTier ?? serviceTierSnake, speed: speed, fast: fast)
         }
     }
 
@@ -292,10 +350,16 @@ private struct CodexLine: Decodable {
         let inputTokens: Int?
         let cachedInputTokens: Int?
         let outputTokens: Int?
+        let serviceTier: String?
+        let serviceTierSnake: String?
+        let speed: String?
+        let fast: Bool?
         enum CodingKeys: String, CodingKey {
             case inputTokens = "input_tokens"
             case cachedInputTokens = "cached_input_tokens"
             case outputTokens = "output_tokens"
+            case serviceTier, speed, fast
+            case serviceTierSnake = "service_tier"
         }
 
         /// Codex `input_tokens` includes the cache-hit portion; split it out so
@@ -313,6 +377,10 @@ private struct CodexLine: Decodable {
         }
 
         var rawInputTokens: Int { inputTokens ?? 0 }
+
+        var billingTier: ModelPricing.ServiceTier? {
+            ModelPricing.ServiceTier.parse(serviceTier: serviceTier ?? serviceTierSnake, speed: speed, fast: fast)
+        }
     }
 }
 

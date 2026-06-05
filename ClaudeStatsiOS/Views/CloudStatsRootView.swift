@@ -11,16 +11,26 @@ struct CloudStatsRootView: View {
             case .idle, .loading:
                 loadingView
             case .empty(let message):
-                emptyView(message)
+                CloudStatsTabView(
+                    snapshot: StatsSnapshot.empty(appVersion: "No Snapshot"),
+                    accountStatus: store.accountStatus,
+                    availability: .placeholder(message),
+                    refresh: { Task { await store.load() } }
+                )
             case .failed(let message):
                 failureView(message)
             case .loaded:
                 if let snapshot = store.snapshot {
-                    CloudStatsTabView(snapshot: snapshot, accountStatus: store.accountStatus) {
+                    CloudStatsTabView(snapshot: snapshot, accountStatus: store.accountStatus, availability: .synced) {
                         Task { await store.load() }
                     }
                 } else {
-                    emptyView("Open Claude Stats Lite on your Mac and let it sync a snapshot to iCloud.")
+                    CloudStatsTabView(
+                        snapshot: StatsSnapshot.empty(appVersion: "No Snapshot"),
+                        accountStatus: store.accountStatus,
+                        availability: .placeholder("Open Claude Stats Lite on your Mac and let it sync a snapshot to iCloud."),
+                        refresh: { Task { await store.load() } }
+                    )
                 }
             }
         }
@@ -44,14 +54,6 @@ struct CloudStatsRootView: View {
         .background(Color(.systemGroupedBackground))
     }
 
-    private func emptyView(_ message: String) -> some View {
-        ContentUnavailableView(
-            "No Synced Stats",
-            systemImage: "icloud.slash",
-            description: Text(message)
-        )
-    }
-
     private func failureView(_ message: String) -> some View {
         ContentUnavailableView {
             Label("Could Not Load Stats", systemImage: "exclamationmark.icloud")
@@ -66,47 +68,47 @@ struct CloudStatsRootView: View {
     }
 }
 
+private enum CloudStatsDataAvailability: Equatable {
+    case synced
+    case placeholder(String)
+
+    var isPlaceholder: Bool {
+        switch self {
+        case .synced: false
+        case .placeholder: true
+        }
+    }
+
+    var message: String? {
+        switch self {
+        case .synced: nil
+        case .placeholder(let message): message
+        }
+    }
+}
+
 private struct CloudStatsTabView: View {
     let snapshot: StatsSnapshot
     let accountStatus: CloudStatsAccountStatus
+    let availability: CloudStatsDataAvailability
     let refresh: () -> Void
 
     var body: some View {
         TabView {
             NavigationStack {
-                DashboardScreen(snapshot: snapshot, accountStatus: accountStatus, refresh: refresh)
+                DashboardScreen(snapshot: snapshot, accountStatus: accountStatus, availability: availability, refresh: refresh)
             }
             .tabItem { Label("Dashboard", systemImage: "gauge.with.dots.needle.33percent") }
 
             NavigationStack {
-                UsageScreen(snapshot: snapshot)
+                StatsScreen(snapshot: snapshot, availability: availability)
             }
-            .tabItem { Label("Usage", systemImage: "chart.bar.xaxis") }
+            .tabItem { Label("Stats", systemImage: "chart.bar.xaxis") }
 
             NavigationStack {
-                LeaderboardsScreen(snapshot: snapshot)
+                ToolScreen(snapshot: snapshot, availability: availability)
             }
-            .tabItem { Label("Boards", systemImage: "list.number") }
-
-            NavigationStack {
-                ActivityScreen(snapshot: snapshot)
-            }
-            .tabItem { Label("Activity", systemImage: "waveform.path.ecg") }
-
-            NavigationStack {
-                ReportsScreen(snapshot: snapshot)
-            }
-            .tabItem { Label("Reports", systemImage: "calendar") }
-
-            NavigationStack {
-                GanttScreen(snapshot: snapshot)
-            }
-            .tabItem { Label("Gantt", systemImage: "timeline.selection") }
-
-            NavigationStack {
-                GitScreen(snapshot: snapshot)
-            }
-            .tabItem { Label("Git", systemImage: "point.3.connected.trianglepath.dotted") }
+            .tabItem { Label("Tool", systemImage: "wrench.and.screwdriver") }
         }
     }
 }
@@ -114,6 +116,7 @@ private struct CloudStatsTabView: View {
 private struct DashboardScreen: View {
     let snapshot: StatsSnapshot
     let accountStatus: CloudStatsAccountStatus
+    let availability: CloudStatsDataAvailability
     let refresh: () -> Void
 
     private let columns = [
@@ -125,6 +128,9 @@ private struct DashboardScreen: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 header
+                if let message = availability.message {
+                    SnapshotStatusBanner(message: message)
+                }
                 LazyVGrid(columns: columns, spacing: 10) {
                     MetricTile(title: "Tokens", value: StatsFormat.tokens(snapshot.dashboardSummary.totalTokens), symbol: "sum")
                     MetricTile(title: "Cost", value: StatsFormat.cost(snapshot.dashboardSummary.totalCost), symbol: "dollarsign")
@@ -133,6 +139,20 @@ private struct DashboardScreen: View {
                     MetricTile(title: "AI Time", value: StatsFormat.duration(snapshot.activitySummary.totalAISeconds), symbol: "clock")
                     MetricTile(title: "Active Days", value: "\(snapshot.activitySummary.activeDayCount)", symbol: "calendar.badge.clock")
                 }
+                BarChartCard(
+                    title: "Usage Trend",
+                    subtitle: "Last 7 synced days",
+                    points: snapshot.dailyTokenChartPoints(),
+                    tint: .teal,
+                    emptyCaption: "Chart ready. No synced usage yet."
+                )
+                BarChartCard(
+                    title: "Token Mix",
+                    subtitle: "Input, output, and cache",
+                    points: snapshot.tokenMixChartPoints(),
+                    tint: .indigo,
+                    emptyCaption: "Chart ready. No token mix yet."
+                )
                 providerSection
                 usageLimitSection
             }
@@ -150,7 +170,7 @@ private struct DashboardScreen: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Synced \(StatsFormat.shortDate(snapshot.generatedAt))")
+            Text(availability.isPlaceholder ? "Waiting for synced data" : "Synced \(StatsFormat.shortDate(snapshot.generatedAt))")
                 .font(.headline)
             Text("\(accountStatus.displayText) - \(snapshot.appVersion)")
                 .font(.footnote)
@@ -203,108 +223,172 @@ private struct DashboardScreen: View {
     }
 }
 
-private struct UsageScreen: View {
+private struct StatsScreen: View {
     let snapshot: StatsSnapshot
+    let availability: CloudStatsDataAvailability
 
     var body: some View {
-        List {
-            Section("Summary") {
-                ForEach(StatsPeriodIdentifier.allCases) { period in
-                    if let bucket = snapshot.summaryBucket(period: period) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                if let message = availability.message {
+                    SnapshotStatusBanner(message: message)
+                }
+
+                BarChartCard(
+                    title: "Period Usage",
+                    subtitle: "Token totals by range",
+                    points: snapshot.periodUsageChartPoints(),
+                    tint: .blue,
+                    emptyCaption: "Chart ready. No period totals yet."
+                )
+
+                BarChartCard(
+                    title: "Daily Activity",
+                    subtitle: "AI minutes by day",
+                    points: snapshot.activityMinuteChartPoints(),
+                    tint: .mint,
+                    emptyCaption: "Chart ready. No activity minutes yet."
+                )
+
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionTitle("Usage Summary")
+                    ForEach(StatsPeriodIdentifier.allCases) { period in
+                        let bucket = snapshot.summaryBucket(period: period)
                         ValueRow(
                             title: period.displayName,
-                            subtitle: "\(bucket.sessionCount) sessions - \(bucket.messageCount) messages",
-                            value: StatsFormat.tokens(bucket.usage.totalTokens)
+                            subtitle: "\(bucket?.sessionCount ?? 0) sessions - \(bucket?.messageCount ?? 0) messages",
+                            value: StatsFormat.tokens(bucket?.usage.totalTokens ?? 0)
                         )
                     }
                 }
-            }
 
-            Section("Top Models") {
-                let models = snapshot.modelBreakdowns
-                    .filter { $0.providerID == nil && $0.period == .last30Days }
-                    .sorted { $0.usage.totalTokens > $1.usage.totalTokens }
-                if models.isEmpty {
-                    EmptyRow(text: "No model breakdown was synced.")
-                } else {
-                    ForEach(models.prefix(12)) { model in
-                        ValueRow(
-                            title: model.model,
-                            subtitle: "\(model.messageCount) messages - \(StatsFormat.cost(model.estimatedCost))",
-                            value: StatsFormat.tokens(model.usage.totalTokens)
-                        )
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionTitle("Top Models")
+                    let models = snapshot.modelBreakdowns
+                        .filter { $0.providerID == nil && $0.period == .last30Days }
+                        .sorted { $0.usage.totalTokens > $1.usage.totalTokens }
+                    if models.isEmpty {
+                        EmptyRow(text: "Model rows will appear after the Mac snapshot includes usage.")
+                    } else {
+                        ForEach(models.prefix(12)) { model in
+                            ValueRow(
+                                title: model.model,
+                                subtitle: "\(model.messageCount) messages - \(StatsFormat.cost(model.estimatedCost))",
+                                value: StatsFormat.tokens(model.usage.totalTokens)
+                            )
+                        }
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionTitle("Daily Reports")
+                    if snapshot.dailyReports.isEmpty {
+                        EmptyRow(text: "Daily report rows will appear after the Mac snapshot includes reports.")
+                    } else {
+                        ForEach(snapshot.dailyReports.sorted { $0.day > $1.day }.prefix(30)) { report in
+                            ValueRow(
+                                title: StatsFormat.day(report.day),
+                                subtitle: "\(report.projectCount) projects - \(report.sessionCount) sessions",
+                                value: StatsFormat.tokens(report.totalTokens)
+                            )
+                        }
                     }
                 }
             }
+            .padding()
         }
-        .navigationTitle("Usage")
+        .background(Color(.systemGroupedBackground))
+        .navigationTitle("Stats")
     }
 }
 
-private struct LeaderboardsScreen: View {
+private struct ToolScreen: View {
     let snapshot: StatsSnapshot
+    let availability: CloudStatsDataAvailability
 
     var body: some View {
-        List {
-            Section("Status") {
-                ValueRow(
-                    title: snapshot.leaderboardSummary.isEnabled ? "Joined" : "Not Joined",
-                    subtitle: snapshot.leaderboardSummary.accountText,
-                    value: snapshot.leaderboardSummary.statusText
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                if let message = availability.message {
+                    SnapshotStatusBanner(message: message)
+                }
+
+                leaderboardSection
+                TimelineOverviewCard(snapshot: snapshot)
+
+                BarChartCard(
+                    title: "Git Activity",
+                    subtitle: "Repository churn",
+                    points: snapshot.gitActivityChartPoints(),
+                    tint: .orange,
+                    emptyCaption: "Chart ready. No repository activity yet."
                 )
-                if let realtime = snapshot.leaderboardSummary.realtimeStatusText, !realtime.isEmpty {
-                    ValueRow(title: "Realtime", subtitle: "Mac sync state", value: realtime)
-                }
-                if let periodKey = snapshot.leaderboardSummary.lastLoadedPeriodKey, !periodKey.isEmpty {
-                    ValueRow(title: "Loaded Period", subtitle: "Visible board range", value: periodKey)
-                }
-            }
 
-            Section("Local Scores") {
-                if snapshot.leaderboardSummary.localScores.isEmpty {
-                    EmptyRow(text: "No local leaderboard scores were synced.")
-                } else {
-                    ForEach(snapshot.leaderboardSummary.localScores) { score in
-                        ValueRow(
-                            title: "\(score.periodName) - \(score.metricName)",
-                            subtitle: score.periodKey,
-                            value: leaderboardScore(score.score, metricID: score.metricID)
-                        )
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionTitle("Git Overview")
+                    ValueRow(title: "Repos", subtitle: "Loaded on Mac", value: "\(snapshot.gitActivitySummary.totalRepositories)")
+                    ValueRow(title: "Commits", subtitle: "Current Git view range", value: "\(snapshot.gitActivitySummary.totalCommits)")
+                    ValueRow(title: "Lines +/-", subtitle: "Insertions / deletions", value: "\(snapshot.gitActivitySummary.totalInsertions)/\(snapshot.gitActivitySummary.totalDeletions)")
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionTitle("Repositories")
+                    if snapshot.gitActivitySummary.rows.isEmpty {
+                        EmptyRow(text: "Repository rows will appear after the Mac snapshot includes Git activity.")
+                    } else {
+                        ForEach(snapshot.gitActivitySummary.rows) { row in
+                            ValueRow(
+                                title: row.label,
+                                subtitle: "\(row.commitCount) commits",
+                                value: StatsFormat.tokens(row.churn)
+                            )
+                        }
                     }
                 }
             }
+            .padding()
+        }
+        .background(Color(.systemGroupedBackground))
+        .navigationTitle("Tool")
+    }
 
-            Section("Visible Board") {
-                if let error = snapshot.leaderboardSummary.errorMessage, !error.isEmpty {
-                    EmptyRow(text: error)
-                } else if snapshot.leaderboardSummary.visibleRows.isEmpty {
-                    EmptyRow(text: snapshot.leaderboardSummary.emptyMessage ?? "Open Leaderboards on Mac to sync visible rows.")
-                } else {
-                    ForEach(snapshot.leaderboardSummary.visibleRows) { row in
-                        ValueRow(
-                            title: "#\(row.rank) \(row.displayName)",
-                            subtitle: "\(row.periodName) - \(row.metricName)",
-                            value: leaderboardScore(row.score, metricID: row.metricID)
-                        )
-                    }
+    private var leaderboardSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionTitle("Leaderboards")
+            ValueRow(
+                title: snapshot.leaderboardSummary.isEnabled ? "Joined" : "Not Joined",
+                subtitle: snapshot.leaderboardSummary.accountText,
+                value: snapshot.leaderboardSummary.statusText
+            )
+            if let realtime = snapshot.leaderboardSummary.realtimeStatusText, !realtime.isEmpty {
+                ValueRow(title: "Realtime", subtitle: "Mac sync state", value: realtime)
+            }
+            if let periodKey = snapshot.leaderboardSummary.lastLoadedPeriodKey, !periodKey.isEmpty {
+                ValueRow(title: "Loaded Period", subtitle: "Visible board range", value: periodKey)
+            }
+            if let error = snapshot.leaderboardSummary.errorMessage, !error.isEmpty {
+                EmptyRow(text: error)
+            } else if snapshot.leaderboardSummary.visibleRows.isEmpty {
+                EmptyRow(text: snapshot.leaderboardSummary.emptyMessage ?? "Visible board rows will appear after they sync from Mac.")
+            } else {
+                ForEach(snapshot.leaderboardSummary.visibleRows.prefix(8)) { row in
+                    ValueRow(
+                        title: "#\(row.rank) \(row.displayName)",
+                        subtitle: "\(row.periodName) - \(row.metricName)",
+                        value: leaderboardScore(row.score, metricID: row.metricID)
+                    )
                 }
             }
-
-            Section("Favorite Models") {
-                if snapshot.leaderboardSummary.favoriteModels.isEmpty {
-                    EmptyRow(text: "No favorite model summary was synced.")
-                } else {
-                    ForEach(snapshot.leaderboardSummary.favoriteModels) { model in
-                        ValueRow(
-                            title: "#\(model.rank) \(model.model)",
-                            subtitle: "Personal model mix",
-                            value: StatsFormat.tokens(clampedInt(model.tokens))
-                        )
-                    }
+            if !snapshot.leaderboardSummary.favoriteModels.isEmpty {
+                ForEach(snapshot.leaderboardSummary.favoriteModels.prefix(6)) { model in
+                    ValueRow(
+                        title: "#\(model.rank) \(model.model)",
+                        subtitle: "Personal model mix",
+                        value: StatsFormat.tokens(clampedInt(model.tokens))
+                    )
                 }
             }
         }
-        .navigationTitle("Leaderboards")
     }
 }
 
@@ -359,79 +443,218 @@ private struct ActivityScreen: View {
     }
 }
 
-private struct ReportsScreen: View {
-    let snapshot: StatsSnapshot
+private struct SnapshotStatusBanner: View {
+    let message: String
 
     var body: some View {
-        List {
-            Section("Daily Reports") {
-                if snapshot.dailyReports.isEmpty {
-                    EmptyRow(text: "No daily report summaries were synced.")
-                } else {
-                    ForEach(snapshot.dailyReports.sorted { $0.day > $1.day }.prefix(30)) { report in
-                        ValueRow(
-                            title: StatsFormat.day(report.day),
-                            subtitle: "\(report.projectCount) projects - \(report.sessionCount) sessions",
-                            value: StatsFormat.tokens(report.totalTokens)
-                        )
-                    }
-                }
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "icloud.slash")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.teal)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("No synced data yet")
+                    .font(.subheadline.weight(.semibold))
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
+            Spacer(minLength: 0)
         }
-        .navigationTitle("Reports")
+        .panelStyle()
     }
 }
 
-private struct GanttScreen: View {
-    let snapshot: StatsSnapshot
+private struct ChartPoint: Identifiable, Hashable {
+    let id: String
+    let label: String
+    let value: Double
+    let detail: String
 
-    var body: some View {
-        List {
-            Section("Recent Timeline") {
-                if snapshot.ganttTimeline.segments.isEmpty {
-                    EmptyRow(text: "No Gantt segments were synced.")
-                } else {
-                    ForEach(snapshot.ganttTimeline.segments.sorted { $0.start > $1.start }) { segment in
-                        let duration = segment.end.timeIntervalSince(segment.start)
-                        ValueRow(
-                            title: segment.label,
-                            subtitle: "\(StatsFormat.shortDate(segment.start)) - \(StatsFormat.duration(duration))",
-                            value: StatsFormat.tokens(segment.tokenCount)
-                        )
-                    }
-                }
-            }
-        }
-        .navigationTitle("Gantt")
+    init(id: String, label: String, value: Double, detail: String = "") {
+        self.id = id
+        self.label = label
+        self.value = max(0, value)
+        self.detail = detail
     }
 }
 
-private struct GitScreen: View {
-    let snapshot: StatsSnapshot
+private struct BarChartCard: View {
+    let title: String
+    let subtitle: String
+    let points: [ChartPoint]
+    let tint: Color
+    let emptyCaption: String
+
+    private var maxValue: Double {
+        max(points.map(\.value).max() ?? 0, 1)
+    }
+
+    private var hasData: Bool {
+        points.contains { $0.value > 0 }
+    }
 
     var body: some View {
-        List {
-            Section("Overview") {
-                ValueRow(title: "Repos", subtitle: "Loaded on Mac", value: "\(snapshot.gitActivitySummary.totalRepositories)")
-                ValueRow(title: "Commits", subtitle: "Current Git view range", value: "\(snapshot.gitActivitySummary.totalCommits)")
-                ValueRow(title: "Lines +/-", subtitle: "Insertions / deletions", value: "\(snapshot.gitActivitySummary.totalInsertions)/\(snapshot.gitActivitySummary.totalDeletions)")
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.headline)
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text(hasData ? StatsFormat.tokens(Int(maxValue.rounded())) : "0")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
             }
 
-            Section("Repositories") {
-                if snapshot.gitActivitySummary.rows.isEmpty {
-                    EmptyRow(text: "Open Git in Claude Stats Lite on Mac to sync repository activity.")
-                } else {
-                    ForEach(snapshot.gitActivitySummary.rows) { row in
-                        ValueRow(
-                            title: row.label,
-                            subtitle: "\(row.commitCount) commits",
-                            value: StatsFormat.tokens(row.churn)
-                        )
+            ZStack {
+                chartGrid
+                HStack(alignment: .bottom, spacing: 8) {
+                    ForEach(points) { point in
+                        ChartBar(point: point, maxValue: maxValue, tint: tint, hasData: hasData)
                     }
+                }
+                .padding(.horizontal, 2)
+                .padding(.top, 8)
+            }
+            .frame(height: 152)
+
+            if !hasData {
+                Text(emptyCaption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .panelStyle()
+    }
+
+    private var chartGrid: some View {
+        VStack(spacing: 0) {
+            ForEach(0..<4, id: \.self) { index in
+                Divider()
+                    .opacity(index == 3 ? 0.5 : 0.25)
+                if index < 3 {
+                    Spacer()
                 }
             }
         }
-        .navigationTitle("Git")
+        .padding(.bottom, 24)
+    }
+}
+
+private struct ChartBar: View {
+    let point: ChartPoint
+    let maxValue: Double
+    let tint: Color
+    let hasData: Bool
+
+    var body: some View {
+        VStack(spacing: 6) {
+            GeometryReader { proxy in
+                VStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(point.value > 0 ? tint : Color(.tertiarySystemFill))
+                        .frame(height: barHeight(in: proxy.size.height))
+                }
+            }
+            Text(point.label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.65)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(point.label), \(point.detail.isEmpty ? StatsFormat.tokens(Int(point.value.rounded())) : point.detail)")
+    }
+
+    private func barHeight(in availableHeight: CGFloat) -> CGFloat {
+        if point.value <= 0 {
+            return hasData ? 3 : 6
+        }
+        let ratio = point.value / maxValue
+        return max(6, availableHeight * CGFloat(ratio))
+    }
+}
+
+private struct TimelineOverviewCard: View {
+    let snapshot: StatsSnapshot
+
+    private var segments: [StatsGanttSegment] {
+        Array(snapshot.ganttTimeline.segments.sorted { $0.start < $1.start }.prefix(8))
+    }
+
+    private var hasData: Bool {
+        !segments.isEmpty
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Gantt Timeline")
+                    .font(.headline)
+                Text("Recent synced work blocks")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            ZStack {
+                VStack(spacing: 18) {
+                    ForEach(0..<3, id: \.self) { _ in
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .fill(Color(.tertiarySystemFill))
+                            .frame(height: 8)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if hasData {
+                    VStack(spacing: 14) {
+                        ForEach(Array(segments.enumerated()), id: \.element.id) { index, segment in
+                            TimelineSegmentRow(segment: segment, index: index)
+                        }
+                    }
+                } else {
+                    Text("Timeline frame ready. No segments yet.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(8)
+                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+            }
+            .frame(height: 118)
+        }
+        .panelStyle()
+    }
+}
+
+private struct TimelineSegmentRow: View {
+    let segment: StatsGanttSegment
+    let index: Int
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Capsule()
+                .fill(Color.teal.opacity(0.78))
+                .frame(width: segmentWidth, height: 10)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(segment.label)
+                    .font(.caption.weight(.medium))
+                    .lineLimit(1)
+                Text(StatsFormat.tokens(segment.tokenCount))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, CGFloat(index % 3) * 18)
+    }
+
+    private var segmentWidth: CGFloat {
+        CGFloat(min(150, max(34, segment.tokenCount / 250 + 34)))
     }
 }
 
@@ -550,5 +773,103 @@ private func clampedInt(_ value: Int64) -> Int {
 private extension StatsSnapshot {
     func summaryBucket(period: StatsPeriodIdentifier) -> StatsUsageBucket? {
         usageBuckets.first { $0.providerID == nil && $0.period == period && $0.granularity == .period }
+    }
+
+    func periodUsageChartPoints() -> [ChartPoint] {
+        StatsPeriodIdentifier.allCases.map { period in
+            let bucket = summaryBucket(period: period)
+            return ChartPoint(
+                id: period.id,
+                label: period.shortDisplayName,
+                value: Double(bucket?.usage.totalTokens ?? 0),
+                detail: StatsFormat.tokens(bucket?.usage.totalTokens ?? 0)
+            )
+        }
+    }
+
+    func tokenMixChartPoints() -> [ChartPoint] {
+        let usage = summaryBucket(period: .last30Days)?.usage ?? summaryBucket(period: .allTime)?.usage ?? .zero
+        return [
+            ChartPoint(id: "input", label: "Input", value: Double(usage.inputTokens), detail: StatsFormat.tokens(usage.inputTokens)),
+            ChartPoint(id: "output", label: "Output", value: Double(usage.outputTokens), detail: StatsFormat.tokens(usage.outputTokens)),
+            ChartPoint(id: "cache-read", label: "Cache", value: Double(usage.cacheReadTokens), detail: StatsFormat.tokens(usage.cacheReadTokens)),
+            ChartPoint(
+                id: "cache-write",
+                label: "Write",
+                value: Double(usage.cacheCreation5mTokens + usage.cacheCreation1hTokens),
+                detail: StatsFormat.tokens(usage.cacheCreation5mTokens + usage.cacheCreation1hTokens)
+            ),
+        ]
+    }
+
+    func dailyTokenChartPoints() -> [ChartPoint] {
+        var reportsByDay: [Date: StatsDailyReport] = [:]
+        for report in dailyReports {
+            reportsByDay[Calendar.current.startOfDay(for: report.day)] = report
+        }
+        return recentDays().map { day in
+            let report = reportsByDay[day]
+            return ChartPoint(
+                id: "tokens-\(Int(day.timeIntervalSince1970))",
+                label: StatsFormat.day(day),
+                value: Double(report?.totalTokens ?? 0),
+                detail: StatsFormat.tokens(report?.totalTokens ?? 0)
+            )
+        }
+    }
+
+    func activityMinuteChartPoints() -> [ChartPoint] {
+        var daysByDay: [Date: StatsActivityDay] = [:]
+        for activityDay in activitySummary.days {
+            daysByDay[Calendar.current.startOfDay(for: activityDay.day)] = activityDay
+        }
+        return recentDays().map { day in
+            let activityDay = daysByDay[day]
+            let minutes = (activityDay?.aiSeconds ?? 0) / 60
+            return ChartPoint(
+                id: "activity-\(Int(day.timeIntervalSince1970))",
+                label: StatsFormat.day(day),
+                value: minutes,
+                detail: StatsFormat.duration(activityDay?.aiSeconds ?? 0)
+            )
+        }
+    }
+
+    func gitActivityChartPoints() -> [ChartPoint] {
+        if gitActivitySummary.rows.isEmpty {
+            return [
+                ChartPoint(id: "repos", label: "Repos", value: Double(gitActivitySummary.totalRepositories), detail: "\(gitActivitySummary.totalRepositories)"),
+                ChartPoint(id: "commits", label: "Commits", value: Double(gitActivitySummary.totalCommits), detail: "\(gitActivitySummary.totalCommits)"),
+                ChartPoint(id: "files", label: "Files", value: Double(gitActivitySummary.totalFilesChanged), detail: "\(gitActivitySummary.totalFilesChanged)"),
+            ]
+        }
+        return gitActivitySummary.rows.prefix(6).map { row in
+            ChartPoint(
+                id: row.id,
+                label: row.label,
+                value: Double(row.churn),
+                detail: StatsFormat.tokens(row.churn)
+            )
+        }
+    }
+
+    private func recentDays(count: Int = 7) -> [Date] {
+        let calendar = Calendar.current
+        let sourceDays = Set(dailyReports.map { calendar.startOfDay(for: $0.day) } + activitySummary.days.map { calendar.startOfDay(for: $0.day) })
+        let endDay = sourceDays.max() ?? calendar.startOfDay(for: generatedAt)
+        return (0..<count).compactMap { offset in
+            calendar.date(byAdding: .day, value: offset - count + 1, to: endDay)
+        }
+    }
+}
+
+private extension StatsPeriodIdentifier {
+    var shortDisplayName: String {
+        switch self {
+        case .today: "Today"
+        case .last7Days: "7d"
+        case .last30Days: "30d"
+        case .allTime: "All"
+        }
     }
 }

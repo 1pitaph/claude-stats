@@ -101,14 +101,14 @@ struct GeneralSettingsView: View {
                     }
                     SettingRowDivider()
                     SettingRow(title: "Cost mode",
-                               description: "API estimate uses standard first-party token prices. Detailed billing also applies fast mode and web search charges when Claude logs expose them.") {
+                               description: "API-equivalent USD uses public token prices. Detailed billing applies provider tiers and tool charges when logs expose them. Codex Credits estimates ChatGPT/Codex credit consumption.") {
                         AppSelect(
                             .localized("Cost mode"),
                             selection: $prefs.costEstimationMode,
                             options: CostEstimationMode.allCases.map { mode in
                                 AppSelectOption(value: mode, title: .localized(mode.displayName))
                             },
-                            width: 170
+                            width: 210
                         )
                     }
                     SettingRowDivider()

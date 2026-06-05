@@ -37,7 +37,10 @@ struct SessionRow: View {
                             systemImage: AppIcon.Metric.number
                         )
                         .labelStyle(.titleAndIcon)
-                        Text(Format.cost(stats.totalCost(for: env.preferences.costEstimationMode)))
+                        let mode = env.preferences.costEstimationMode
+                        Text(Format.costEstimate(stats.totalCost(for: mode),
+                                                 mode: mode,
+                                                 usesCredits: stats.totalCostUsesCredits(for: mode)))
                     }
                 }
                 .font(.sora(9).monospacedDigit())

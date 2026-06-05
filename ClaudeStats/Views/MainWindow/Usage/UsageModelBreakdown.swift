@@ -181,7 +181,7 @@ struct UsageModelBreakdownSnapshot {
                 displayName: displayName(model.model),
                 colorIndex: seriesIndexByModel[model.model] ?? index,
                 totalText: Format.tokens(total),
-                costText: Format.cost(model.estimatedCost(for: key.costEstimationMode)),
+                costText: Format.costEstimate(model.costEstimate, mode: key.costEstimationMode),
                 shareText: Format.percent(share),
                 solidTokens: solidTokens,
                 cacheReadTokens: key.includeCacheInTokens ? max(0, model.usage.cacheReadTokens) : 0,

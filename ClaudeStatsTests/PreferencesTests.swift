@@ -435,10 +435,14 @@ struct PreferencesTests {
     func costEstimationModePersists() {
         let defaults = makeDefaults()
         let prefs = Preferences(defaults: defaults)
-        prefs.costEstimationMode = .detailedBilling
+        prefs.costEstimationMode = .codexCredits
 
         let reloaded = Preferences(defaults: defaults)
-        #expect(reloaded.costEstimationMode == .detailedBilling)
+        #expect(reloaded.costEstimationMode == .codexCredits)
+
+        reloaded.costEstimationMode = .detailedBilling
+        let detailed = Preferences(defaults: defaults)
+        #expect(detailed.costEstimationMode == .detailedBilling)
 
         defaults.set("invoice", forKey: "costEstimationMode")
         let invalid = Preferences(defaults: defaults)

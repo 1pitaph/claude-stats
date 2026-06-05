@@ -257,6 +257,10 @@ final class AppEnvironment {
 
     #if CLAUDE_STATS_LITE
     private func scheduleCloudStatsSnapshotPublish(reason: String) {
+        guard hasCloudStatsCloudKitAccess else {
+            Log.app.debug("Skipping iCloud stats snapshot publish for \(reason, privacy: .public): CloudKit entitlement is unavailable")
+            return
+        }
         cloudStatsPublishTask?.cancel()
         cloudStatsPublishTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(2))
@@ -265,6 +269,10 @@ final class AppEnvironment {
     }
 
     private func publishCloudStatsSnapshot(reason: String) async {
+        guard hasCloudStatsCloudKitAccess else {
+            Log.app.debug("Skipping iCloud stats snapshot publish for \(reason, privacy: .public): CloudKit entitlement is unavailable")
+            return
+        }
         let snapshot = StatsSnapshotBuilder.make(environment: self)
         do {
             try await cloudStatsSync.publish(snapshot: snapshot)
@@ -272,6 +280,12 @@ final class AppEnvironment {
         } catch {
             Log.app.error("iCloud stats snapshot publish failed for \(reason, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    private var hasCloudStatsCloudKitAccess: Bool {
+        CloudKitRuntimeEntitlements.hasCloudKitAccess(
+            containerIdentifier: CloudStatsCloudKitClient.defaultContainerIdentifier
+        )
     }
     #endif
 

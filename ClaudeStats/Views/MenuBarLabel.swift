@@ -24,7 +24,10 @@ struct MenuBarLabel: View {
         case .tokens:
             return Format.tokens(summary.totalTokens(includingCacheRead: env.preferences.menuBarIncludesCache))
         case .cost:
-            return Format.cost(summary.totalCost(for: env.preferences.costEstimationMode))
+            let mode = env.preferences.costEstimationMode
+            return Format.costEstimate(summary.totalCost(for: mode),
+                                       mode: mode,
+                                       usesCredits: summary.totalCostUsesCredits(for: mode))
         }
     }
 }

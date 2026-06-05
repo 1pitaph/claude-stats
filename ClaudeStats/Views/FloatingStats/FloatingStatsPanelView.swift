@@ -132,7 +132,9 @@ struct FloatingStatsPanelView: View {
             animatedExpandedSection(.metrics) {
                 HStack(alignment: .top, spacing: 10) {
                     metricBlock(title: "TOKENS", value: Format.tokens(summary.totalTokens(includingCacheRead: prefs.menuBarIncludesCache)))
-                    metricBlock(title: "COST", value: Format.cost(summary.totalCost(for: prefs.costEstimationMode)))
+                    metricBlock(title: "COST", value: Format.costEstimate(summary.totalCost(for: prefs.costEstimationMode),
+                                                                          mode: prefs.costEstimationMode,
+                                                                          usesCredits: summary.totalCostUsesCredits(for: prefs.costEstimationMode)))
                     metricBlock(title: "SESSIONS", value: "\(summary.sessionCount)")
                 }
             }
