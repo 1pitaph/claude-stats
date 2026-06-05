@@ -3,6 +3,18 @@
 extension ReleaseHistoryCatalog {
     static let generatedEntries: [ReleaseHistoryEntry] = [
         ReleaseHistoryEntry(
+            version: "1.8.10",
+            date: "June 5, 2026",
+            headline: "新增了iCloud同步的设置页面，添加了CloudKit快照同步的相关服务与状态管理，包括：",
+            changes: [
+                "新增iCloud Sync设置选项与对应的设置页面",
+                "重构CloudKit客户端配置，抽取公共常量",
+                "添加同步状态管理与测试用例",
+                "完善应用环境中的同步调度逻辑",
+                "本次更新添加了Codex Credits成本估算模式，支持按OpenAI Codex信用点计算费用；重构了成本计算逻辑，新增了成本使用信用点的判断方法；更新了本地化字符串与UI展示，适配新的成本格式；完善了定价模型与测试用例，修复了部分细节问题。",
+            ]
+        ),
+        ReleaseHistoryEntry(
             version: "1.8.9",
             date: "June 5, 2026",
             headline: "本次提交新增了完整的ClaudeStats iOS应用：",
