@@ -15,6 +15,7 @@ final class ClaudeStatusViewModel {
     private(set) var uptimeLastError: String?
     private(set) var notificationAuthorization: ClaudeStatusNotificationAuthorizationStatus = .notDetermined
     private(set) var isRequestingNotificationAuthorization = false
+    @ObservationIgnored var onRefresh: (() -> Void)?
 
     var availableComponents: [ClaudeStatusComponent] {
         let components = snapshot?.components ?? []
@@ -167,6 +168,7 @@ final class ClaudeStatusViewModel {
                 Log.app.error("Claude Status cache write failed: \(error.localizedDescription, privacy: .public)")
             }
             await handleNotifications(for: fresh)
+            onRefresh?()
         } catch {
             lastError = userFacingMessage(error)
             if let cached = cache.read(ttl: ClaudeStatusCache.defaultTTL, now: now) {
@@ -196,6 +198,7 @@ final class ClaudeStatusViewModel {
             } catch {
                 Log.app.error("Claude Status uptime cache write failed: \(error.localizedDescription, privacy: .public)")
             }
+            onRefresh?()
         } catch {
             uptimeLastError = userFacingMessage(error)
             if let cached = uptimeCache.read(ttl: ClaudeStatusUptimeCache.defaultTTL, now: now) {

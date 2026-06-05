@@ -77,7 +77,21 @@ final class StatsSnapshotFixtureTests: XCTestCase {
                     ),
                 ]
             ),
-            dashboardSummary: StatsDashboardSummary(totalTokens: 300, totalCost: 1.23, sessionCount: 3)
+            dashboardSummary: StatsDashboardSummary(totalTokens: 300, totalCost: 1.23, sessionCount: 3),
+            statusSummary: StatsStatusSummary(
+                providers: [
+                    StatsStatusProviderSnapshot(
+                        providerID: .openAI,
+                        providerName: "OpenAI",
+                        rollup: StatsStatusRollup(severity: .operational, description: "All Systems Operational"),
+                        items: [
+                            StatsStatusItem(id: "chatgpt", name: "ChatGPT", status: .operational, position: 1),
+                            StatsStatusItem(id: "codex", name: "Codex", status: .operational, position: 2),
+                        ],
+                        defaultVisibleItemIDs: ["chatgpt", "codex"]
+                    ),
+                ]
+            )
         )
 
         XCTAssertEqual(snapshot.dashboardSummary.totalTokens, 300)
@@ -85,5 +99,6 @@ final class StatsSnapshotFixtureTests: XCTestCase {
         XCTAssertFalse(snapshot.dailyReports.isEmpty)
         XCTAssertFalse(snapshot.leaderboardSummary.localScores.isEmpty)
         XCTAssertEqual(snapshot.activitySummary.activeDayCount, 1)
+        XCTAssertEqual(snapshot.statusSummary.provider(.openAI)?.items.count, 2)
     }
 }

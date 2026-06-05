@@ -21,6 +21,7 @@ enum StatsSnapshotBuilder {
         let leaderboards = makeLeaderboardSummary(environment: env, now: now)
         let activity = makeActivitySummary(store: env.store, now: now, calendar: calendar)
         let dashboard = makeDashboardSummary(store: env.store, projectLabels: projectLabels, now: now)
+        let status = StatsStatusSnapshotBuilder.make(environment: env)
 
         return StatsSnapshot(
             generatedAt: now,
@@ -33,7 +34,8 @@ enum StatsSnapshotBuilder {
             gitActivitySummary: git,
             leaderboardSummary: leaderboards,
             activitySummary: activity,
-            dashboardSummary: dashboard
+            dashboardSummary: dashboard,
+            statusSummary: status
         )
     }
 
@@ -187,7 +189,8 @@ enum StatsSnapshotBuilder {
         calendar: Calendar
     ) -> StatsGanttTimeline {
         let start = calendar.date(byAdding: .day, value: -6, to: calendar.startOfDay(for: now)) ?? calendar.startOfDay(for: now)
-        let end = now
+        let dataEnd = now
+        let end = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)) ?? now
         let segments = sessions
             .flatMap { session -> [StatsGanttSegment] in
                 guard let stats = session.stats else { return [] }
@@ -199,9 +202,9 @@ enum StatsSnapshotBuilder {
                 let tokenCount = max(0, stats.totalTokens / max(1, intervals.count))
 
                 return intervals.enumerated().compactMap { index, interval in
-                    guard interval.end >= start, interval.start <= end else { return nil }
+                    guard interval.end >= start, interval.start <= dataEnd else { return nil }
                     let clippedStart = max(interval.start, start)
-                    let clippedEnd = min(max(interval.end, interval.start.addingTimeInterval(60)), end)
+                    let clippedEnd = min(max(interval.end, interval.start.addingTimeInterval(60)), dataEnd)
                     guard clippedEnd > clippedStart else { return nil }
                     return StatsGanttSegment(
                         id: "\(session.id)|\(index)",

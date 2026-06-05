@@ -15,6 +15,7 @@ final class OpenAIStatusViewModel {
     private(set) var uptimeLastError: String?
     private(set) var notificationAuthorization: ClaudeStatusNotificationAuthorizationStatus = .notDetermined
     private(set) var isRequestingNotificationAuthorization = false
+    @ObservationIgnored var onRefresh: (() -> Void)?
 
     var availableGroups: [OpenAIStatusGroup] {
         guard let snapshot else { return OpenAIStatusGroupCatalog.fallbackGroups }
@@ -168,6 +169,7 @@ final class OpenAIStatusViewModel {
                 Log.app.error("OpenAI Status cache write failed: \(error.localizedDescription, privacy: .public)")
             }
             await handleNotifications(for: fresh)
+            onRefresh?()
         } catch {
             lastError = userFacingMessage(error)
             if let cached = cache.read(ttl: OpenAIStatusCache.defaultTTL, now: now) {
@@ -197,6 +199,7 @@ final class OpenAIStatusViewModel {
             } catch {
                 Log.app.error("OpenAI Status uptime cache write failed: \(error.localizedDescription, privacy: .public)")
             }
+            onRefresh?()
         } catch {
             uptimeLastError = userFacingMessage(error)
             if let cached = uptimeCache.read(ttl: OpenAIStatusUptimeCache.defaultTTL, now: now) {

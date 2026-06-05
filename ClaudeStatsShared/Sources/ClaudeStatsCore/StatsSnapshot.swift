@@ -1,7 +1,7 @@
 import Foundation
 
 public enum StatsSnapshotSchema {
-    public static let currentVersion = 2
+    public static let currentVersion = 3
 }
 
 public enum StatsPeriodIdentifier: String, Codable, CaseIterable, Identifiable, Sendable, Hashable {
@@ -534,6 +534,7 @@ public struct StatsSnapshot: Codable, Identifiable, Hashable, Sendable {
     public var leaderboardSummary: StatsLeaderboardSummary
     public var activitySummary: StatsActivitySummary
     public var dashboardSummary: StatsDashboardSummary
+    public var statusSummary: StatsStatusSummary
 
     public init(
         schemaVersion: Int = StatsSnapshotSchema.currentVersion,
@@ -547,7 +548,8 @@ public struct StatsSnapshot: Codable, Identifiable, Hashable, Sendable {
         gitActivitySummary: StatsGitActivitySummary = StatsGitActivitySummary(),
         leaderboardSummary: StatsLeaderboardSummary = StatsLeaderboardSummary(),
         activitySummary: StatsActivitySummary = StatsActivitySummary(),
-        dashboardSummary: StatsDashboardSummary = StatsDashboardSummary()
+        dashboardSummary: StatsDashboardSummary = StatsDashboardSummary(),
+        statusSummary: StatsStatusSummary = .empty
     ) {
         self.schemaVersion = schemaVersion
         self.generatedAt = generatedAt
@@ -561,6 +563,7 @@ public struct StatsSnapshot: Codable, Identifiable, Hashable, Sendable {
         self.leaderboardSummary = leaderboardSummary
         self.activitySummary = activitySummary
         self.dashboardSummary = dashboardSummary
+        self.statusSummary = statusSummary
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -576,6 +579,7 @@ public struct StatsSnapshot: Codable, Identifiable, Hashable, Sendable {
         case leaderboardSummary
         case activitySummary
         case dashboardSummary
+        case statusSummary
     }
 
     public init(from decoder: Decoder) throws {
@@ -592,6 +596,7 @@ public struct StatsSnapshot: Codable, Identifiable, Hashable, Sendable {
         leaderboardSummary = try container.decodeIfPresent(StatsLeaderboardSummary.self, forKey: .leaderboardSummary) ?? StatsLeaderboardSummary()
         activitySummary = try container.decodeIfPresent(StatsActivitySummary.self, forKey: .activitySummary) ?? StatsActivitySummary()
         dashboardSummary = try container.decodeIfPresent(StatsDashboardSummary.self, forKey: .dashboardSummary) ?? StatsDashboardSummary()
+        statusSummary = try container.decodeIfPresent(StatsStatusSummary.self, forKey: .statusSummary) ?? .empty
     }
 
     public static func empty(appVersion: String = "Unknown", generatedAt: Date = .now) -> StatsSnapshot {

@@ -87,6 +87,37 @@ final class StatsSnapshotTests: XCTestCase {
                 sessionCount: 2,
                 messageCount: 4,
                 activeProjectCount: 1
+            ),
+            statusSummary: StatsStatusSummary(
+                providers: [
+                    StatsStatusProviderSnapshot(
+                        providerID: .openAI,
+                        providerName: "OpenAI",
+                        statusPageURL: URL(string: "https://status.openai.com/"),
+                        rollup: StatsStatusRollup(severity: .operational, description: "All Systems Operational"),
+                        items: [
+                            StatsStatusItem(
+                                id: "chatgpt",
+                                name: "ChatGPT",
+                                status: .operational,
+                                updatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+                                position: 1
+                            ),
+                        ],
+                        defaultVisibleItemIDs: ["chatgpt"],
+                        uptimeHistories: [
+                            StatsStatusUptimeHistory(
+                                itemID: "chatgpt",
+                                itemName: "ChatGPT",
+                                days: [
+                                    StatsStatusUptimeDay(date: Date(timeIntervalSince1970: 1_700_000_000)),
+                                ],
+                                sourceUptimePercent: 99.99
+                            ),
+                        ],
+                        fetchedAt: Date(timeIntervalSince1970: 1_700_000_000)
+                    ),
+                ]
             )
         )
 
@@ -140,6 +171,7 @@ final class StatsSnapshotTests: XCTestCase {
         XCTAssertEqual(decoded.dashboardSummary.totalTokens, 30)
         XCTAssertFalse(decoded.leaderboardSummary.isEnabled)
         XCTAssertEqual(decoded.activitySummary.totalAISeconds, 0)
+        XCTAssertTrue(decoded.statusSummary.providers.isEmpty)
     }
 
     func testCloudStatsSyncPublishAndLoadWithMockClient() async throws {

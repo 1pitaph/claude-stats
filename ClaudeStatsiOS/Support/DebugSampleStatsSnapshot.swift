@@ -85,7 +85,8 @@ enum DebugSampleStatsSnapshot {
                     StatsProviderSummary(id: "codex", name: "Codex", sessionCount: 17, totalTokens: 61_400, estimatedCost: 3.89),
                     StatsProviderSummary(id: "local", name: "Local AI", sessionCount: 9, totalTokens: 58_800, estimatedCost: 0),
                 ]
-            )
+            ),
+            statusSummary: makeStatusSummary(now: now, calendar: calendar)
         )
     }
 
@@ -126,6 +127,9 @@ enum DebugSampleStatsSnapshot {
     }
 
     private static func makeTimeline(now: Date) -> StatsGanttTimeline {
+        let calendar = Calendar.current
+        let dayStart = calendar.startOfDay(for: now)
+        let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) ?? now
         let segments = [
             ("Sync debug", -18_000.0, -15_600.0, 18_400),
             ("iOS settings", -14_700.0, -12_900.0, 11_200),
@@ -135,8 +139,8 @@ enum DebugSampleStatsSnapshot {
             ("Tests", -3_900.0, -2_400.0, 21_500),
         ]
         return StatsGanttTimeline(
-            periodStart: now.addingTimeInterval(-18_000),
-            periodEnd: now,
+            periodStart: dayStart,
+            periodEnd: dayEnd,
             segments: segments.enumerated().map { index, value in
                 StatsGanttSegment(
                     id: "sample-segment-\(index)",
@@ -180,6 +184,121 @@ enum DebugSampleStatsSnapshot {
                 StatsLeaderboardFavoriteModel(id: "favorite-opus", rank: 2, model: "Claude Opus 4.1", tokens: 82_100),
                 StatsLeaderboardFavoriteModel(id: "favorite-codex", rank: 3, model: "GPT-5 Codex", tokens: 61_400),
             ]
+        )
+    }
+
+    private static func makeStatusSummary(now: Date, calendar: Calendar) -> StatsStatusSummary {
+        let fetchedAt = now.addingTimeInterval(-60)
+        return StatsStatusSummary(
+            providers: [
+                StatsStatusProviderSnapshot(
+                    providerID: .openAI,
+                    providerName: "OpenAI",
+                    statusPageURL: URL(string: "https://status.openai.com/"),
+                    pageName: "OpenAI Status",
+                    pageUpdatedAt: fetchedAt,
+                    rollup: StatsStatusRollup(severity: .operational, description: "All Systems Operational"),
+                    items: [
+                        StatsStatusItem(id: SampleStatusIDs.chatGPT, name: "ChatGPT", status: .operational, updatedAt: fetchedAt, position: 1),
+                        StatsStatusItem(id: SampleStatusIDs.codex, name: "Codex", status: .operational, updatedAt: fetchedAt, position: 2),
+                    ],
+                    defaultVisibleItemIDs: [SampleStatusIDs.chatGPT, SampleStatusIDs.codex],
+                    uptimeHistories: [
+                        makeUptimeHistory(
+                            itemID: SampleStatusIDs.chatGPT,
+                            itemName: "ChatGPT",
+                            sourceUptimePercent: 99.83,
+                            now: now,
+                            calendar: calendar,
+                            degradedOffsets: [4, 11, 23, 49, 67, 83],
+                            partialOffsets: [18, 71],
+                            majorOffsets: [],
+                            fullOffsets: [80]
+                        ),
+                        makeUptimeHistory(
+                            itemID: SampleStatusIDs.codex,
+                            itemName: "Codex",
+                            sourceUptimePercent: 99.96,
+                            now: now,
+                            calendar: calendar,
+                            degradedOffsets: [6, 14, 52, 76, 85],
+                            partialOffsets: [61],
+                            majorOffsets: [],
+                            fullOffsets: []
+                        ),
+                    ],
+                    fetchedAt: fetchedAt
+                ),
+                StatsStatusProviderSnapshot(
+                    providerID: .claude,
+                    providerName: "Claude",
+                    statusPageURL: URL(string: "https://status.claude.com/"),
+                    pageName: "Claude Status",
+                    pageUpdatedAt: fetchedAt,
+                    rollup: StatsStatusRollup(severity: .operational, description: "All Systems Operational"),
+                    items: [
+                        StatsStatusItem(id: SampleStatusIDs.claudeAI, name: "claude.ai", status: .operational, updatedAt: fetchedAt, position: 1),
+                        StatsStatusItem(id: SampleStatusIDs.claudeCode, name: "Claude Code", status: .operational, updatedAt: fetchedAt, position: 4),
+                    ],
+                    defaultVisibleItemIDs: [SampleStatusIDs.claudeAI, SampleStatusIDs.claudeCode],
+                    uptimeHistories: [
+                        makeUptimeHistory(
+                            itemID: SampleStatusIDs.claudeAI,
+                            itemName: "claude.ai",
+                            sourceUptimePercent: 99.91,
+                            now: now,
+                            calendar: calendar,
+                            degradedOffsets: [],
+                            partialOffsets: [19, 64],
+                            majorOffsets: [],
+                            fullOffsets: []
+                        ),
+                        makeUptimeHistory(
+                            itemID: SampleStatusIDs.claudeCode,
+                            itemName: "Claude Code",
+                            sourceUptimePercent: 99.97,
+                            now: now,
+                            calendar: calendar,
+                            degradedOffsets: [],
+                            partialOffsets: [44],
+                            majorOffsets: [],
+                            fullOffsets: []
+                        ),
+                    ],
+                    fetchedAt: fetchedAt
+                ),
+            ]
+        )
+    }
+
+    private static func makeUptimeHistory(
+        itemID: String,
+        itemName: String,
+        sourceUptimePercent: Double,
+        now: Date,
+        calendar: Calendar,
+        degradedOffsets: Set<Int>,
+        partialOffsets: Set<Int>,
+        majorOffsets: Set<Int>,
+        fullOffsets: Set<Int>
+    ) -> StatsStatusUptimeHistory {
+        let today = calendar.startOfDay(for: now)
+        let days = (0..<StatsStatusUptimeWindow.dayCount).map { index in
+            StatsStatusUptimeDay(
+                date: day(index - StatsStatusUptimeWindow.dayCount + 1, from: today, calendar: calendar),
+                degradedPerformanceSeconds: degradedOffsets.contains(index) ? 3_600 : 0,
+                partialOutageSeconds: partialOffsets.contains(index) ? 3_600 : 0,
+                majorOutageSeconds: majorOffsets.contains(index) ? 7_200 : 0,
+                fullOutageSeconds: fullOffsets.contains(index) ? 7_200 : 0,
+                relatedEvents: []
+            )
+        }
+        return StatsStatusUptimeHistory(
+            itemID: itemID,
+            itemName: itemName,
+            startDate: days.first?.date,
+            days: days,
+            sourceUptimePercent: sourceUptimePercent
         )
     }
 
@@ -247,6 +366,13 @@ enum DebugSampleStatsSnapshot {
 
     private static func day(_ offset: Int, from day: Date, calendar: Calendar) -> Date {
         calendar.date(byAdding: .day, value: offset, to: day) ?? day
+    }
+
+    private enum SampleStatusIDs {
+        static let chatGPT = "01K5H8S53SY1KMS4GQMNMZXTR1"
+        static let codex = "01KMKF9EBTCD8BN9PG8DJZXRSQ"
+        static let claudeAI = "rwppv331jlwc"
+        static let claudeCode = "yyzkbfz2thpt"
     }
 }
 

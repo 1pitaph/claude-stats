@@ -19,6 +19,14 @@ After every round that changes code, run `bash scripts/run-debug.sh` before
 responding so the latest build is compiled and launched from the canonical
 DerivedData path.
 
+## iOS Companion App
+
+After every round that changes iOS app code (`ClaudeStatsiOS/`, shared models
+used by iOS, or `project.yml` iOS target settings), rebuild and relaunch the
+iOS app in the Simulator before responding. The visual Simulator state should
+come from the latest build, not a still-running previous install. For test
+coverage, run `bash scripts/run-ios-tests.sh`.
+
 ## Tests
 
 ```bash

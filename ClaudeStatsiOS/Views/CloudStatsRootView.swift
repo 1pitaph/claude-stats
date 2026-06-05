@@ -113,6 +113,7 @@ private struct CloudStatsTabView: View {
     let refresh: () -> Void
 
     @State private var activeSheet: CloudStatsSheet?
+    @State private var statusPreferences = StatsStatusDisplayPreferencesStore()
 
     var body: some View {
         TabView {
@@ -121,6 +122,7 @@ private struct CloudStatsTabView: View {
                     snapshot: snapshot,
                     accountStatus: accountStatus,
                     availability: availability,
+                    statusPreferences: statusPreferences,
                     refresh: refresh,
                     openSettings: openSettings
                 )
@@ -141,9 +143,16 @@ private struct CloudStatsTabView: View {
             switch sheet {
             case .settings:
                 #if CLAUDE_STATS_DEV_TOOLS
-                CloudStatsSettingsView(loadSampleData: loadSampleData)
+                CloudStatsSettingsView(
+                    statusSummary: snapshot.statusSummary,
+                    statusPreferences: statusPreferences,
+                    loadSampleData: loadSampleData
+                )
                 #else
-                CloudStatsSettingsView()
+                CloudStatsSettingsView(
+                    statusSummary: snapshot.statusSummary,
+                    statusPreferences: statusPreferences
+                )
                 #endif
             }
         }
@@ -176,12 +185,12 @@ private struct DashboardScreen: View {
     let snapshot: StatsSnapshot
     let accountStatus: CloudStatsAccountStatus
     let availability: CloudStatsDataAvailability
+    let statusPreferences: StatsStatusDisplayPreferencesStore
     let refresh: () -> Void
     let openSettings: () -> Void
 
-    private let columns = [
-        GridItem(.flexible(), spacing: 10),
-        GridItem(.flexible(), spacing: 10),
+    private let metricColumns = [
+        GridItem(.adaptive(minimum: 104, maximum: 136), spacing: 10),
     ]
 
     var body: some View {
@@ -191,7 +200,7 @@ private struct DashboardScreen: View {
                 if let message = availability.message {
                     SnapshotStatusBanner(message: message)
                 }
-                LazyVGrid(columns: columns, spacing: 10) {
+                LazyVGrid(columns: metricColumns, spacing: 10) {
                     MetricTile(title: "Tokens", value: StatsFormat.tokens(snapshot.dashboardSummary.totalTokens), symbol: "sum")
                     MetricTile(title: "Cost", value: StatsFormat.cost(snapshot.dashboardSummary.totalCost), symbol: "dollarsign")
                     MetricTile(title: "Sessions", value: "\(snapshot.dashboardSummary.sessionCount)", symbol: "rectangle.stack")
@@ -199,6 +208,11 @@ private struct DashboardScreen: View {
                     MetricTile(title: "AI Time", value: StatsFormat.duration(snapshot.activitySummary.totalAISeconds), symbol: "clock")
                     MetricTile(title: "Active Days", value: "\(snapshot.activitySummary.activeDayCount)", symbol: "calendar.badge.clock")
                 }
+                .frame(maxWidth: 430, alignment: .leading)
+                CloudStatsStatusPanel(
+                    summary: snapshot.statusSummary,
+                    preferences: statusPreferences
+                )
                 BarChartCard(
                     title: "Usage Trend",
                     subtitle: "Last 7 synced days",
@@ -397,45 +411,18 @@ private struct ToolScreen: View {
     let availability: CloudStatsDataAvailability
     let openSettings: () -> Void
 
+    @State private var selectedMode: ToolContentMode = .dailyReport
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
+                toolModePicker
+
                 if let message = availability.message {
                     SnapshotStatusBanner(message: message)
                 }
 
-                leaderboardSection
-                TimelineOverviewCard(snapshot: snapshot)
-
-                BarChartCard(
-                    title: "Git Activity",
-                    subtitle: "Repository churn",
-                    points: snapshot.gitActivityChartPoints(),
-                    tint: .orange,
-                    emptyCaption: "Chart ready. No repository activity yet."
-                )
-
-                VStack(alignment: .leading, spacing: 10) {
-                    SectionTitle("Git Overview")
-                    ValueRow(title: "Repos", subtitle: "Loaded on Mac", value: "\(snapshot.gitActivitySummary.totalRepositories)")
-                    ValueRow(title: "Commits", subtitle: "Current Git view range", value: "\(snapshot.gitActivitySummary.totalCommits)")
-                    ValueRow(title: "Lines +/-", subtitle: "Insertions / deletions", value: "\(snapshot.gitActivitySummary.totalInsertions)/\(snapshot.gitActivitySummary.totalDeletions)")
-                }
-
-                VStack(alignment: .leading, spacing: 10) {
-                    SectionTitle("Repositories")
-                    if snapshot.gitActivitySummary.rows.isEmpty {
-                        EmptyRow(text: "Repository rows will appear after the Mac snapshot includes Git activity.")
-                    } else {
-                        ForEach(snapshot.gitActivitySummary.rows) { row in
-                            ValueRow(
-                                title: row.label,
-                                subtitle: "\(row.commitCount) commits",
-                                value: StatsFormat.tokens(row.churn)
-                            )
-                        }
-                    }
-                }
+                selectedContent
             }
             .padding()
         }
@@ -448,42 +435,99 @@ private struct ToolScreen: View {
         }
     }
 
-    private var leaderboardSection: some View {
+    private var toolModePicker: some View {
+        Picker("Tool Content", selection: $selectedMode) {
+            ForEach(ToolContentMode.allCases) { mode in
+                Text(mode.title)
+                    .tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
+        .accessibilityLabel("Tool content")
+    }
+
+    @ViewBuilder
+    private var selectedContent: some View {
+        switch selectedMode {
+        case .dailyReport:
+            dailyReportSection
+        case .gantt:
+            ganttSection
+        case .git:
+            gitSection
+        }
+    }
+
+    private var dailyReportSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            SectionTitle("Leaderboards")
-            ValueRow(
-                title: snapshot.leaderboardSummary.isEnabled ? "Joined" : "Not Joined",
-                subtitle: snapshot.leaderboardSummary.accountText,
-                value: snapshot.leaderboardSummary.statusText
-            )
-            if let realtime = snapshot.leaderboardSummary.realtimeStatusText, !realtime.isEmpty {
-                ValueRow(title: "Realtime", subtitle: "Mac sync state", value: realtime)
-            }
-            if let periodKey = snapshot.leaderboardSummary.lastLoadedPeriodKey, !periodKey.isEmpty {
-                ValueRow(title: "Loaded Period", subtitle: "Visible board range", value: periodKey)
-            }
-            if let error = snapshot.leaderboardSummary.errorMessage, !error.isEmpty {
-                EmptyRow(text: error)
-            } else if snapshot.leaderboardSummary.visibleRows.isEmpty {
-                EmptyRow(text: snapshot.leaderboardSummary.emptyMessage ?? "Visible board rows will appear after they sync from Mac.")
+            SectionTitle("Daily Report")
+            if snapshot.dailyReports.isEmpty {
+                EmptyRow(text: "Daily report rows will appear after the Mac snapshot includes reports.")
             } else {
-                ForEach(snapshot.leaderboardSummary.visibleRows.prefix(8)) { row in
+                ForEach(snapshot.dailyReports.sorted { $0.day > $1.day }.prefix(30)) { report in
                     ValueRow(
-                        title: "#\(row.rank) \(row.displayName)",
-                        subtitle: "\(row.periodName) - \(row.metricName)",
-                        value: leaderboardScore(row.score, metricID: row.metricID)
+                        title: StatsFormat.day(report.day),
+                        subtitle: "\(report.projectCount) projects - \(report.sessionCount) sessions - \(report.messageCount) messages",
+                        value: StatsFormat.tokens(report.totalTokens)
                     )
                 }
             }
-            if !snapshot.leaderboardSummary.favoriteModels.isEmpty {
-                ForEach(snapshot.leaderboardSummary.favoriteModels.prefix(6)) { model in
-                    ValueRow(
-                        title: "#\(model.rank) \(model.model)",
-                        subtitle: "Personal model mix",
-                        value: StatsFormat.tokens(clampedInt(model.tokens))
-                    )
+        }
+    }
+
+    private var ganttSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SyncedGanttTimelineCard(timeline: snapshot.ganttTimeline)
+        }
+    }
+
+    private var gitSection: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            BarChartCard(
+                title: "Git Activity",
+                subtitle: "Repository churn",
+                points: snapshot.gitActivityChartPoints(),
+                tint: .orange,
+                emptyCaption: "Chart ready. No repository activity yet."
+            )
+
+            VStack(alignment: .leading, spacing: 10) {
+                SectionTitle("Git Overview")
+                ValueRow(title: "Repos", subtitle: "Loaded on Mac", value: "\(snapshot.gitActivitySummary.totalRepositories)")
+                ValueRow(title: "Commits", subtitle: "Current Git view range", value: "\(snapshot.gitActivitySummary.totalCommits)")
+                ValueRow(title: "Lines +/-", subtitle: "Insertions / deletions", value: "\(snapshot.gitActivitySummary.totalInsertions)/\(snapshot.gitActivitySummary.totalDeletions)")
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                SectionTitle("Repositories")
+                if snapshot.gitActivitySummary.rows.isEmpty {
+                    EmptyRow(text: "Repository rows will appear after the Mac snapshot includes Git activity.")
+                } else {
+                    ForEach(snapshot.gitActivitySummary.rows) { row in
+                        ValueRow(
+                            title: row.label,
+                            subtitle: "\(row.commitCount) commits",
+                            value: StatsFormat.tokens(row.churn)
+                        )
+                    }
                 }
             }
+        }
+    }
+}
+
+private enum ToolContentMode: String, CaseIterable, Identifiable {
+    case dailyReport
+    case gantt
+    case git
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .dailyReport: "Daily Report"
+        case .gantt: "Gantt"
+        case .git: "Git"
         }
     }
 }
@@ -676,84 +720,6 @@ private struct ChartBar: View {
     }
 }
 
-private struct TimelineOverviewCard: View {
-    let snapshot: StatsSnapshot
-
-    private var segments: [StatsGanttSegment] {
-        Array(snapshot.ganttTimeline.segments.sorted { $0.start < $1.start }.prefix(8))
-    }
-
-    private var hasData: Bool {
-        !segments.isEmpty
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Gantt Timeline")
-                    .font(.headline)
-                Text("Recent synced work blocks")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            ZStack {
-                VStack(spacing: 18) {
-                    ForEach(0..<3, id: \.self) { _ in
-                        RoundedRectangle(cornerRadius: 3, style: .continuous)
-                            .fill(Color(.tertiarySystemFill))
-                            .frame(height: 8)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                if hasData {
-                    VStack(spacing: 14) {
-                        ForEach(Array(segments.enumerated()), id: \.element.id) { index, segment in
-                            TimelineSegmentRow(segment: segment, index: index)
-                        }
-                    }
-                } else {
-                    Text("Timeline frame ready. No segments yet.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .padding(8)
-                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                }
-            }
-            .frame(height: 118)
-        }
-        .panelStyle()
-    }
-}
-
-private struct TimelineSegmentRow: View {
-    let segment: StatsGanttSegment
-    let index: Int
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Capsule()
-                .fill(Color.teal.opacity(0.78))
-                .frame(width: segmentWidth, height: 10)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(segment.label)
-                    .font(.caption.weight(.medium))
-                    .lineLimit(1)
-                Text(StatsFormat.tokens(segment.tokenCount))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.leading, CGFloat(index % 3) * 18)
-    }
-
-    private var segmentWidth: CGFloat {
-        CGFloat(min(150, max(34, segment.tokenCount / 250 + 34)))
-    }
-}
-
 private struct MetricTile: View {
     let title: String
     let value: String
@@ -853,17 +819,6 @@ private extension View {
             .padding(12)
             .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
-}
-
-private func leaderboardScore(_ score: Int64, metricID: String) -> String {
-    if metricID == "activityMinutes" {
-        return StatsFormat.duration(TimeInterval(score) * 60)
-    }
-    return StatsFormat.tokens(clampedInt(score))
-}
-
-private func clampedInt(_ value: Int64) -> Int {
-    Int(min(value, Int64(Int.max)))
 }
 
 private extension StatsSnapshot {

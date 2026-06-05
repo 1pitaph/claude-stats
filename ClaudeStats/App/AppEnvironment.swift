@@ -215,6 +215,12 @@ final class AppEnvironment {
             }
             #endif
         }
+        claudeStatus.onRefresh = { [weak self] in
+            self?.scheduleCloudStatsSnapshotPublish(reason: "Claude status refresh")
+        }
+        openAIStatus.onRefresh = { [weak self] in
+            self?.scheduleCloudStatsSnapshotPublish(reason: "OpenAI status refresh")
+        }
         leaderboards.start()
         Task {
             #if !CLAUDE_STATS_LITE
@@ -317,6 +323,7 @@ final class AppEnvironment {
             }
         }
 
+        await refreshStatusesForCloudStatsPublish()
         let snapshot = StatsSnapshotBuilder.make(environment: self)
         cloudStatsSyncState.phase = .publishing
         cloudStatsSyncState.lastPublishReason = reason
@@ -332,6 +339,11 @@ final class AppEnvironment {
             cloudStatsSyncState.lastError = error.localizedDescription
             Log.app.error("iCloud stats snapshot publish failed for \(reason, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    private func refreshStatusesForCloudStatsPublish() async {
+        await claudeStatus.refreshIfNeeded()
+        await openAIStatus.refreshIfNeeded()
     }
 
     private var hasCloudStatsCloudKitAccess: Bool {
