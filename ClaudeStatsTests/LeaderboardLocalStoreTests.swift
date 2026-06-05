@@ -24,6 +24,8 @@ struct LeaderboardLocalStoreTests {
             favoriteModels: [
                 LeaderboardFavoriteModel(rank: 1, model: "sonnet", tokens: 42),
             ],
+            recentStatusID: LeaderboardRecentStatus.celebrating.rawValue,
+            recentStatusUpdatedAt: savedAt,
             updatedAt: savedAt
         )
         let historyKey = LeaderboardHistoryCacheKey(
@@ -47,6 +49,8 @@ struct LeaderboardLocalStoreTests {
             favoriteModels: [
                 LeaderboardFavoriteModel(rank: 1, model: "sonnet", tokens: 42),
             ],
+            recentStatusID: LeaderboardRecentStatus.celebrating.rawValue,
+            recentStatusUpdatedAt: savedAt,
             updatedAt: savedAt
         )
         let syncState = LeaderboardLocalSyncState(
@@ -66,6 +70,8 @@ struct LeaderboardLocalStoreTests {
         await store.writeSyncState(syncState)
         await store.writeRealtimeState(realtimeState)
 
+        #expect(score.withRank(2).recentStatusID == LeaderboardRecentStatus.celebrating.rawValue)
+        #expect(score.withRank(2).recentStatusUpdatedAt == savedAt)
         #expect(await store.readScores(for: scoreKey)?.scores == [score])
         #expect(await store.readHistory(for: historyKey)?.points == [historyPoint])
         #expect(await store.readProfile(userHash: "userhash")?.profile == profile)

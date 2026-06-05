@@ -573,6 +573,8 @@ struct PreferencesTests {
         fullPrefs.leaderboardNickname = "Ada"
         fullPrefs.leaderboardAvatarSeed = "avatar-full"
         fullPrefs.leaderboardProfileUserHash = "userhash"
+        fullPrefs.leaderboardRecentStatusID = LeaderboardRecentStatus.reviewing.rawValue
+        fullPrefs.leaderboardRecentStatusUpdatedAt = Date(timeIntervalSince1970: 1_768_199_000)
         fullPrefs.leaderboardLastSyncedAt = Date(timeIntervalSince1970: 1_768_200_000)
         fullPrefs.leaderboardLastSyncError = "retry later"
         fullPrefs.leaderboardLastSubmittedPeriodKeys = ["day:2026-06-03"]
@@ -584,13 +586,17 @@ struct PreferencesTests {
         #expect(litePrefs.leaderboardNickname == "Ada")
         #expect(litePrefs.leaderboardAvatarSeed == "avatar-full")
         #expect(litePrefs.leaderboardProfileUserHash == "userhash")
+        #expect(litePrefs.leaderboardRecentStatusID == "reviewing")
+        #expect(litePrefs.leaderboardRecentStatusUpdatedAt == Date(timeIntervalSince1970: 1_768_199_000))
         #expect(litePrefs.leaderboardLastSyncedAt == Date(timeIntervalSince1970: 1_768_200_000))
         #expect(litePrefs.leaderboardLastSyncError == "retry later")
         #expect(litePrefs.leaderboardLastSubmittedPeriodKeys == ["day:2026-06-03"])
 
         litePrefs.leaderboardNickname = "Lite Ada"
+        litePrefs.leaderboardRecentStatusID = LeaderboardRecentStatus.away.rawValue
         let reloadedFullPrefs = Preferences(defaults: fullDefaults, leaderboardSharedStore: sharedStore)
         #expect(reloadedFullPrefs.leaderboardNickname == "Lite Ada")
+        #expect(reloadedFullPrefs.leaderboardRecentStatusID == "away")
     }
 
     @Test("Legacy IDE bundle preferences migrate to coding surfaces")

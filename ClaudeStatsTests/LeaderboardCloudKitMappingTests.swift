@@ -166,6 +166,8 @@ struct LeaderboardCloudKitMappingTests {
                     LeaderboardFavoriteModel(rank: 1, model: "sonnet", tokens: 300),
                     LeaderboardFavoriteModel(rank: 2, model: "opus", tokens: 100),
                 ],
+                recentStatusID: LeaderboardRecentStatus.shipping.rawValue,
+                recentStatusUpdatedAt: Date(timeIntervalSince1970: 1_768_205_000),
                 appVersion: "1.2.3",
                 updatedAt: Date(timeIntervalSince1970: 1_768_210_000)
             )
@@ -178,9 +180,12 @@ struct LeaderboardCloudKitMappingTests {
         #expect(mappedProfile?.historyStartMonthKey == "2026-05")
         #expect(mappedProfile?.favoriteModels?.map(\.model) == ["sonnet", "opus"])
         #expect(mappedProfile?.favoriteModels?.map(\.tokens) == [300, 100])
+        #expect(mappedProfile?.recentStatusID == "shipping")
+        #expect(mappedProfile?.recentStatusUpdatedAt == Date(timeIntervalSince1970: 1_768_205_000))
         #expect(profile[CloudKitLeaderboardRecordMapper.Field.avatarVariant] as? String == "beam")
         #expect(profile[CloudKitLeaderboardRecordMapper.Field.historyStartMonthKey] as? String == "2026-05")
         #expect((profile[CloudKitLeaderboardRecordMapper.Field.favoriteModels] as? String)?.contains("sonnet") == true)
+        #expect(profile[CloudKitLeaderboardRecordMapper.Field.recentStatusID] as? String == "shipping")
         #expect(CloudKitLeaderboardRecordMapper.userHash(from: scoreRecord) == "userhash")
         #expect(CloudKitLeaderboardRecordMapper.score(
             from: scoreRecord,
@@ -197,6 +202,27 @@ struct LeaderboardCloudKitMappingTests {
             rank: 1,
             profile: mappedProfile
         )?.favoriteModels?.first?.model == "sonnet")
+        #expect(CloudKitLeaderboardRecordMapper.score(
+            from: scoreRecord,
+            rank: 1,
+            profile: mappedProfile
+        )?.recentStatusID == "shipping")
+    }
+
+    @Test("Empty recent status field clears the mapped public status")
+    func emptyRecentStatusClearsStatus() {
+        let recordID = CKRecord.ID(recordName: CloudKitLeaderboardRecordMapper.profileRecordName(userHash: "userhash"))
+        let record = CKRecord(recordType: CloudKitLeaderboardConfig.recordType, recordID: recordID)
+        record[CloudKitLeaderboardRecordMapper.Field.userHash] = "userhash"
+        record[CloudKitLeaderboardRecordMapper.Field.nickname] = "Ada"
+        record[CloudKitLeaderboardRecordMapper.Field.recentStatusID] = ""
+        record[CloudKitLeaderboardRecordMapper.Field.recentStatusUpdatedAt] = Date(timeIntervalSince1970: 1_768_205_000) as NSDate
+        record[CloudKitLeaderboardRecordMapper.Field.updatedAt] = Date(timeIntervalSince1970: 1_768_210_000) as NSDate
+
+        let profile = CloudKitLeaderboardRecordMapper.profile(from: record)
+
+        #expect(profile?.recentStatusID == nil)
+        #expect(profile?.recentStatusUpdatedAt == Date(timeIntervalSince1970: 1_768_205_000))
     }
 
     @Test("Legacy profile records without avatar fields still map nickname")

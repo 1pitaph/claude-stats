@@ -42,6 +42,59 @@ enum LeaderboardPeriod: String, CaseIterable, Sendable, Identifiable, Codable {
     }
 }
 
+enum LeaderboardRecentStatus: String, CaseIterable, Sendable, Identifiable, Codable {
+    case focused
+    case shipping
+    case debugging
+    case reviewing
+    case away
+    case celebrating
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .focused: "Focused"
+        case .shipping: "Shipping"
+        case .debugging: "Debugging"
+        case .reviewing: "Reviewing"
+        case .away: "Away"
+        case .celebrating: "Celebrating"
+        }
+    }
+
+    var shortLabel: String {
+        switch self {
+        case .focused: "Focus"
+        case .shipping: "Ship"
+        case .debugging: "Debug"
+        case .reviewing: "Review"
+        case .away: "Away"
+        case .celebrating: "Win"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .focused: "target"
+        case .shipping: "paperplane.fill"
+        case .debugging: "ladybug.fill"
+        case .reviewing: "checkmark.seal.fill"
+        case .away: "moon.fill"
+        case .celebrating: "party.popper.fill"
+        }
+    }
+
+    static func normalizedID(_ rawValue: String?) -> String? {
+        guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawValue.isEmpty,
+              Self(rawValue: rawValue) != nil else {
+            return nil
+        }
+        return rawValue
+    }
+}
+
 struct LeaderboardScore: Sendable, Hashable, Identifiable, Codable {
     let id: String
     let userHash: String?
@@ -54,6 +107,8 @@ struct LeaderboardScore: Sendable, Hashable, Identifiable, Codable {
     let avatarSeed: String?
     let historyStartMonthKey: String?
     let favoriteModels: [LeaderboardFavoriteModel]?
+    let recentStatusID: String?
+    let recentStatusUpdatedAt: Date?
     let updatedAt: Date
 
     init(id: String,
@@ -67,6 +122,8 @@ struct LeaderboardScore: Sendable, Hashable, Identifiable, Codable {
          avatarSeed: String?,
          historyStartMonthKey: String? = nil,
          favoriteModels: [LeaderboardFavoriteModel]? = nil,
+         recentStatusID: String? = nil,
+         recentStatusUpdatedAt: Date? = nil,
          updatedAt: Date) {
         self.id = id
         self.userHash = userHash
@@ -79,6 +136,8 @@ struct LeaderboardScore: Sendable, Hashable, Identifiable, Codable {
         self.avatarSeed = avatarSeed
         self.historyStartMonthKey = historyStartMonthKey
         self.favoriteModels = favoriteModels
+        self.recentStatusID = LeaderboardRecentStatus.normalizedID(recentStatusID)
+        self.recentStatusUpdatedAt = recentStatusUpdatedAt
         self.updatedAt = updatedAt
     }
 
@@ -95,6 +154,8 @@ struct LeaderboardScore: Sendable, Hashable, Identifiable, Codable {
             avatarSeed: avatarSeed,
             historyStartMonthKey: historyStartMonthKey,
             favoriteModels: favoriteModels,
+            recentStatusID: recentStatusID,
+            recentStatusUpdatedAt: recentStatusUpdatedAt,
             updatedAt: updatedAt
         )
     }
@@ -183,6 +244,8 @@ struct LeaderboardProfile: Sendable, Hashable, Identifiable, Codable {
     let avatarSeed: String?
     let historyStartMonthKey: String?
     let favoriteModels: [LeaderboardFavoriteModel]?
+    let recentStatusID: String?
+    let recentStatusUpdatedAt: Date?
     let updatedAt: Date
 
     var id: String { userHash }
@@ -192,12 +255,16 @@ struct LeaderboardProfile: Sendable, Hashable, Identifiable, Codable {
          avatarSeed: String?,
          historyStartMonthKey: String?,
          favoriteModels: [LeaderboardFavoriteModel]? = nil,
+         recentStatusID: String? = nil,
+         recentStatusUpdatedAt: Date? = nil,
          updatedAt: Date) {
         self.userHash = userHash
         self.nickname = nickname
         self.avatarSeed = avatarSeed
         self.historyStartMonthKey = historyStartMonthKey
         self.favoriteModels = favoriteModels
+        self.recentStatusID = LeaderboardRecentStatus.normalizedID(recentStatusID)
+        self.recentStatusUpdatedAt = recentStatusUpdatedAt
         self.updatedAt = updatedAt
     }
 }
@@ -207,6 +274,8 @@ struct LeaderboardProfileDraft: Sendable, Hashable, Codable {
     let avatarSeed: String
     let historyStartMonthKey: String?
     let favoriteModels: [LeaderboardFavoriteModel]?
+    let recentStatusID: String?
+    let recentStatusUpdatedAt: Date?
     let appVersion: String
     let updatedAt: Date
 
@@ -214,12 +283,16 @@ struct LeaderboardProfileDraft: Sendable, Hashable, Codable {
          avatarSeed: String,
          historyStartMonthKey: String? = nil,
          favoriteModels: [LeaderboardFavoriteModel]? = nil,
+         recentStatusID: String? = nil,
+         recentStatusUpdatedAt: Date? = nil,
          appVersion: String = Self.appVersion,
          updatedAt: Date = .now) {
         self.nickname = nickname
         self.avatarSeed = avatarSeed
         self.historyStartMonthKey = historyStartMonthKey
         self.favoriteModels = favoriteModels
+        self.recentStatusID = LeaderboardRecentStatus.normalizedID(recentStatusID)
+        self.recentStatusUpdatedAt = recentStatusUpdatedAt
         self.appVersion = appVersion
         self.updatedAt = updatedAt
     }

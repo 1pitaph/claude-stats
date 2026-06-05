@@ -438,6 +438,23 @@ final class Preferences {
             persistSharedLeaderboardPreferences()
         }
     }
+    var leaderboardRecentStatusID: String {
+        didSet {
+            let normalized = LeaderboardRecentStatus.normalizedID(leaderboardRecentStatusID) ?? ""
+            guard normalized == leaderboardRecentStatusID else {
+                leaderboardRecentStatusID = normalized
+                return
+            }
+            defaults.set(leaderboardRecentStatusID, forKey: Keys.leaderboardRecentStatusID)
+            persistSharedLeaderboardPreferences()
+        }
+    }
+    var leaderboardRecentStatusUpdatedAt: Date? {
+        didSet {
+            defaults.set(leaderboardRecentStatusUpdatedAt, forKey: Keys.leaderboardRecentStatusUpdatedAt)
+            persistSharedLeaderboardPreferences()
+        }
+    }
     var leaderboardLastSyncedAt: Date? {
         didSet {
             defaults.set(leaderboardLastSyncedAt, forKey: Keys.leaderboardLastSyncedAt)
@@ -633,6 +650,12 @@ final class Preferences {
         leaderboardProfileUserHash = sharedLeaderboardPreferences?.profileUserHash
             ?? defaults.string(forKey: Keys.leaderboardProfileUserHash)
             ?? ""
+        leaderboardRecentStatusID = sharedLeaderboardPreferences
+            .flatMap { LeaderboardRecentStatus.normalizedID($0.recentStatusID) }
+            ?? LeaderboardRecentStatus.normalizedID(defaults.string(forKey: Keys.leaderboardRecentStatusID))
+            ?? ""
+        leaderboardRecentStatusUpdatedAt = sharedLeaderboardPreferences?.recentStatusUpdatedAt
+            ?? defaults.object(forKey: Keys.leaderboardRecentStatusUpdatedAt) as? Date
         leaderboardLastSyncedAt = sharedLeaderboardPreferences?.lastSyncedAt
             ?? defaults.object(forKey: Keys.leaderboardLastSyncedAt) as? Date
         leaderboardLastSyncError = sharedLeaderboardPreferences?.lastSyncError
@@ -710,6 +733,8 @@ final class Preferences {
             nickname: leaderboardNickname,
             avatarSeed: leaderboardAvatarSeed,
             profileUserHash: leaderboardProfileUserHash,
+            recentStatusID: LeaderboardRecentStatus.normalizedID(leaderboardRecentStatusID),
+            recentStatusUpdatedAt: leaderboardRecentStatusUpdatedAt,
             lastSyncedAt: leaderboardLastSyncedAt,
             lastSyncError: leaderboardLastSyncError,
             lastSubmittedPeriodKeys: leaderboardLastSubmittedPeriodKeys
@@ -830,6 +855,8 @@ final class Preferences {
         static let leaderboardNickname = "leaderboardNickname"
         static let leaderboardAvatarSeed = "leaderboardAvatarSeed"
         static let leaderboardProfileUserHash = "leaderboardProfileUserHash"
+        static let leaderboardRecentStatusID = "leaderboardRecentStatusID"
+        static let leaderboardRecentStatusUpdatedAt = "leaderboardRecentStatusUpdatedAt"
         static let leaderboardLastSyncedAt = "leaderboardLastSyncedAt"
         static let leaderboardLastSyncError = "leaderboardLastSyncError"
         static let leaderboardLastSubmittedPeriodKeys = "leaderboardLastSubmittedPeriodKeys"

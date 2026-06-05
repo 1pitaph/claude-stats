@@ -119,6 +119,8 @@ enum CloudKitLeaderboardRecordMapper {
         static let avatarVariant = "avatarVariant"
         static let historyStartMonthKey = "historyStartMonthKey"
         static let favoriteModels = "favoriteModels"
+        static let recentStatusID = "recentStatusID"
+        static let recentStatusUpdatedAt = "recentStatusUpdatedAt"
     }
 
     static let avatarVariant = "beam"
@@ -140,6 +142,8 @@ enum CloudKitLeaderboardRecordMapper {
         Field.avatarVariant,
         Field.historyStartMonthKey,
         Field.favoriteModels,
+        Field.recentStatusID,
+        Field.recentStatusUpdatedAt,
         Field.updatedAt,
     ]
 
@@ -246,6 +250,12 @@ enum CloudKitLeaderboardRecordMapper {
            let encodedFavoriteModels = encodeFavoriteModels(favoriteModels) {
             record[Field.favoriteModels] = encodedFavoriteModels
         }
+        record[Field.recentStatusID] = profile.recentStatusID ?? ""
+        if let recentStatusUpdatedAt = profile.recentStatusUpdatedAt {
+            record[Field.recentStatusUpdatedAt] = recentStatusUpdatedAt as NSDate
+        } else {
+            record[Field.recentStatusUpdatedAt] = Date(timeIntervalSince1970: 0) as NSDate
+        }
         record[Field.metric] = profileMetric
         record[Field.period] = profilePeriod
         record[Field.periodKey] = profilePeriodKey
@@ -270,6 +280,8 @@ enum CloudKitLeaderboardRecordMapper {
         let avatarSeed = record[Field.avatarSeed] as? String
         let historyStartMonthKey = record[Field.historyStartMonthKey] as? String
         let favoriteModels = decodeFavoriteModels(from: record)
+        let recentStatusID = LeaderboardRecentStatus.normalizedID(record[Field.recentStatusID] as? String)
+        let recentStatusUpdatedAt = dateValue(record[Field.recentStatusUpdatedAt])
         let updatedAt = (record[Field.updatedAt] as? Date)
             ?? (record[Field.updatedAt] as? NSDate).map { $0 as Date }
             ?? record.modificationDate
@@ -280,6 +292,8 @@ enum CloudKitLeaderboardRecordMapper {
             avatarSeed: avatarSeed?.isEmpty == false ? avatarSeed : nil,
             historyStartMonthKey: historyStartMonthKey?.isEmpty == false ? historyStartMonthKey : nil,
             favoriteModels: favoriteModels,
+            recentStatusID: recentStatusID,
+            recentStatusUpdatedAt: recentStatusUpdatedAt,
             updatedAt: updatedAt
         )
     }
@@ -319,6 +333,8 @@ enum CloudKitLeaderboardRecordMapper {
             avatarSeed: profile?.avatarSeed,
             historyStartMonthKey: profile?.historyStartMonthKey,
             favoriteModels: profile?.favoriteModels,
+            recentStatusID: profile?.recentStatusID,
+            recentStatusUpdatedAt: profile?.recentStatusUpdatedAt,
             updatedAt: updatedAt
         )
     }
@@ -703,6 +719,8 @@ struct CloudKitLeaderboardClient: LeaderboardCloudServicing {
             avatarSeed: draft.avatarSeed,
             historyStartMonthKey: draft.historyStartMonthKey,
             favoriteModels: draft.favoriteModels,
+            recentStatusID: draft.recentStatusID,
+            recentStatusUpdatedAt: draft.recentStatusUpdatedAt,
             updatedAt: draft.updatedAt
         )
     }

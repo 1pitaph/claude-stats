@@ -55,6 +55,10 @@ final class LeaderboardSyncViewModel {
         builder.favoriteModels(sessions: store.sessions)
     }
 
+    var currentRecentStatus: LeaderboardRecentStatus? {
+        LeaderboardRecentStatus(rawValue: preferences.leaderboardRecentStatusID)
+    }
+
     var leaderboardStatusText: String {
         guard leaderboardsFeatureIsActive else { return SyncStatus.disabled.displayText }
         return syncStatus.displayText
@@ -649,6 +653,20 @@ final class LeaderboardSyncViewModel {
         await saveCurrentProfileIfPossible()
     }
 
+    func setRecentStatus(_ status: LeaderboardRecentStatus) async {
+        preferences.leaderboardRecentStatusID = status.rawValue
+        preferences.leaderboardRecentStatusUpdatedAt = Date()
+        applyCurrentRecentStatusToVisibleScores()
+        await saveCurrentProfileIfPossible()
+    }
+
+    func clearRecentStatus() async {
+        preferences.leaderboardRecentStatusID = ""
+        preferences.leaderboardRecentStatusUpdatedAt = Date()
+        applyCurrentRecentStatusToVisibleScores()
+        await saveCurrentProfileIfPossible()
+    }
+
     private func scheduleSilentSync(after delay: TimeInterval) {
         silentSyncTask?.cancel()
         silentSyncTask = Task { [weak self] in
@@ -703,7 +721,7 @@ final class LeaderboardSyncViewModel {
     private func applyCachedScores(_ cached: LeaderboardCachedScores,
                                    requestedPeriod: LeaderboardPeriod,
                                    allowsRecentDayFallback: Bool) {
-        scores = scoresWithContiguousRanks(cached.scores)
+        scores = scoresApplyingCurrentRecentStatus(scoresWithContiguousRanks(cached.scores))
         lastLoadedPeriodKey = cached.key.periodKey
         scoreError = nil
         scoreEmptyMessage = cached.scores.isEmpty
@@ -733,10 +751,11 @@ final class LeaderboardSyncViewModel {
                     periodKey: window.periodKey,
                     limit: 100
                 )
-                let displayScores = scoresWithContiguousRanks(fetched)
-                await localStore.writeScores(displayScores, for: key, savedAt: Date())
-                await cacheProfiles(from: displayScores)
+                let rankedScores = scoresWithContiguousRanks(fetched)
+                await localStore.writeScores(rankedScores, for: key, savedAt: Date())
+                await cacheProfiles(from: rankedScores)
                 if !fetched.isEmpty {
+                    let displayScores = scoresApplyingCurrentRecentStatus(rankedScores)
                     scores = displayScores
                     lastLoadedPeriodKey = window.periodKey
                     scoreError = nil
@@ -783,6 +802,8 @@ final class LeaderboardSyncViewModel {
                 avatarSeed: score.avatarSeed,
                 historyStartMonthKey: score.historyStartMonthKey,
                 favoriteModels: score.favoriteModels,
+                recentStatusID: score.recentStatusID,
+                recentStatusUpdatedAt: score.recentStatusUpdatedAt,
                 updatedAt: score.updatedAt
             ), savedAt: Date())
         }
@@ -815,6 +836,8 @@ final class LeaderboardSyncViewModel {
                     avatarSeed: profile.avatarSeed,
                     historyStartMonthKey: profile.historyStartMonthKey,
                     favoriteModels: profile.favoriteModels,
+                    recentStatusID: profile.recentStatusID,
+                    recentStatusUpdatedAt: profile.recentStatusUpdatedAt,
                     updatedAt: profile.updatedAt
                 ),
                 savedAt: Date()
@@ -906,6 +929,8 @@ final class LeaderboardSyncViewModel {
                     avatarSeed: merged.draft.avatarSeed,
                     historyStartMonthKey: merged.draft.historyStartMonthKey,
                     favoriteModels: merged.draft.favoriteModels,
+                    recentStatusID: merged.draft.recentStatusID,
+                    recentStatusUpdatedAt: merged.draft.recentStatusUpdatedAt,
                     updatedAt: merged.draft.updatedAt
                 ),
                 savedAt: Date()
@@ -915,6 +940,10 @@ final class LeaderboardSyncViewModel {
             }
             if merged.shouldUpdateLocalAvatarSeed {
                 preferences.leaderboardAvatarSeed = merged.draft.avatarSeed
+            }
+            if merged.shouldUpdateLocalRecentStatus {
+                preferences.leaderboardRecentStatusID = merged.draft.recentStatusID ?? ""
+                preferences.leaderboardRecentStatusUpdatedAt = merged.draft.recentStatusUpdatedAt
             }
             return
         }
@@ -973,6 +1002,8 @@ final class LeaderboardSyncViewModel {
            !avatarSeed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             preferences.leaderboardAvatarSeed = avatarSeed
         }
+        rememberRecentStatus(from: profile)
+        applyProfileToVisibleScores(profile)
     }
 
     private func profileDraft(nickname: String) -> LeaderboardProfileDraft {
@@ -980,8 +1011,85 @@ final class LeaderboardSyncViewModel {
             nickname: nickname,
             avatarSeed: ensureLocalAvatarSeed(),
             historyStartMonthKey: builder.historyStartMonthKey(sessions: store.sessions),
-            favoriteModels: builder.favoriteModels(sessions: store.sessions)
+            favoriteModels: builder.favoriteModels(sessions: store.sessions),
+            recentStatusID: LeaderboardRecentStatus.normalizedID(preferences.leaderboardRecentStatusID),
+            recentStatusUpdatedAt: preferences.leaderboardRecentStatusUpdatedAt
         )
+    }
+
+    private func rememberRecentStatus(from profile: LeaderboardProfile) {
+        let statusID = LeaderboardRecentStatus.normalizedID(profile.recentStatusID)
+        guard statusID != nil || profile.recentStatusUpdatedAt != nil else { return }
+        if let localUpdatedAt = preferences.leaderboardRecentStatusUpdatedAt,
+           let profileUpdatedAt = profile.recentStatusUpdatedAt,
+           profileUpdatedAt < localUpdatedAt {
+            return
+        }
+        preferences.leaderboardRecentStatusID = statusID ?? ""
+        preferences.leaderboardRecentStatusUpdatedAt = profile.recentStatusUpdatedAt
+    }
+
+    private func applyProfileToVisibleScores(_ profile: LeaderboardProfile) {
+        scores = scores.map { score in
+            guard score.userHash == profile.userHash else { return score }
+            return LeaderboardScore(
+                id: score.id,
+                userHash: score.userHash,
+                metric: score.metric,
+                period: score.period,
+                periodKey: score.periodKey,
+                score: score.score,
+                rank: score.rank,
+                nickname: profile.nickname,
+                avatarSeed: profile.avatarSeed,
+                historyStartMonthKey: profile.historyStartMonthKey,
+                favoriteModels: profile.favoriteModels,
+                recentStatusID: profile.recentStatusID,
+                recentStatusUpdatedAt: profile.recentStatusUpdatedAt,
+                updatedAt: score.updatedAt
+            )
+        }
+    }
+
+    private func applyCurrentRecentStatusToVisibleScores() {
+        scores = scoresApplyingCurrentRecentStatus(scores)
+    }
+
+    private func scoresApplyingCurrentRecentStatus(_ source: [LeaderboardScore]) -> [LeaderboardScore] {
+        guard let currentUserHash,
+              let localStatusUpdatedAt = preferences.leaderboardRecentStatusUpdatedAt else {
+            return source
+        }
+        let localStatusID = LeaderboardRecentStatus.normalizedID(preferences.leaderboardRecentStatusID)
+        return source.map { score in
+            guard score.userHash == currentUserHash,
+                  score.recentStatusID != localStatusID || score.recentStatusUpdatedAt != localStatusUpdatedAt,
+                  shouldApplyLocalRecentStatus(localUpdatedAt: localStatusUpdatedAt,
+                                               remoteUpdatedAt: score.recentStatusUpdatedAt) else {
+                return score
+            }
+            return LeaderboardScore(
+                id: score.id,
+                userHash: score.userHash,
+                metric: score.metric,
+                period: score.period,
+                periodKey: score.periodKey,
+                score: score.score,
+                rank: score.rank,
+                nickname: score.nickname,
+                avatarSeed: score.avatarSeed,
+                historyStartMonthKey: score.historyStartMonthKey,
+                favoriteModels: score.favoriteModels,
+                recentStatusID: localStatusID,
+                recentStatusUpdatedAt: localStatusUpdatedAt,
+                updatedAt: score.updatedAt
+            )
+        }
+    }
+
+    private func shouldApplyLocalRecentStatus(localUpdatedAt: Date, remoteUpdatedAt: Date?) -> Bool {
+        guard let remoteUpdatedAt else { return true }
+        return localUpdatedAt >= remoteUpdatedAt
     }
 
     private func statusAfterAccountCheck() -> SyncStatus {

@@ -182,7 +182,11 @@ private struct LeaderboardPodiumCompactRow: View {
     private func rowContent(score: LeaderboardScore) -> some View {
         HStack(spacing: 12) {
             rankBadge(score.rank ?? fallbackRank)
-            BeamAvatarView(seed: LeaderboardFormat.avatarSeed(for: score), size: fallbackRank == 1 ? 44 : 38)
+            LeaderboardAvatarStatusView(
+                seed: LeaderboardFormat.avatarSeed(for: score),
+                size: fallbackRank == 1 ? 44 : 38,
+                statusID: score.recentStatusID
+            )
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(score.nickname)
@@ -289,7 +293,11 @@ private struct LeaderboardScoreRow: View {
                     .stxNumericValueTransition(value: score.rank ?? 0)
                     .foregroundStyle(isCurrentUser || isSelected ? Color.stxAccent : Color.stxMuted)
                     .frame(width: 38, alignment: .leading)
-                BeamAvatarView(seed: LeaderboardFormat.avatarSeed(for: score), size: 28)
+                LeaderboardAvatarStatusView(
+                    seed: LeaderboardFormat.avatarSeed(for: score),
+                    size: 28,
+                    statusID: score.recentStatusID
+                )
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
                         Text(score.nickname)

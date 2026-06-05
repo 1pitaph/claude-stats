@@ -241,7 +241,14 @@ struct LeaderboardsView: View {
                 favoriteModels: favoriteModels(for: selectedScore),
                 history: env.leaderboards.selectedUserHistory,
                 isLoadingHistory: env.leaderboards.isLoadingSelectedUserHistory,
-                historyError: env.leaderboards.selectedUserHistoryError
+                historyError: env.leaderboards.selectedUserHistoryError,
+                isSavingProfile: env.leaderboards.isSavingProfile,
+                onSetRecentStatus: { status in
+                    Task { await env.leaderboards.setRecentStatus(status) }
+                },
+                onClearRecentStatus: {
+                    Task { await env.leaderboards.clearRecentStatus() }
+                }
             )
             .frame(maxHeight: .infinity, alignment: .top)
         }

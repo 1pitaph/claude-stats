@@ -5,6 +5,8 @@ struct LeaderboardSharedPreferencesSnapshot: Codable, Equatable, Sendable {
     var nickname: String
     var avatarSeed: String
     var profileUserHash: String
+    var recentStatusID: String?
+    var recentStatusUpdatedAt: Date?
     var lastSyncedAt: Date?
     var lastSyncError: String
     var lastSubmittedPeriodKeys: [String]

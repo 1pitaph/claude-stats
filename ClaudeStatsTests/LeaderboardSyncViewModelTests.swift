@@ -73,6 +73,90 @@ struct LeaderboardSyncViewModelTests {
         #expect(fixture.viewModel.currentUserFavoriteModels.map(\.model) == ["sonnet", "haiku"])
     }
 
+    @Test("Setting recent status saves profile and updates visible current user score")
+    func setRecentStatusUpdatesVisibleScore() async {
+        let fixture = makeFixture(enabled: true)
+        let now = dateUTC(2026, 5, 16, 8)
+        let periodKey = LeaderboardPeriodCalculator.window(for: .day, now: now).periodKey
+        await fixture.client.setScores([
+            periodKey: [
+                LeaderboardScore(
+                    id: "score",
+                    userHash: "userhash",
+                    metric: .tokensWithCache,
+                    period: .day,
+                    periodKey: periodKey,
+                    score: 42,
+                    rank: 1,
+                    nickname: "Ada",
+                    avatarSeed: "avatar-ada",
+                    updatedAt: now
+                ),
+            ],
+        ])
+
+        await fixture.viewModel.loadScores(
+            metric: .tokensWithCache,
+            period: .day,
+            now: now,
+            allowsRecentDayFallback: false
+        )
+        await fixture.viewModel.setRecentStatus(.focused)
+
+        #expect(fixture.preferences.leaderboardRecentStatusID == "focused")
+        #expect(fixture.preferences.leaderboardRecentStatusUpdatedAt != nil)
+        let savedStatusProfile = await fixture.client.lastSavedProfile()
+        #expect(savedStatusProfile?.recentStatusID == "focused")
+        #expect(fixture.viewModel.scores.first?.recentStatusID == "focused")
+
+        await fixture.viewModel.clearRecentStatus()
+
+        #expect(fixture.preferences.leaderboardRecentStatusID == "")
+        #expect(fixture.preferences.leaderboardRecentStatusUpdatedAt != nil)
+        let clearedStatusProfile = await fixture.client.lastSavedProfile()
+        #expect(clearedStatusProfile?.recentStatusID == nil)
+        #expect(fixture.viewModel.scores.first?.recentStatusID == nil)
+    }
+
+    @Test("Setting recent status updates visible score before profile save succeeds")
+    func setRecentStatusUpdatesVisibleScoreBeforeSaveSucceeds() async {
+        let fixture = makeFixture(enabled: true)
+        let now = dateUTC(2026, 5, 16, 8)
+        let periodKey = LeaderboardPeriodCalculator.window(for: .day, now: now).periodKey
+        await fixture.client.setScores([
+            periodKey: [
+                LeaderboardScore(
+                    id: "score",
+                    userHash: "userhash",
+                    metric: .tokensWithCache,
+                    period: .day,
+                    periodKey: periodKey,
+                    score: 42,
+                    rank: 1,
+                    nickname: "Ada",
+                    avatarSeed: "avatar-ada",
+                    updatedAt: now
+                ),
+            ],
+        ])
+
+        await fixture.viewModel.loadScores(
+            metric: .tokensWithCache,
+            period: .day,
+            now: now,
+            allowsRecentDayFallback: false
+        )
+        await fixture.viewModel.setRecentStatus(.focused)
+        await fixture.client.setAccountState(.noAccount)
+
+        await fixture.viewModel.setRecentStatus(.shipping)
+
+        #expect(fixture.preferences.leaderboardRecentStatusID == "shipping")
+        #expect(fixture.viewModel.scores.first?.recentStatusID == "shipping")
+        #expect(await fixture.client.lastSavedProfile()?.recentStatusID == "focused")
+        #expect(fixture.preferences.leaderboardLastSyncError == "Sign in to iCloud")
+    }
+
 
     @Test("Silent sync respects the minimum upload interval")
     func silentSyncMinimumInterval() async {
@@ -879,6 +963,8 @@ private actor FakeLeaderboardClient: LeaderboardCloudServicing {
             nickname: nickname,
             avatarSeed: avatarSeed ?? "avatar-\(userHash)",
             historyStartMonthKey: historyStartMonthKey,
+            recentStatusID: nil,
+            recentStatusUpdatedAt: nil,
             updatedAt: Date()
         )
     }
@@ -920,6 +1006,8 @@ private actor FakeLeaderboardClient: LeaderboardCloudServicing {
             avatarSeed: profile.avatarSeed,
             historyStartMonthKey: profile.historyStartMonthKey,
             favoriteModels: profile.favoriteModels,
+            recentStatusID: profile.recentStatusID,
+            recentStatusUpdatedAt: profile.recentStatusUpdatedAt,
             updatedAt: profile.updatedAt
         )
         savedProfiles.append(saved)

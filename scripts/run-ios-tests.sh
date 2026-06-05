@@ -7,7 +7,7 @@ cd "$ROOT"
 
 bash scripts/generate.sh
 
-DESTINATION="${IOS_TEST_DESTINATION:-platform=iOS Simulator,name=iPhone 17}"
+DESTINATION="${IOS_TEST_DESTINATION:-platform=iOS Simulator,name=iPhone 17 Pro}"
 DERIVED_DATA="${IOS_DERIVED_DATA_PATH:-/tmp/Codex-stats-ios-build}"
 
 xcodebuild test \

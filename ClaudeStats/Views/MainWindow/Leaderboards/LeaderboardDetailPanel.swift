@@ -13,6 +13,9 @@ struct LeaderboardDetailPanel: View {
     let history: [LeaderboardScoreHistoryPoint]
     let isLoadingHistory: Bool
     let historyError: String?
+    let isSavingProfile: Bool
+    let onSetRecentStatus: (LeaderboardRecentStatus) -> Void
+    let onClearRecentStatus: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -32,7 +35,16 @@ struct LeaderboardDetailPanel: View {
 
     private func profilePanel(_ score: LeaderboardScore) -> some View {
         HStack(alignment: .center, spacing: 14) {
-            BeamAvatarView(seed: LeaderboardFormat.avatarSeed(for: score), size: 58)
+            LeaderboardAvatarStatusView(
+                seed: LeaderboardFormat.avatarSeed(for: score),
+                size: 58,
+                statusID: score.recentStatusID,
+                isEditable: isCurrentUser(score),
+                isSaving: isSavingProfile,
+                isDecorative: false,
+                onSetStatus: onSetRecentStatus,
+                onClearStatus: onClearRecentStatus
+            )
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
                     Text(score.nickname)
@@ -59,11 +71,17 @@ struct LeaderboardDetailPanel: View {
                 Text("Updated \(Format.relativeDate(score.updatedAt))")
                     .font(.sora(10))
                     .foregroundStyle(Color.stxMuted)
+                if let recentStatus = recentStatus(for: score) {
+                    Label(recentStatus.label, systemImage: recentStatus.symbolName)
+                        .font(.sora(10, weight: .medium))
+                        .foregroundStyle(Color.stxAccent)
+                        .lineLimit(1)
+                }
             }
             Spacer(minLength: 12)
         }
         .mainWindowPanel(padding: 16)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
     }
 
     private func statsPanel(_ score: LeaderboardScore) -> some View {
@@ -223,6 +241,10 @@ struct LeaderboardDetailPanel: View {
     private func isCurrentUser(_ score: LeaderboardScore) -> Bool {
         guard let currentUserHash else { return false }
         return score.userHash == currentUserHash
+    }
+
+    private func recentStatus(for score: LeaderboardScore) -> LeaderboardRecentStatus? {
+        LeaderboardRecentStatus.normalizedID(score.recentStatusID).flatMap(LeaderboardRecentStatus.init(rawValue:))
     }
 }
 

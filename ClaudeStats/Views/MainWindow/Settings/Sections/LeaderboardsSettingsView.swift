@@ -20,7 +20,7 @@ struct LeaderboardsSettingsView: View {
             VStack(alignment: .leading, spacing: 28) {
                 SettingGroup(
                     title: "CloudKit Leaderboards",
-                    caption: "Publishes aggregate scores to CloudKit's public database. The app never uploads prompts, paths, session titles, model names, or transcript content."
+                    caption: "Publishes aggregate scores and public profile metadata to CloudKit's public database. The app never uploads prompts, paths, session titles, costs, or transcript content."
                 ) {
                     LeaderboardProfileSettings()
                         .settingCard()
@@ -57,9 +57,10 @@ struct LeaderboardsSettingsView: View {
     private var privacyGroup: some View {
         SettingGroup(title: "Privacy") {
             VStack(alignment: .leading, spacing: 8) {
-                privacyLine("Uploaded: nickname, metric, UTC period, aggregate score, app version, update time.")
+                privacyLine("Uploaded: nickname, public status, metric, UTC period, aggregate score, app version, update time.")
                 privacyLine("Uploaded avatar data is only a random seed and the Beam variant name, never a photo or iCloud identity.")
-                privacyLine("Never uploaded: prompts, transcript text, project paths, filenames, model names, costs, or session titles.")
+                privacyLine("Favorite model metadata may be shown on public profiles when available.")
+                privacyLine("Never uploaded: prompts, transcript text, project paths, filenames, costs, or session titles.")
                 privacyLine("Leaderboard periods use UTC so everyone competes in the same day/week/month window.")
             }
             .settingCard()
