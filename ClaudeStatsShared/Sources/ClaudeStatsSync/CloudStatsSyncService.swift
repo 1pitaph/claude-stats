@@ -98,6 +98,7 @@ public struct CloudStatsCloudKitClient: CloudStatsRemoteClient {
     public static let defaultContainerIdentifier = "iCloud.com.claudestats.ClaudeStats"
     public static let recordType = "StatsSnapshotV1"
     public static let latestRecordName = "stats_snapshot_latest_v1"
+    public static let productionSchemaMissingMessage = "CloudKit production schema is missing StatsSnapshotV1. Deploy the Development schema to Production."
 
     private enum Record {
         static let type = CloudStatsCloudKitClient.recordType
@@ -201,10 +202,17 @@ public struct CloudStatsCloudKitClient: CloudStatsRemoteClient {
         }
         if let ckError = error as? CKError {
             if let message = ckError.errorUserInfo[NSLocalizedDescriptionKey] as? String, !message.isEmpty {
-                return message
+                return friendlyCloudKitMessage(message)
             }
-            return ckError.localizedDescription
+            return friendlyCloudKitMessage(ckError.localizedDescription)
         }
-        return error.localizedDescription
+        return friendlyCloudKitMessage(error.localizedDescription)
+    }
+
+    public static func friendlyCloudKitMessage(_ message: String) -> String {
+        if message.contains("Cannot create new type \(recordType) in production schema") {
+            return productionSchemaMissingMessage
+        }
+        return message
     }
 }

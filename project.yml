@@ -947,7 +947,7 @@ schemes:
     analyze:
       config: DebugCloudKit
     archive:
-      config: Release
+      config: ReleaseSigned
 
   ClaudeStats iOS:
     build:

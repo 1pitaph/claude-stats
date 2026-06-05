@@ -36,6 +36,29 @@ struct CloudStatsSnapshotSyncTests {
         #expect(!env.cloudStatsSyncState.entitlementAvailable)
     }
 
+    @Test("explains missing production CloudKit schema")
+    func explainsMissingProductionSchema() async {
+        let rawMessage = "Error saving record <CKRecordID: 0x1; recordName=stats_snapshot_latest_v1, zoneID=_defaultZone:__defaultOwner__> to server: Cannot create new type StatsSnapshotV1 in production schema"
+
+        let message = CloudStatsCloudKitClient.friendlyCloudKitMessage(rawMessage)
+
+        #expect(message == CloudStatsCloudKitClient.productionSchemaMissingMessage)
+    }
+
+    @Test("surfaces missing production schema during publish")
+    func surfacesMissingProductionSchemaDuringPublish() async {
+        let client = MockCloudStatsRemoteClient(
+            accountStatus: .available,
+            saveErrorMessage: CloudStatsCloudKitClient.productionSchemaMissingMessage
+        )
+        let env = makeEnvironment(client: client, hasEntitlement: true)
+
+        await env.publishCloudStatsSnapshotNow()
+
+        #expect(env.cloudStatsSyncState.phase == .failed)
+        #expect(env.cloudStatsSyncState.lastError == CloudStatsCloudKitClient.productionSchemaMissingMessage)
+    }
+
     private func makeEnvironment(
         client: MockCloudStatsRemoteClient,
         hasEntitlement: Bool
@@ -62,12 +85,17 @@ private actor MockCloudStatsRemoteClient: CloudStatsRemoteClient {
     private var metadata: CloudStatsRemoteMetadata?
     private var saves = 0
     private let status: CloudStatsAccountStatus
+    private let saveErrorMessage: String?
 
-    init(accountStatus: CloudStatsAccountStatus) {
+    init(accountStatus: CloudStatsAccountStatus, saveErrorMessage: String? = nil) {
         self.status = accountStatus
+        self.saveErrorMessage = saveErrorMessage
     }
 
     func saveLatestSnapshotData(_ data: Data, metadata: CloudStatsRemoteMetadata) async throws {
+        if let saveErrorMessage {
+            throw CloudStatsSyncError.cloudKit(saveErrorMessage)
+        }
         self.data = data
         self.metadata = metadata
         saves += 1
