@@ -12,6 +12,7 @@ struct CloudStatsRootView: View {
                 loadingView
             case .empty(let message):
                 CloudStatsTabView(
+                    store: store,
                     snapshot: StatsSnapshot.empty(appVersion: "No Snapshot"),
                     accountStatus: store.accountStatus,
                     availability: .placeholder(message),
@@ -21,11 +22,17 @@ struct CloudStatsRootView: View {
                 failureView(message)
             case .loaded:
                 if let snapshot = store.snapshot {
-                    CloudStatsTabView(snapshot: snapshot, accountStatus: store.accountStatus, availability: .synced) {
+                    CloudStatsTabView(
+                        store: store,
+                        snapshot: snapshot,
+                        accountStatus: store.accountStatus,
+                        availability: store.usesSampleData ? .sample : .synced
+                    ) {
                         Task { await store.load() }
                     }
                 } else {
                     CloudStatsTabView(
+                        store: store,
                         snapshot: StatsSnapshot.empty(appVersion: "No Snapshot"),
                         accountStatus: store.accountStatus,
                         availability: .placeholder("Open Claude Stats Lite on your Mac and let it sync a snapshot to iCloud."),
@@ -70,46 +77,98 @@ struct CloudStatsRootView: View {
 
 private enum CloudStatsDataAvailability: Equatable {
     case synced
+    case sample
     case placeholder(String)
 
     var isPlaceholder: Bool {
         switch self {
-        case .synced: false
+        case .synced, .sample: false
         case .placeholder: true
         }
     }
 
     var message: String? {
         switch self {
-        case .synced: nil
+        case .synced, .sample: nil
         case .placeholder(let message): message
         }
     }
 }
 
+private enum CloudStatsSheet: Identifiable {
+    case settings
+
+    var id: String {
+        switch self {
+        case .settings: "settings"
+        }
+    }
+}
+
 private struct CloudStatsTabView: View {
+    let store: CloudStatsSnapshotStore
     let snapshot: StatsSnapshot
     let accountStatus: CloudStatsAccountStatus
     let availability: CloudStatsDataAvailability
     let refresh: () -> Void
 
+    @State private var activeSheet: CloudStatsSheet?
+
     var body: some View {
         TabView {
             NavigationStack {
-                DashboardScreen(snapshot: snapshot, accountStatus: accountStatus, availability: availability, refresh: refresh)
+                DashboardScreen(
+                    snapshot: snapshot,
+                    accountStatus: accountStatus,
+                    availability: availability,
+                    refresh: refresh,
+                    openSettings: openSettings
+                )
             }
             .tabItem { Label("Dashboard", systemImage: "gauge.with.dots.needle.33percent") }
 
             NavigationStack {
-                StatsScreen(snapshot: snapshot, availability: availability)
+                StatsScreen(snapshot: snapshot, availability: availability, openSettings: openSettings)
             }
             .tabItem { Label("Stats", systemImage: "chart.bar.xaxis") }
 
             NavigationStack {
-                ToolScreen(snapshot: snapshot, availability: availability)
+                ToolScreen(snapshot: snapshot, availability: availability, openSettings: openSettings)
             }
             .tabItem { Label("Tool", systemImage: "wrench.and.screwdriver") }
         }
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .settings:
+                #if CLAUDE_STATS_DEV_TOOLS
+                CloudStatsSettingsView(loadSampleData: loadSampleData)
+                #else
+                CloudStatsSettingsView()
+                #endif
+            }
+        }
+    }
+
+    private func openSettings() {
+        activeSheet = .settings
+    }
+
+    #if CLAUDE_STATS_DEV_TOOLS
+    private func loadSampleData() {
+        activeSheet = nil
+        store.loadSampleData()
+    }
+    #endif
+}
+
+private struct SettingsToolbarButton: View {
+    let openSettings: () -> Void
+
+    var body: some View {
+        Button(action: openSettings) {
+            Image(systemName: "gearshape")
+        }
+        .accessibilityLabel("Settings")
     }
 }
 
@@ -118,6 +177,7 @@ private struct DashboardScreen: View {
     let accountStatus: CloudStatsAccountStatus
     let availability: CloudStatsDataAvailability
     let refresh: () -> Void
+    let openSettings: () -> Void
 
     private let columns = [
         GridItem(.flexible(), spacing: 10),
@@ -161,22 +221,46 @@ private struct DashboardScreen: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Claude Stats")
         .toolbar {
-            Button(action: refresh) {
-                Image(systemName: "arrow.clockwise")
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button(action: refresh) {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .accessibilityLabel("Refresh")
+
+                SettingsToolbarButton(openSettings: openSettings)
             }
-            .accessibilityLabel("Refresh")
         }
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(availability.isPlaceholder ? "Waiting for synced data" : "Synced \(StatsFormat.shortDate(snapshot.generatedAt))")
+            Text(headerTitle)
                 .font(.headline)
-            Text("\(accountStatus.displayText) - \(snapshot.appVersion)")
+            Text(headerSubtitle)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var headerTitle: String {
+        switch availability {
+        case .synced:
+            "Synced \(StatsFormat.shortDate(snapshot.generatedAt))"
+        case .sample:
+            "Sample Data \(StatsFormat.shortDate(snapshot.generatedAt))"
+        case .placeholder:
+            "Waiting for synced data"
+        }
+    }
+
+    private var headerSubtitle: String {
+        switch availability {
+        case .sample:
+            "Debug fixture - \(snapshot.appVersion)"
+        case .synced, .placeholder:
+            "\(accountStatus.displayText) - \(snapshot.appVersion)"
+        }
     }
 
     private var providerSection: some View {
@@ -226,6 +310,7 @@ private struct DashboardScreen: View {
 private struct StatsScreen: View {
     let snapshot: StatsSnapshot
     let availability: CloudStatsDataAvailability
+    let openSettings: () -> Void
 
     var body: some View {
         ScrollView {
@@ -299,12 +384,18 @@ private struct StatsScreen: View {
         }
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Stats")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                SettingsToolbarButton(openSettings: openSettings)
+            }
+        }
     }
 }
 
 private struct ToolScreen: View {
     let snapshot: StatsSnapshot
     let availability: CloudStatsDataAvailability
+    let openSettings: () -> Void
 
     var body: some View {
         ScrollView {
@@ -350,6 +441,11 @@ private struct ToolScreen: View {
         }
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Tool")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                SettingsToolbarButton(openSettings: openSettings)
+            }
+        }
     }
 
     private var leaderboardSection: some View {

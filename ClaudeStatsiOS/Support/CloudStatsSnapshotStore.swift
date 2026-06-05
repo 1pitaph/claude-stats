@@ -18,6 +18,7 @@ final class CloudStatsSnapshotStore {
     private(set) var state: LoadState = .idle
     private(set) var accountStatus: CloudStatsAccountStatus = .unknown
     private(set) var snapshot: StatsSnapshot?
+    private(set) var usesSampleData = false
 
     init(syncService: CloudStatsSyncService = CloudStatsSyncService()) {
         self.syncService = syncService
@@ -25,6 +26,7 @@ final class CloudStatsSnapshotStore {
 
     func load() async {
         state = .loading
+        usesSampleData = false
         accountStatus = await syncService.accountStatus()
         if accountStatus == .noAccount {
             snapshot = nil
@@ -50,4 +52,13 @@ final class CloudStatsSnapshotStore {
             state = .failed(error.localizedDescription)
         }
     }
+
+    #if CLAUDE_STATS_DEV_TOOLS
+    func loadSampleData() {
+        snapshot = DebugSampleStatsSnapshot.make()
+        accountStatus = .available
+        usesSampleData = true
+        state = .loaded
+    }
+    #endif
 }
