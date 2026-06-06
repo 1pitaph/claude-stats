@@ -170,17 +170,10 @@ struct SidebarColumn: View {
     private var updatePill: some View {
         Button(action: openUpdateUI) {
             HStack(spacing: 6) {
-                if updateState == .downloading {
-                    ProgressView()
-                        .controlSize(.small)
-                        .scaleEffect(0.58)
-                        .frame(width: 12, height: 12)
-                } else {
-                    Image(systemName: AppIcon.Action.downloadToLine)
-                        .font(.system(size: 10, weight: .bold))
-                        .frame(width: 12, height: 12)
-                }
-                Text(verbatim: updatePillTitle)
+                Image(systemName: AppIcon.Action.downloadToLine)
+                    .font(.system(size: 10, weight: .bold))
+                    .frame(width: 12, height: 12)
+                Text(verbatim: "UPDATE")
                     .font(.sora(10, weight: .semibold))
                     .tracking(0.7)
                     .lineLimit(1)
@@ -196,19 +189,6 @@ struct SidebarColumn: View {
         .disabled(!updateState.canOpenUpdateUI)
         .help(updatePillHelp)
         .accessibilityLabel(updatePillHelp)
-    }
-
-    private var updatePillTitle: String {
-        switch updateState {
-        case .idle:
-            "UPDATE"
-        case .downloading:
-            "DOWNLOADING"
-        case .installing:
-            "INSTALLING"
-        case .available, .readyToInstall:
-            availableUpdateVersion.map { "UPDATE \($0)" } ?? "UPDATE"
-        }
     }
 
     private var updatePillHelp: String {
