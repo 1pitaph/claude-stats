@@ -3,6 +3,30 @@
 extension ReleaseHistoryCatalog {
     static let generatedEntries: [ReleaseHistoryEntry] = [
         ReleaseHistoryEntry(
+            version: "1.9.1",
+            date: "June 6, 2026",
+            headline: "为Info.plist添加自动更新相关配置项",
+            changes: [
+                "重构更新状态管理，新增完整的更新状态枚举与相关逻辑",
+                "将更新按钮从菜单面板迁移到侧边栏，新增动态更新提示徽章",
+                "在关于页面添加自动更新设置选项",
+                "新增并完善更新相关单元测试",
+                "移除旧的菜单面板更新相关代码",
+            ]
+        ),
+        ReleaseHistoryEntry(
+            version: "1.9.0",
+            date: "June 5, 2026",
+            headline: "添加了排行榜公开状态枚举，支持6种状态展示",
+            changes: [
+                "新增头像旁的状态徽章组件，可编辑设置个人公开状态",
+                "扩展本地偏好和排行榜数据模型，存储最近状态信息",
+                "实现跨设备状态合并同步逻辑，以更新时间优先",
+                "更新CloudKit同步映射，支持上传和拉取状态数据",
+                "在排行榜详情页展示当前用户的公开状态",
+            ]
+        ),
+        ReleaseHistoryEntry(
             version: "1.8.10",
             date: "June 5, 2026",
             headline: "新增了iCloud同步的设置页面，添加了CloudKit快照同步的相关服务与状态管理，包括：",
