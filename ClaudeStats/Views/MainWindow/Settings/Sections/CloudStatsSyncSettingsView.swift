@@ -35,7 +35,6 @@ struct CloudStatsSyncSettingsView: View {
                     privacyLine("Project paths are anonymized to labels like Project 1 before upload.")
                     privacyLine("Not uploaded: prompts, transcript text, filenames, raw project paths, or full session logs.")
                 }
-                .settingCard()
             }
         }
         .task {

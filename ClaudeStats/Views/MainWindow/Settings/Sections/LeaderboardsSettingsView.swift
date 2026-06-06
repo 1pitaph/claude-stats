@@ -50,7 +50,6 @@ struct LeaderboardsSettingsView: View {
                     .font(.sora(11))
                     .foregroundStyle(Color.stxMuted)
             }
-            .settingCard()
         }
     }
 
@@ -63,7 +62,6 @@ struct LeaderboardsSettingsView: View {
                 privacyLine("Never uploaded: prompts, transcript text, project paths, filenames, costs, or session titles.")
                 privacyLine("Leaderboard periods use UTC so everyone competes in the same day/week/month window.")
             }
-            .settingCard()
         }
     }
 
