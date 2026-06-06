@@ -26,11 +26,12 @@ struct SidebarColumn: View {
     var onOpenOps: () -> Void
 
     @Environment(AppEnvironment.self) private var env
+    @State private var updateState: UpdaterController.UpdateState = .idle
+    @State private var availableUpdateVersion: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Clear the traffic-light buttons (window uses `.hiddenTitleBar`).
-            Color.clear.frame(height: 44)
+            sidebarHeader
 
             navRow(.dashboard)
             if AppVariant.isEnabled(.linuxDo) {
@@ -143,9 +144,113 @@ struct SidebarColumn: View {
                 .contentShape(Rectangle())
                 .onTapGesture { clearTextFocus() }
         }
+        .onAppear(perform: syncUpdateAvailability)
+        .onReceive(NotificationCenter.default.publisher(for: UpdaterController.updateAvailabilityDidChange)) { _ in
+            syncUpdateAvailability()
+        }
     }
 
     // MARK: - Top nav
+
+    private var sidebarHeader: some View {
+        HStack {
+            Spacer(minLength: 0)
+            if updateState.showsUpdatePill {
+                updatePill
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            }
+        }
+        .frame(height: 44)
+        .padding(.leading, 96)
+        .padding(.trailing, 12)
+        .animation(.easeOut(duration: 0.16), value: updateState)
+        .animation(.easeOut(duration: 0.16), value: availableUpdateVersion)
+    }
+
+    private var updatePill: some View {
+        Button(action: openUpdateUI) {
+            HStack(spacing: 6) {
+                if updateState == .downloading {
+                    ProgressView()
+                        .controlSize(.small)
+                        .scaleEffect(0.58)
+                        .frame(width: 12, height: 12)
+                } else {
+                    Image(systemName: AppIcon.Action.downloadToLine)
+                        .font(.system(size: 10, weight: .bold))
+                        .frame(width: 12, height: 12)
+                }
+                Text(verbatim: updatePillTitle)
+                    .font(.sora(10, weight: .semibold))
+                    .tracking(0.7)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.84)
+            }
+            .padding(.horizontal, 9)
+            .frame(height: 24)
+            .background(Capsule().fill(updatePillBackground))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(updatePillForeground)
+        .disabled(!updateState.canOpenUpdateUI)
+        .help(updatePillHelp)
+        .accessibilityLabel(updatePillHelp)
+    }
+
+    private var updatePillTitle: String {
+        switch updateState {
+        case .idle:
+            "UPDATE"
+        case .downloading:
+            "DOWNLOADING"
+        case .installing:
+            "INSTALLING"
+        case .available, .readyToInstall:
+            availableUpdateVersion.map { "UPDATE \($0)" } ?? "UPDATE"
+        }
+    }
+
+    private var updatePillHelp: String {
+        switch updateState {
+        case .idle:
+            "No update available"
+        case .downloading:
+            availableUpdateVersion.map { "Downloading update \($0)" } ?? "Downloading update"
+        case .readyToInstall:
+            availableUpdateVersion.map { "Install update \($0)" } ?? "Install update"
+        case .installing:
+            availableUpdateVersion.map { "Installing update \($0)" } ?? "Installing update"
+        case .available:
+            availableUpdateVersion.map { "Open update \($0)" } ?? "Open update"
+        }
+    }
+
+    private var updatePillBackground: Color {
+        switch updateState {
+        case .downloading:
+            Color.primary.opacity(0.08)
+        case .idle:
+            Color.clear
+        case .available, .readyToInstall, .installing:
+            Color.stxAccent.opacity(0.16)
+        }
+    }
+
+    private var updatePillForeground: Color {
+        updateState.canOpenUpdateUI ? Color.stxAccent : Color.stxMuted
+    }
+
+    private func openUpdateUI() {
+        guard updateState.canOpenUpdateUI else { return }
+        clearTextFocus()
+        env.updater.checkForUpdates()
+    }
+
+    private func syncUpdateAvailability() {
+        updateState = env.updater.updateState
+        availableUpdateVersion = env.updater.availableUpdateVersion
+    }
 
     @ViewBuilder
     private func navRow(_ p: MainPage) -> some View {

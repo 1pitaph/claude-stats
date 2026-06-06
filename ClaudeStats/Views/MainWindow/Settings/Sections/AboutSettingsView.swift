@@ -3,6 +3,10 @@ import AppKit
 
 struct AboutSettingsView: View {
     @Environment(AppEnvironment.self) private var env
+    @State private var automaticallyDownloadsUpdates = false
+    @State private var automaticallyChecksForUpdates = false
+    @State private var allowsAutomaticUpdates = false
+
     var onShowReleaseHistory: () -> Void = {}
 
     var body: some View {
@@ -26,6 +30,13 @@ struct AboutSettingsView: View {
                         Button("Check for Updates…") { env.updater.checkForUpdates() }
                     }
                     SettingRowDivider()
+                    SettingRow(title: "Automatically download updates",
+                               description: automaticDownloadDescription) {
+                        Toggle("", isOn: automaticDownloadBinding)
+                            .toggleStyle(.appSwitch)
+                            .disabled(!canToggleAutomaticDownloads)
+                    }
+                    SettingRowDivider()
                     SettingRow(title: "Release History",
                                description: "See what changed since 1.4.0") {
                         Button("View…", action: onShowReleaseHistory)
@@ -39,6 +50,10 @@ struct AboutSettingsView: View {
                 }
                 .settingCard()
             }
+        }
+        .onAppear(perform: syncUpdateSettings)
+        .onReceive(NotificationCenter.default.publisher(for: UpdaterController.updateSettingsDidChange)) { _ in
+            syncUpdateSettings()
         }
     }
 
@@ -69,6 +84,37 @@ struct AboutSettingsView: View {
         AppVariant.isLite
             ? "Open the latest GitHub release to download Claude Stats."
             : "Open the latest GitHub release to download Claude Stats Lite."
+    }
+
+    private var canToggleAutomaticDownloads: Bool {
+        automaticallyChecksForUpdates && allowsAutomaticUpdates
+    }
+
+    private var automaticDownloadDescription: String {
+        if !automaticallyChecksForUpdates {
+            return "Automatic update checks are off, so background downloads are unavailable."
+        }
+        if !allowsAutomaticUpdates {
+            return "This build does not allow automatic background downloads."
+        }
+        return "Download updates in the background and install them later from the sidebar update pill."
+    }
+
+    private var automaticDownloadBinding: Binding<Bool> {
+        Binding(
+            get: { automaticallyDownloadsUpdates },
+            set: { newValue in
+                automaticallyDownloadsUpdates = newValue
+                env.updater.setAutomaticallyDownloadsUpdates(newValue)
+                syncUpdateSettings()
+            }
+        )
+    }
+
+    private func syncUpdateSettings() {
+        automaticallyDownloadsUpdates = env.updater.automaticallyDownloadsUpdates
+        automaticallyChecksForUpdates = env.updater.automaticallyChecksForUpdates
+        allowsAutomaticUpdates = env.updater.allowsAutomaticUpdates
     }
 
     private func openCounterpartDownloadPage() {
