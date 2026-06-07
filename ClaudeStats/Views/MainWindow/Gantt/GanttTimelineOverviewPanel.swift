@@ -110,12 +110,46 @@ private struct GanttOverviewViewportControl: View {
     @ViewBuilder
     private var viewportThumb: some View {
         let shape = RoundedRectangle(cornerRadius: 5, style: .continuous)
+        let border = Color.primary.opacity(0.28)
 
         shape
-            .fill(Color.stxAccent.opacity(0.14))
+            .fill(
+                LinearGradient(
+                    stops: [
+                        .init(color: Color.stxAccent.opacity(0.12), location: 0),
+                        .init(color: Color.stxAccent.opacity(0.10), location: 0.55),
+                        .init(color: Color.stxAccent.opacity(0.08), location: 1),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
             .overlay {
-                shape.strokeBorder(Color.stxAccent.opacity(0.72), lineWidth: 1)
+                shape.strokeBorder(border, lineWidth: 2)
             }
+            .overlay {
+                shape.inset(by: 1)
+                    .strokeBorder(Color.white.opacity(0.24), lineWidth: 1)
+                    .mask(
+                        LinearGradient(
+                            colors: [.black, .clear],
+                            startPoint: .top,
+                            endPoint: .center
+                        )
+                    )
+            }
+            .overlay {
+                shape.inset(by: 1)
+                    .strokeBorder(Color.black.opacity(0.10), lineWidth: 1)
+                    .mask(
+                        LinearGradient(
+                            colors: [.clear, .black],
+                            startPoint: .center,
+                            endPoint: .bottom
+                        )
+                    )
+            }
+            .shadow(color: Color.black.opacity(0.10), radius: 1.5, x: 0, y: 1)
     }
 }
 
