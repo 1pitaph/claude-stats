@@ -26,6 +26,12 @@ struct GanttTimelineOverviewPanel: View {
             GeometryReader { proxy in
                 ZStack(alignment: .topLeading) {
                     GanttOverviewCanvas(snapshot: snapshot)
+                        .clipShape(.rect(cornerRadius: 6))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .strokeBorder(Color.stxStroke.opacity(0.7), lineWidth: 1)
+                        }
+                        .zIndex(0)
 
                     if isInteractive {
                         GanttOverviewViewportControl(
@@ -33,15 +39,11 @@ struct GanttTimelineOverviewPanel: View {
                             overviewSize: proxy.size,
                             resetID: snapshot.renderRevisionID
                         )
+                        .zIndex(1)
                     }
                 }
             }
             .frame(height: 58)
-            .clipShape(.rect(cornerRadius: 6))
-            .overlay {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .strokeBorder(Color.stxStroke.opacity(0.7), lineWidth: 1)
-            }
         }
         .mainWindowPanel(padding: 16)
     }
@@ -64,18 +66,20 @@ private struct GanttOverviewViewportControl: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
+            Color.clear
+                .frame(width: max(0, overviewSize.width), height: max(0, overviewSize.height))
+                .zIndex(0)
+
             viewportThumb
                 .frame(width: rect.width, height: rect.height)
                 .offset(x: rect.minX, y: rect.minY)
                 .contentShape(Rectangle())
                 .accessibilityLabel(String(localized: "Visible timeline period"))
-
-            Color.clear
-                .frame(width: max(0, overviewSize.width), height: max(0, overviewSize.height))
-                .contentShape(Rectangle())
-                .gesture(dragGesture)
-                .accessibilityHidden(true)
+                .zIndex(1)
         }
+        .frame(width: max(0, overviewSize.width), height: max(0, overviewSize.height), alignment: .topLeading)
+        .contentShape(Rectangle())
+        .gesture(dragGesture)
         .onChange(of: resetID) { _, _ in
             dragSession = nil
         }
@@ -110,7 +114,8 @@ private struct GanttOverviewViewportControl: View {
     @ViewBuilder
     private var viewportThumb: some View {
         let shape = RoundedRectangle(cornerRadius: 5, style: .continuous)
-        let border = Color.primary.opacity(0.28)
+        let borderWidth: CGFloat = 5
+        let border = Color.gray
 
         shape
             .fill(
@@ -125,10 +130,13 @@ private struct GanttOverviewViewportControl: View {
                 )
             )
             .overlay {
-                shape.strokeBorder(border, lineWidth: 2)
+                shape
+                    .inset(by: -borderWidth / 2)
+                    .stroke(border, lineWidth: borderWidth)
             }
             .overlay {
-                shape.inset(by: 1)
+                shape
+                    .inset(by: -borderWidth / 2)
                     .strokeBorder(Color.white.opacity(0.24), lineWidth: 1)
                     .mask(
                         LinearGradient(
@@ -139,7 +147,8 @@ private struct GanttOverviewViewportControl: View {
                     )
             }
             .overlay {
-                shape.inset(by: 1)
+                shape
+                    .inset(by: -borderWidth / 2)
                     .strokeBorder(Color.black.opacity(0.10), lineWidth: 1)
                     .mask(
                         LinearGradient(
