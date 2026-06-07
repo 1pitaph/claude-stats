@@ -11,13 +11,17 @@ struct ProviderRegistry: Sendable {
 
     init(pricing: ModelPricing,
          claudePaths: ClaudePaths = .default,
-         codexPaths: CodexPaths = .default) {
+         codexPaths: CodexPaths = .default,
+         openCodePaths: OpenCodePaths = .default,
+         kiroPaths: KiroPaths = .default,
+         hermesPaths: HermesPaths = .default) {
         providers = [
             ClaudeProvider(paths: claudePaths, pricing: pricing),
             CodexProvider(paths: codexPaths, pricing: pricing),
             GeminiProvider(),
-            KimiProvider(),
-            MiniMaxProvider(),
+            OpenCodeProvider(paths: openCodePaths, pricing: pricing),
+            KiroProvider(paths: kiroPaths, pricing: pricing),
+            HermesProvider(paths: hermesPaths, pricing: pricing),
         ]
     }
 

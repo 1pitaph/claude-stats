@@ -1,9 +1,7 @@
 import SwiftUI
 
-/// The AI coding tools Claude Stats can read. ``claude`` is fully implemented;
-/// ``codex`` reads `~/.codex/sessions/`; ``gemini`` / ``kimi`` / ``minimax``
-/// are recognised (UI, settings, asset) but their on-disk log formats aren't
-/// parsed yet — their providers return no sessions.
+/// The AI coding tools Claude Stats can read. Provider-specific path and
+/// transcript quirks live under `Providers/<Provider>/`.
 ///
 /// `allCases` order is the canonical display order (used by the platform
 /// switcher bar and the settings list).
@@ -11,8 +9,9 @@ enum ProviderKind: String, CaseIterable, Codable, Sendable, Identifiable, Hashab
     case claude
     case codex
     case gemini
-    case kimi
-    case minimax
+    case opencode
+    case kiro
+    case hermes
 
     var id: String { rawValue }
 
@@ -22,8 +21,9 @@ enum ProviderKind: String, CaseIterable, Codable, Sendable, Identifiable, Hashab
         case .claude: "Claude Code"
         case .codex: "OpenAI Codex"
         case .gemini: "Gemini"
-        case .kimi: "Kimi CLI"
-        case .minimax: "MiniMax"
+        case .opencode: "OpenCode"
+        case .kiro: "Kiro"
+        case .hermes: "Hermes"
         }
     }
 
@@ -33,8 +33,9 @@ enum ProviderKind: String, CaseIterable, Codable, Sendable, Identifiable, Hashab
         case .claude: "Claude"
         case .codex: "Codex"
         case .gemini: "Gemini"
-        case .kimi: "Kimi"
-        case .minimax: "MiniMax"
+        case .opencode: "OpenCode"
+        case .kiro: "Kiro"
+        case .hermes: "Hermes"
         }
     }
 
@@ -45,8 +46,9 @@ enum ProviderKind: String, CaseIterable, Codable, Sendable, Identifiable, Hashab
         case .claude: "claudecode-logo"
         case .codex: "codex-logo"
         case .gemini: "gemini-logo"
-        case .kimi: "kimi"   // Kimi ships a single logo used in both places.
-        case .minimax: "minimax-logo"
+        case .opencode: "opencode-logo"
+        case .kiro: "kiro-logo"
+        case .hermes: "hermes-logo"
         }
     }
 
@@ -57,8 +59,9 @@ enum ProviderKind: String, CaseIterable, Codable, Sendable, Identifiable, Hashab
         case .claude: "claudecode"
         case .codex: "codex"
         case .gemini: "gemini"
-        case .kimi: "kimi"
-        case .minimax: "minimax"
+        case .opencode: "opencode"
+        case .kiro: "kiro"
+        case .hermes: "hermes"
         }
     }
 
@@ -68,8 +71,9 @@ enum ProviderKind: String, CaseIterable, Codable, Sendable, Identifiable, Hashab
         case .claude: "sparkles"
         case .codex: "chevron.left.forwardslash.chevron.right"
         case .gemini: "sparkle"
-        case .kimi: "moon.stars"
-        case .minimax: "bolt"
+        case .opencode: "terminal"
+        case .kiro: "shippingbox"
+        case .hermes: "bolt.horizontal"
         }
     }
 
@@ -78,8 +82,9 @@ enum ProviderKind: String, CaseIterable, Codable, Sendable, Identifiable, Hashab
         case .claude: Color(red: 0.85, green: 0.45, blue: 0.20)
         case .codex: Color(red: 0.10, green: 0.10, blue: 0.12)
         case .gemini: Color(red: 0.19, green: 0.53, blue: 1.0)
-        case .kimi: Color(red: 0.20, green: 0.20, blue: 0.22)
-        case .minimax: Color(red: 0.92, green: 0.30, blue: 0.26)
+        case .opencode: Color(red: 0.05, green: 0.62, blue: 0.46)
+        case .kiro: Color(red: 0.48, green: 0.34, blue: 0.95)
+        case .hermes: Color(red: 0.18, green: 0.45, blue: 0.98)
         }
     }
 }

@@ -3,6 +3,9 @@ import Foundation
 enum GitWorkspaceSourceID: String, CaseIterable, Codable, Sendable, Identifiable, Hashable {
     case claude
     case codex
+    case opencode
+    case kiro
+    case hermes
     case cursor
     case windsurf
     case trae
@@ -47,6 +50,27 @@ enum GitWorkspaceSourceCatalog {
             detail: "Repos from Codex session working directories.",
             assetName: "codex-logo",
             kind: .sessionProvider(.codex)
+        ),
+        GitWorkspaceSourceDescriptor(
+            id: .opencode,
+            displayName: "OpenCode",
+            detail: "Repos from OpenCode session working directories.",
+            assetName: "opencode-logo",
+            kind: .sessionProvider(.opencode)
+        ),
+        GitWorkspaceSourceDescriptor(
+            id: .kiro,
+            displayName: "Kiro",
+            detail: "Repos from Kiro session working directories.",
+            assetName: "kiro-logo",
+            kind: .sessionProvider(.kiro)
+        ),
+        GitWorkspaceSourceDescriptor(
+            id: .hermes,
+            displayName: "Hermes",
+            detail: "Repos from Hermes session working directories.",
+            assetName: "hermes-logo",
+            kind: .sessionProvider(.hermes)
         ),
     ]
 

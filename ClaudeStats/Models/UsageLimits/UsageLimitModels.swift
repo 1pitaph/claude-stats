@@ -97,7 +97,7 @@ struct UsageLimitWindow: Codable, Sendable, Hashable, Identifiable {
             default:
                 nil
             }
-        case .gemini, .kimi, .minimax:
+        case .gemini, .opencode, .kiro, .hermes:
             nil
         }
     }
@@ -171,7 +171,7 @@ extension ProviderKind {
         switch self {
         case .claude, .codex:
             true
-        case .gemini, .kimi, .minimax:
+        case .gemini, .opencode, .kiro, .hermes:
             false
         }
     }

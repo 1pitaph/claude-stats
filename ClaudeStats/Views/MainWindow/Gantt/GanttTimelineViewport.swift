@@ -68,6 +68,7 @@ struct GanttTimelineViewport: Equatable, Sendable {
 enum GanttTimelineViewportMetrics {
     static let widthStep: CGFloat = 16
     static let dayTimelineMinimumWidth: CGFloat = 980
+    static let overviewThumbHitSlop: CGFloat = 6
 
     static func contentWidth(range: GanttRange, domain: DateInterval, viewportWidth: CGFloat) -> CGFloat {
         let dayWidth = dayContentWidth(viewportWidth: viewportWidth)
@@ -119,6 +120,16 @@ enum GanttTimelineViewportMetrics {
         let maxX = max(0, width - thumbWidth)
         let x = min(max(0, viewport.visibleStartRatio * width), maxX)
         return CGRect(x: x, y: 0, width: thumbWidth, height: height)
+    }
+
+    static func overviewThumbHitRect(
+        viewport: GanttTimelineViewport,
+        overviewSize: CGSize,
+        horizontalSlop: CGFloat = overviewThumbHitSlop
+    ) -> CGRect {
+        let rect = overviewThumbRect(viewport: viewport, overviewSize: overviewSize)
+        guard rect.width > 0, rect.height > 0 else { return .zero }
+        return rect.insetBy(dx: -max(0, horizontalSlop), dy: 0)
     }
 
     static func offsetDeltaForOverviewDrag(

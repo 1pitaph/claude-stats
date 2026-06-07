@@ -15,8 +15,7 @@ struct CloudStatsRootView: View {
                     store: store,
                     snapshot: StatsSnapshot.empty(appVersion: "No Snapshot"),
                     accountStatus: store.accountStatus,
-                    availability: .placeholder(message),
-                    refresh: { Task { await store.load() } }
+                    availability: .placeholder(message)
                 )
             case .failed(let message):
                 failureView(message)
@@ -27,16 +26,13 @@ struct CloudStatsRootView: View {
                         snapshot: snapshot,
                         accountStatus: store.accountStatus,
                         availability: store.usesSampleData ? .sample : .synced
-                    ) {
-                        Task { await store.load() }
-                    }
+                    )
                 } else {
                     CloudStatsTabView(
                         store: store,
                         snapshot: StatsSnapshot.empty(appVersion: "No Snapshot"),
                         accountStatus: store.accountStatus,
-                        availability: .placeholder("Open Claude Stats Lite on your Mac and let it sync a snapshot to iCloud."),
-                        refresh: { Task { await store.load() } }
+                        availability: .placeholder("Open Claude Stats Lite on your Mac and let it sync a snapshot to iCloud.")
                     )
                 }
             }
@@ -110,7 +106,6 @@ private struct CloudStatsTabView: View {
     let snapshot: StatsSnapshot
     let accountStatus: CloudStatsAccountStatus
     let availability: CloudStatsDataAvailability
-    let refresh: () -> Void
 
     @State private var activeSheet: CloudStatsSheet?
     @State private var statusPreferences = StatsStatusDisplayPreferencesStore()
@@ -123,7 +118,6 @@ private struct CloudStatsTabView: View {
                     accountStatus: accountStatus,
                     availability: availability,
                     statusPreferences: statusPreferences,
-                    refresh: refresh,
                     openSettings: openSettings
                 )
             }
@@ -144,12 +138,14 @@ private struct CloudStatsTabView: View {
             case .settings:
                 #if CLAUDE_STATS_DEV_TOOLS
                 CloudStatsSettingsView(
+                    store: store,
                     statusSummary: snapshot.statusSummary,
                     statusPreferences: statusPreferences,
                     loadSampleData: loadSampleData
                 )
                 #else
                 CloudStatsSettingsView(
+                    store: store,
                     statusSummary: snapshot.statusSummary,
                     statusPreferences: statusPreferences
                 )
@@ -186,7 +182,6 @@ private struct DashboardScreen: View {
     let accountStatus: CloudStatsAccountStatus
     let availability: CloudStatsDataAvailability
     let statusPreferences: StatsStatusDisplayPreferencesStore
-    let refresh: () -> Void
     let openSettings: () -> Void
 
     private let metricColumns = [
@@ -235,12 +230,7 @@ private struct DashboardScreen: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Claude Stats")
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                Button(action: refresh) {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .accessibilityLabel("Refresh")
-
+            ToolbarItem(placement: .topBarTrailing) {
                 SettingsToolbarButton(openSettings: openSettings)
             }
         }

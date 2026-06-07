@@ -468,7 +468,13 @@ private extension MemoryWorkspaceStore {
             messages = await CodexTranscriptParser(pricing: .fallback).messages(transcriptAt: url)
         case .claude:
             messages = await TranscriptParser(pricing: .fallback).messages(transcriptAt: url)
-        case .gemini, .kimi, .minimax:
+        case .opencode:
+            messages = OpenCodeTranscriptParser(pricing: .fallback).messages(for: session)
+        case .kiro:
+            messages = KiroTranscriptParser(pricing: .fallback).messages(for: session)
+        case .hermes:
+            messages = HermesTranscriptParser(pricing: .fallback).messages(for: session)
+        case .gemini:
             messages = []
         }
 

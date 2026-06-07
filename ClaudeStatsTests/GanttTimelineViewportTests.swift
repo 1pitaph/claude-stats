@@ -36,6 +36,34 @@ struct GanttTimelineViewportTests {
         #expect(rect.height == 58)
     }
 
+    @Test("overview thumb hit rect includes horizontal slop")
+    func overviewThumbHitRectIncludesHorizontalSlop() {
+        let viewport = GanttTimelineViewport(contentWidth: 6_860, viewportWidth: 980, offsetX: 1_960)
+        let rect = GanttTimelineViewportMetrics.overviewThumbHitRect(
+            viewport: viewport,
+            overviewSize: CGSize(width: 700, height: 58)
+        )
+
+        #expect(GanttTimelineViewportMetrics.overviewThumbHitSlop == 6)
+        #expect(rect.origin.x == 194)
+        #expect(rect.width == 112)
+        #expect(rect.height == 58)
+    }
+
+    @Test("overview thumb hit rect excludes starts outside slop")
+    func overviewThumbHitRectExcludesStartsOutsideSlop() {
+        let viewport = GanttTimelineViewport(contentWidth: 6_860, viewportWidth: 980, offsetX: 1_960)
+        let rect = GanttTimelineViewportMetrics.overviewThumbHitRect(
+            viewport: viewport,
+            overviewSize: CGSize(width: 700, height: 58)
+        )
+
+        #expect(rect.contains(CGPoint(x: 194, y: 20)))
+        #expect(rect.contains(CGPoint(x: 305, y: 20)))
+        #expect(rect.contains(CGPoint(x: 193, y: 20)) == false)
+        #expect(rect.contains(CGPoint(x: 306, y: 20)) == false)
+    }
+
     @Test("overview drag maps to clamped timeline offset")
     func overviewDragMapsToTimelineOffset() {
         let viewport = GanttTimelineViewport(contentWidth: 6_860, viewportWidth: 980, offsetX: 1_960)
@@ -48,6 +76,34 @@ struct GanttTimelineViewportTests {
         #expect(delta == 980)
         #expect(viewport.withOffset(viewport.offsetX + delta).offsetX == 2_940)
         #expect(viewport.withOffset(10_000).offsetX == 5_880)
+    }
+
+    @Test("overview geometry handles zero dimensions and clamps offsets")
+    func overviewGeometryHandlesZeroDimensionsAndClampsOffsets() {
+        let viewport = GanttTimelineViewport(contentWidth: 6_860, viewportWidth: 980, offsetX: 1_960)
+        let emptyViewport = GanttTimelineViewport(contentWidth: 0, viewportWidth: 980, offsetX: 320)
+
+        #expect(GanttTimelineViewportMetrics.overviewThumbRect(
+            viewport: viewport,
+            overviewSize: .zero
+        ) == .zero)
+        #expect(GanttTimelineViewportMetrics.overviewThumbHitRect(
+            viewport: viewport,
+            overviewSize: .zero
+        ) == .zero)
+        #expect(GanttTimelineViewportMetrics.offsetDeltaForOverviewDrag(
+            translationX: 100,
+            overviewWidth: 0,
+            viewport: viewport
+        ) == 0)
+        #expect(GanttTimelineViewportMetrics.offsetForOverviewThumbX(
+            100,
+            overviewWidth: 0,
+            viewport: viewport
+        ) == 0)
+        #expect(emptyViewport.offsetX == 0)
+        #expect(viewport.withOffset(-100).offsetX == 0)
+        #expect(viewport.withOffset(10_000).offsetX == viewport.maxOffsetX)
     }
 
     @Test("overview interactivity is limited to scrollable week month views")

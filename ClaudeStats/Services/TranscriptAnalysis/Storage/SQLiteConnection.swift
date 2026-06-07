@@ -22,15 +22,22 @@ enum SQLiteStorageError: Error, LocalizedError {
 final class SQLiteConnection {
     private var db: OpaquePointer?
 
-    init(url: URL) throws {
-        try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        let flags = SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX
+    init(url: URL, readOnly: Bool = false) throws {
+        if !readOnly {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+        }
+        let flags = readOnly
+            ? SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX
+            : SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX
         guard sqlite3_open_v2(url.path, &db, flags, nil) == SQLITE_OK else {
             let message = db.map { String(cString: sqlite3_errmsg($0)) } ?? "unknown error"
             throw SQLiteStorageError.openFailed(message)
+        }
+        if readOnly {
+            try? execute("PRAGMA query_only = ON")
         }
     }
 

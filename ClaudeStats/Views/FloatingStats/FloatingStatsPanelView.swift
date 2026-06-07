@@ -270,9 +270,9 @@ struct FloatingStatsPanelView: View {
 
     private func providerLogoTint(for provider: ProviderKind) -> Color {
         switch provider {
-        case .codex, .kimi:
+        case .codex:
             Color.primary
-        case .claude, .gemini, .minimax:
+        case .claude, .gemini, .opencode, .kiro, .hermes:
             provider.accentColor
         }
     }
@@ -299,7 +299,7 @@ struct FloatingStatsPanelView: View {
                 secondaryError: env.openAIStatus.uptimeLastError,
                 fallback: "OPENAI STATUS UNAVAILABLE"
             )
-        case .gemini, .kimi, .minimax:
+        case .gemini, .opencode, .kiro, .hermes:
             return nil
         }
     }
@@ -325,7 +325,7 @@ struct FloatingStatsPanelView: View {
             await env.claudeStatus.refreshIfNeeded()
         case .codex:
             await env.openAIStatus.refreshIfNeeded()
-        case .gemini, .kimi, .minimax:
+        case .gemini, .opencode, .kiro, .hermes:
             return
         }
     }

@@ -19,6 +19,9 @@ final class CloudStatsSnapshotStore {
     private(set) var accountStatus: CloudStatsAccountStatus = .unknown
     private(set) var snapshot: StatsSnapshot?
     private(set) var usesSampleData = false
+    private(set) var lastCheckedAt: Date?
+    private(set) var lastLoadedAt: Date?
+    private(set) var lastError: String?
 
     init(syncService: CloudStatsSyncService = CloudStatsSyncService()) {
         self.syncService = syncService
@@ -27,7 +30,9 @@ final class CloudStatsSnapshotStore {
     func load() async {
         state = .loading
         usesSampleData = false
+        lastError = nil
         accountStatus = await syncService.accountStatus()
+        lastCheckedAt = .now
         if accountStatus == .noAccount {
             snapshot = nil
             state = .empty("Sign in to iCloud on this simulator to read the private stats snapshot.")
@@ -36,6 +41,7 @@ final class CloudStatsSnapshotStore {
         do {
             if let snapshot = try await syncService.loadLatestSnapshot() {
                 self.snapshot = snapshot
+                lastLoadedAt = .now
                 state = .loaded
             } else {
                 self.snapshot = nil
@@ -46,9 +52,11 @@ final class CloudStatsSnapshotStore {
             state = .empty("Open Claude Stats Lite on your Mac and let it sync a snapshot to iCloud.")
         } catch let error as CloudStatsSyncError {
             self.snapshot = nil
+            lastError = error.description
             state = .failed(error.description)
         } catch {
             self.snapshot = nil
+            lastError = error.localizedDescription
             state = .failed(error.localizedDescription)
         }
     }
@@ -58,6 +66,9 @@ final class CloudStatsSnapshotStore {
         snapshot = DebugSampleStatsSnapshot.make()
         accountStatus = .available
         usesSampleData = true
+        lastCheckedAt = .now
+        lastLoadedAt = .now
+        lastError = nil
         state = .loaded
     }
     #endif
