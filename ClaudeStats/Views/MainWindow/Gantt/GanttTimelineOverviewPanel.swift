@@ -111,60 +111,11 @@ private struct GanttOverviewViewportControl: View {
     private var viewportThumb: some View {
         let shape = RoundedRectangle(cornerRadius: 5, style: .continuous)
 
-        if #available(macOS 26.0, *) {
-            GanttOverviewLiquidGlassThumb()
-        } else {
-            shape
-                .fill(Color.stxAccent.opacity(0.14))
-                .overlay {
-                    shape.strokeBorder(Color.stxAccent.opacity(0.72), lineWidth: 1)
-                }
-        }
-    }
-}
-
-@available(macOS 26.0, *)
-private struct GanttOverviewLiquidGlassThumb: View {
-    private let cornerRadius: CGFloat = 5
-    private let edgeWidth: CGFloat = 7
-
-    var body: some View {
-        GeometryReader { proxy in
-            let width = max(0, proxy.size.width)
-            let height = max(0, proxy.size.height)
-            let edge = min(edgeWidth, max(1, min(width, height) / 2))
-            let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-
-            ZStack(alignment: .topLeading) {
-                GlassEffectContainer(spacing: 0) {
-                    ZStack(alignment: .topLeading) {
-                        glassStrip(width: width, height: edge, x: 0, y: 0)
-                        glassStrip(width: width, height: edge, x: 0, y: max(0, height - edge))
-                        glassStrip(width: edge, height: height, x: 0, y: 0)
-                        glassStrip(width: edge, height: height, x: max(0, width - edge), y: 0)
-                    }
-                }
-                .allowsHitTesting(false)
-
-                shape
-                    .strokeBorder(Color.stxAccent.opacity(0.82), lineWidth: 1)
-                    .allowsHitTesting(false)
-            }
-            .frame(width: width, height: height, alignment: .topLeading)
-        }
-    }
-
-    @ViewBuilder
-    private func glassStrip(width: CGFloat, height: CGFloat, x: CGFloat, y: CGFloat) -> some View {
-        let radius = min(cornerRadius, max(0, min(width, height) / 2))
-        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
-
         shape
-            .fill(Color.clear)
-            .glassEffect(.clear, in: shape)
-            .opacity(0.52)
-            .frame(width: width, height: height)
-            .offset(x: x, y: y)
+            .fill(Color.stxAccent.opacity(0.14))
+            .overlay {
+                shape.strokeBorder(Color.stxAccent.opacity(0.72), lineWidth: 1)
+            }
     }
 }
 
