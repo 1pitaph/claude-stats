@@ -6,6 +6,48 @@
     <description>Most recent updates to Claude Stats Lite.</description>
     <language>en</language>
     <item>
+      <title>Version 1.9.2</title>
+      <sparkle:version>92</sparkle:version>
+      <sparkle:shortVersionString>1.9.2</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0.0</sparkle:minimumSystemVersion>
+      <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+      <description><![CDATA[
+<div class="cs-appcast-notes" style="font-family: -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif; color: #1f2937;">
+  <style>
+    .cs-update-size-fallback { margin: 0 0 14px; }
+    .cs-update-size-pills { display: inline-flex; align-items: center; margin-left: 10px; min-width: 0; vertical-align: middle; }
+    .cs-update-size-pill { display: inline-block; padding: 4px 10px; border: 0; border-radius: 999px; background: #eaf1ff; color: #172033; font-size: 12px; font-weight: 700; line-height: 1.2; white-space: nowrap; }
+    .cs-update-size-delta { display: none; }
+    .cs-update-size-delta.sparkle-installed-version { display: inline-block; }
+    .cs-update-size-delta.sparkle-installed-version ~ .cs-update-size-full { display: none; }
+  </style>
+<div style="margin: 0; color: #1f2937; font-size: 13px; line-height: 1.55;">
+  <p style="margin: 0 0 10px; color: #172033; font-size: 15px; font-weight: 700;">更新内容</p>
+  <div style="margin: 0; padding: 0;">
+<h2>本次更新<span class="cs-update-size-pills"><span class="cs-update-size-pill cs-update-size-delta" data-sparkle-version="91">1.6 MB</span><span class="cs-update-size-pill cs-update-size-delta" data-sparkle-version="90">1.7 MB</span><span class="cs-update-size-pill cs-update-size-delta" data-sparkle-version="89">2 MB</span><span class="cs-update-size-pill cs-update-size-full">61.4 MB</span></span></h2>
+<ul>
+<li>添加了三款新AI助手的完整支持：</li>
+<li>新增对应Provider实现、会话扫描解析逻辑</li>
+<li>更新ProviderKind枚举与所有引用处</li>
+<li>补充资产文件与Xcode资源配置</li>
+<li>更新定价配置与UI适配</li>
+<li>完善Git工作区源识别</li>
+<li>优化甘特图概览交互细节</li>
+<li>将圆角裁剪和边框从父容器移动到GanttOverviewCanvas，重构视图控件的zIndex层级，优化视口控制的手势和边框绘制逻辑</li>
+</ul>
+  </div>
+</div>
+</div>
+]]></description>
+      <pubDate>Sun, 07 Jun 2026 04:04:56 GMT</pubDate>
+      <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.9.2/ClaudeStatsLite-1.9.2.dmg" sparkle:edSignature="T2AQiZq7B4jK7XplJaZf7QJ0/lQ5ltv5Dz9IMFOtm2pMmLqrV8w90c77Sb1YTxC21xuEhRyiar7Vg0MBYjKiCg==" length="61413716" type="application/octet-stream"/>
+      <sparkle:deltas>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.9.2/ClaudeStatsLite-92-from-91.delta" sparkle:deltaFrom="91" sparkle:edSignature="ivQRi/gPcrtvYwilhwxM8pE2NjHCNQpMimFE64G4to1IlwkLrYfDFODSnAutsVT8YVJOVLndwVAWRXTNFKzXAg==" length="1648402" type="application/octet-stream"/>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.9.2/ClaudeStatsLite-92-from-90.delta" sparkle:deltaFrom="90" sparkle:edSignature="UrpxHIRfIHmqxoFeQwkPKjXpscLj2+1k36VZfCWBiz8v/fWhFMIIBITfNW5lIoxuSWHnmRI1v5HZkNikd8KFBg==" length="1694890" type="application/octet-stream"/>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.9.2/ClaudeStatsLite-92-from-89.delta" sparkle:deltaFrom="89" sparkle:edSignature="YJ+LKH3QC4/EYH2qqWinsiiGFA21HNi75ssFEO4pmUM9B/7f7fz2iBwZ+9N9iT2LOs5oZn5GVSgl6DIJBNm1Bg==" length="2044582" type="application/octet-stream"/>
+      </sparkle:deltas>
+    </item>
+    <item>
       <title>Version 1.9.1</title>
       <sparkle:version>91</sparkle:version>
       <sparkle:shortVersionString>1.9.1</sparkle:shortVersionString>
