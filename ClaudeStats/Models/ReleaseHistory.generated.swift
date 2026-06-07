@@ -3,6 +3,18 @@
 extension ReleaseHistoryCatalog {
     static let generatedEntries: [ReleaseHistoryEntry] = [
         ReleaseHistoryEntry(
+            version: "1.9.2",
+            date: "June 7, 2026",
+            headline: "添加了三款新AI助手的完整支持：",
+            changes: [
+                "新增对应Provider实现、会话扫描解析逻辑",
+                "更新ProviderKind枚举与所有引用处",
+                "补充资产文件与Xcode资源配置",
+                "更新定价配置与UI适配",
+                "完善Git工作区源识别",
+            ]
+        ),
+        ReleaseHistoryEntry(
             version: "1.9.1",
             date: "June 6, 2026",
             headline: "为Info.plist添加自动更新相关配置项",
