@@ -16,6 +16,7 @@ struct SidebarColumn: View {
     var isConfigsActive = false
     var isMemoryActive = false
     var isWarpActive = false
+    var isTrackActive = false
     var onOpenSettings: () -> Void
     var onOpenLinuxDo: () -> Void
     var onOpenSessions: () -> Void
@@ -24,6 +25,7 @@ struct SidebarColumn: View {
     var onOpenNetwork: () -> Void
     var onOpenWarp: () -> Void
     var onOpenOps: () -> Void
+    var onOpenTrack: () -> Void
 
     @Environment(AppEnvironment.self) private var env
     @State private var updateState: UpdaterController.UpdateState = .idle
@@ -69,6 +71,18 @@ struct SidebarColumn: View {
             sectionHeader("TOOLS")
             navRow(.dailyReport)
             navRow(.gantt)
+            if AppVariant.isEnabled(.track) {
+                SidebarRow(
+                    title: "Track",
+                    symbol: AppIcon.Workspace.track,
+                    isSelected: isTrackActive,
+                    trailingSymbol: "chevron.right",
+                    showsTrailingOnHover: true
+                ) {
+                    clearTextFocus()
+                    onOpenTrack()
+                }
+            }
             if AppVariant.isEnabled(.warp) {
                 SidebarRow(
                     title: "Warp",
@@ -345,6 +359,7 @@ struct SidebarRow: View {
         isConfigsActive: false,
         isMemoryActive: false,
         isWarpActive: false,
+        isTrackActive: false,
         onOpenSettings: {},
         onOpenLinuxDo: {},
         onOpenSessions: {},
@@ -352,7 +367,8 @@ struct SidebarRow: View {
         onOpenMemory: {},
         onOpenNetwork: {},
         onOpenWarp: {},
-        onOpenOps: {}
+        onOpenOps: {},
+        onOpenTrack: {}
     )
     .environment(AppEnvironment.preview())
     .frame(width: 240, height: 600)

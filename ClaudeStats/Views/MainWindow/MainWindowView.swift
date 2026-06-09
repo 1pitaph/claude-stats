@@ -75,6 +75,7 @@ struct MainWindowView: View {
     @SceneStorage("mainWindow.networkSection") private var networkSectionRaw: String = NetworkSection.traffic.rawValue
     @SceneStorage("mainWindow.warpSection") private var warpSectionRaw: String = WarpWorkspaceSection.sessions.rawValue
     @SceneStorage("mainWindow.opsSection") private var opsSectionRaw: String = OpsSection.ports.rawValue
+    @SceneStorage("mainWindow.trackSection") private var trackSectionRaw: String = TrackSection.flow.rawValue
     #endif
     @State private var page: MainPage = .dashboard
     @State private var toggleHovering = false
@@ -121,6 +122,10 @@ struct MainWindowView: View {
 
     private var opsSection: OpsSection {
         OpsSection(storedRawValue: opsSectionRaw)
+    }
+
+    private var trackSection: TrackSection {
+        TrackSection(rawValue: trackSectionRaw) ?? .flow
     }
     #endif
 
@@ -173,6 +178,13 @@ struct MainWindowView: View {
             set: { opsSectionRaw = $0.rawValue }
         )
     }
+
+    private var trackSectionBinding: Binding<TrackSection> {
+        Binding(
+            get: { trackSection },
+            set: { trackSectionRaw = $0.rawValue }
+        )
+    }
     #endif
 
     var body: some View {
@@ -192,6 +204,7 @@ struct MainWindowView: View {
                     isConfigsActive: mode == .configs,
                     isMemoryActive: AppVariant.isEnabled(.memory) && mode == .memory,
                     isWarpActive: mode == .warp,
+                    isTrackActive: AppVariant.isEnabled(.track) && mode == .track,
                     onOpenSettings: openSettings,
                     onOpenLinuxDo: openLinuxDo,
                     onOpenSessions: openSessions,
@@ -199,7 +212,8 @@ struct MainWindowView: View {
                     onOpenMemory: openMemory,
                     onOpenNetwork: openNetwork,
                     onOpenWarp: { openWarp() },
-                    onOpenOps: openOps
+                    onOpenOps: openOps,
+                    onOpenTrack: openTrack
                 )
             } linuxDoSidebar: {
                 #if CLAUDE_STATS_LITE
@@ -252,6 +266,12 @@ struct MainWindowView: View {
                 EmptyView()
                 #else
                 OpsSidebarColumn(section: opsSectionBinding, onExit: closeOps)
+                #endif
+            } trackSidebar: {
+                #if CLAUDE_STATS_LITE
+                EmptyView()
+                #else
+                TrackSidebarColumn(store: env.track, section: trackSectionBinding, onExit: closeTrack)
                 #endif
             } appDetail: {
                 detail
@@ -308,6 +328,12 @@ struct MainWindowView: View {
                 #else
                 OpsDetailView(store: env.ops, section: opsSection)
                 #endif
+            } trackDetail: {
+                #if CLAUDE_STATS_LITE
+                EmptyView()
+                #else
+                TrackDetailView(store: env.track, section: trackSection)
+                #endif
             }
             .background {
                 Color.clear
@@ -315,7 +341,7 @@ struct MainWindowView: View {
                     .onTapGesture { clearTextFocus() }
             }
 
-            if mode == .app || mode == .linuxDo || mode == .sessions || mode == .configs || mode == .memory || mode == .network || mode == .warp || mode == .ops {
+            if mode == .app || mode == .linuxDo || mode == .sessions || mode == .configs || mode == .memory || mode == .network || mode == .warp || mode == .ops || mode == .track {
                 sidebarToggle
                     .padding(.leading, 81)
                     .padding(.top, 11)
@@ -570,6 +596,14 @@ struct MainWindowView: View {
     }
     #endif
 
+    #if CLAUDE_STATS_LITE
+    private func openTrack() {}
+    #else
+    private func openTrack() {
+        transition(to: .track)
+    }
+    #endif
+
     private func closeSettings() {
         transition(to: .app)
     }
@@ -627,6 +661,14 @@ struct MainWindowView: View {
     private func closeOps() {}
     #else
     private func closeOps() {
+        transition(to: .app)
+    }
+    #endif
+
+    #if CLAUDE_STATS_LITE
+    private func closeTrack() {}
+    #else
+    private func closeTrack() {
         transition(to: .app)
     }
     #endif
@@ -696,6 +738,7 @@ struct MainWindowView: View {
             || modeRaw == "network"
             || modeRaw == "warp"
             || modeRaw == "ops"
+            || modeRaw == "track"
             || modeRaw == "chat" {
             modeRaw = MainWindowMode.app.rawValue
             sidebarVisible = true

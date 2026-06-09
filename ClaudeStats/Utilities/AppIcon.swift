@@ -121,6 +121,7 @@ enum AppIcon {
         static let settings = "gearshape"
         static let system = "cpu"
         static let terminal = "terminal.fill"
+        static let track = "point.3.connected.trianglepath.dotted"
         static let usage = "chart.line.uptrend.xyaxis"
         static let warp = "terminal"
     }
@@ -232,6 +233,13 @@ enum AppIcon {
         static let swiftPackage = "swift"
         static let xcode = "hammer"
         static let yarn = "tray.full"
+    }
+
+    enum Track {
+        static let approvals = "hand.raised.circle"
+        static let events = "list.bullet.rectangle"
+        static let flow = "point.3.connected.trianglepath.dotted"
+        static let tools = "hammer"
     }
 
     enum Terminal {

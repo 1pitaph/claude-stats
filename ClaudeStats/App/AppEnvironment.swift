@@ -65,6 +65,7 @@ final class AppEnvironment {
     #if !CLAUDE_STATS_LITE
     let networkDebugger: NetworkDebuggerStore
     let ops: OpsStore
+    let track: TrackStore
     #endif
     let dailyReport: DailyReportViewModel
 
@@ -154,6 +155,7 @@ final class AppEnvironment {
         self.systemMonitor = systemMonitor
         self.networkDebugger = networkDebugger ?? NetworkDebuggerStore(preferences: preferences)
         self.ops = ops
+        self.track = TrackStore()
         self.dailyReport = DailyReportViewModel()
         let linuxDoCredentials: any LinuxDoCredentialStoring = Self.isRunningUnitTests
             ? InMemoryLinuxDoCredentialStore()
@@ -212,6 +214,7 @@ final class AppEnvironment {
             #if !CLAUDE_STATS_LITE
             Task { [weak self] in
                 await self?.syncMemorySourcesFromCurrentState()
+                await self?.refreshTrack()
             }
             #endif
         }
@@ -238,6 +241,7 @@ final class AppEnvironment {
             await memoryModelSettings.loadIfNeeded()
             await startCodeMemorySidecarFromCurrentModelSettings()
             await memory.syncAvailableSources(sessions: store.sessions, configProjects: aiConfigs.snapshot.projects)
+            await refreshTrack()
             await drainMemoryCaptureQueueIfAllowed()
             #endif
         }
@@ -260,6 +264,15 @@ final class AppEnvironment {
     func applyAutoRefreshSetting() {
         store.startAutoRefresh(every: TimeInterval(preferences.autoRefreshMinutes) * 60)
     }
+
+    #if !CLAUDE_STATS_LITE
+    func refreshTrack() async {
+        await track.refresh(sessions: store.sessions) { [weak self] session in
+            guard let self else { return [] }
+            return await self.store.executedCommands(for: session)
+        }
+    }
+    #endif
 
     func generationEndpoint() throws -> AppLLMGenerationEndpoint {
         #if CLAUDE_STATS_LITE

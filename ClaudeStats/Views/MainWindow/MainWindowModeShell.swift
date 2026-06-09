@@ -10,6 +10,7 @@ enum MainWindowMode: String, Sendable {
     case network
     case warp
     case ops
+    case track
 }
 
 enum MainWindowMotion {
@@ -22,6 +23,7 @@ enum MainWindowMotion {
     static let networkSidebarWidth: CGFloat = 240
     static let warpSidebarWidth: CGFloat = 240
     static let opsSidebarWidth: CGFloat = 240
+    static let trackSidebarWidth: CGFloat = 260
 
     private static let detailOffset: CGFloat = 10
 
@@ -105,13 +107,20 @@ enum MainWindowMotion {
             removal: .offset(x: detailOffset).combined(with: .opacity)
         )
     }
+
+    static var trackDetailTransition: AnyTransition {
+        .asymmetric(
+            insertion: .offset(x: detailOffset).combined(with: .opacity),
+            removal: .offset(x: detailOffset).combined(with: .opacity)
+        )
+    }
 }
 
 /// Stable two-column shell for the main window. The sidebar column transitions
-/// directly between app, LinuxDo, sessions, configs, memory, settings, network, Warp, and ops
+/// directly between app, LinuxDo, sessions, configs, memory, settings, network, Warp, ops, and Track
 /// navigation while the detail panel stays mounted so its leading boundary can
 /// move with the sidebar width.
-struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSidebar: View, ConfigsSidebar: View, MemorySidebar: View, SettingsSidebar: View, NetworkSidebar: View, WarpSidebar: View, OpsSidebar: View, AppDetail: View, LinuxDoDetail: View, SessionsDetail: View, ConfigsDetail: View, MemoryDetail: View, SettingsDetail: View, NetworkDetail: View, WarpDetail: View, OpsDetail: View>: View {
+struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSidebar: View, ConfigsSidebar: View, MemorySidebar: View, SettingsSidebar: View, NetworkSidebar: View, WarpSidebar: View, OpsSidebar: View, TrackSidebar: View, AppDetail: View, LinuxDoDetail: View, SessionsDetail: View, ConfigsDetail: View, MemoryDetail: View, SettingsDetail: View, NetworkDetail: View, WarpDetail: View, OpsDetail: View, TrackDetail: View>: View {
     let mode: MainWindowMode
     let sidebarVisible: Bool
     let boundaryFalloffEnabled: Bool
@@ -125,6 +134,7 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
     private let networkSidebar: NetworkSidebar
     private let warpSidebar: WarpSidebar
     private let opsSidebar: OpsSidebar
+    private let trackSidebar: TrackSidebar
     private let appDetail: AppDetail
     private let linuxDoDetail: LinuxDoDetail
     private let sessionsDetail: SessionsDetail
@@ -134,6 +144,7 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
     private let networkDetail: NetworkDetail
     private let warpDetail: WarpDetail
     private let opsDetail: OpsDetail
+    private let trackDetail: TrackDetail
 
     init(
         mode: MainWindowMode,
@@ -148,6 +159,7 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
         @ViewBuilder networkSidebar: () -> NetworkSidebar,
         @ViewBuilder warpSidebar: () -> WarpSidebar,
         @ViewBuilder opsSidebar: () -> OpsSidebar,
+        @ViewBuilder trackSidebar: () -> TrackSidebar,
         @ViewBuilder appDetail: () -> AppDetail,
         @ViewBuilder linuxDoDetail: () -> LinuxDoDetail,
         @ViewBuilder sessionsDetail: () -> SessionsDetail,
@@ -156,7 +168,8 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
         @ViewBuilder settingsDetail: () -> SettingsDetail,
         @ViewBuilder networkDetail: () -> NetworkDetail,
         @ViewBuilder warpDetail: () -> WarpDetail,
-        @ViewBuilder opsDetail: () -> OpsDetail
+        @ViewBuilder opsDetail: () -> OpsDetail,
+        @ViewBuilder trackDetail: () -> TrackDetail
     ) {
         self.mode = mode
         self.sidebarVisible = sidebarVisible
@@ -170,6 +183,7 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
         self.networkSidebar = networkSidebar()
         self.warpSidebar = warpSidebar()
         self.opsSidebar = opsSidebar()
+        self.trackSidebar = trackSidebar()
         self.appDetail = appDetail()
         self.linuxDoDetail = linuxDoDetail()
         self.sessionsDetail = sessionsDetail()
@@ -179,6 +193,7 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
         self.networkDetail = networkDetail()
         self.warpDetail = warpDetail()
         self.opsDetail = opsDetail()
+        self.trackDetail = trackDetail()
     }
 
     var body: some View {
@@ -216,6 +231,8 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
             sidebarVisible ? MainWindowMotion.warpSidebarWidth : 0
         case .ops:
             sidebarVisible ? MainWindowMotion.opsSidebarWidth : 0
+        case .track:
+            sidebarVisible ? MainWindowMotion.trackSidebarWidth : 0
         }
     }
 
@@ -238,6 +255,8 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
         case .warp:
             return sidebarVisible
         case .ops:
+            return sidebarVisible
+        case .track:
             return sidebarVisible
         }
     }
@@ -276,6 +295,10 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
 
     private var opsSidebarIsActive: Bool {
         mode == .ops && sidebarVisible
+    }
+
+    private var trackSidebarIsActive: Bool {
+        mode == .track && sidebarVisible
     }
 
     private var sidebarDeck: some View {
@@ -343,6 +366,13 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
                     .allowsHitTesting(opsSidebarIsActive)
                     .accessibilityHidden(!opsSidebarIsActive)
                     .transition(MainWindowMotion.secondarySidebarTransition)
+            case .track:
+                trackSidebar
+                    .frame(width: MainWindowMotion.trackSidebarWidth)
+                    .opacity(sidebarVisible ? 1 : 0)
+                    .allowsHitTesting(trackSidebarIsActive)
+                    .accessibilityHidden(!trackSidebarIsActive)
+                    .transition(MainWindowMotion.secondarySidebarTransition)
             }
         }
     }
@@ -386,6 +416,10 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
             case .ops:
                 opsDetail
                     .transition(MainWindowMotion.opsDetailTransition)
+                    .zIndex(1)
+            case .track:
+                trackDetail
+                    .transition(MainWindowMotion.trackDetailTransition)
                     .zIndex(1)
             }
         }
@@ -458,6 +492,13 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
             Spacer()
         }
         .padding()
+    } trackSidebar: {
+        VStack(alignment: .leading) {
+            Text("Back")
+            Text("Flow")
+            Spacer()
+        }
+        .padding()
     } appDetail: {
         Color.stxBackground.overlay(Text("App Detail"))
     } linuxDoDetail: {
@@ -476,6 +517,8 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
         Color.stxBackground.overlay(Text("Warp Detail"))
     } opsDetail: {
         Color.stxBackground.overlay(Text("Ops Detail"))
+    } trackDetail: {
+        Color.stxBackground.overlay(Text("Track Detail"))
     }
     .frame(width: 900, height: 600)
     .background(VisualEffectBackground())
