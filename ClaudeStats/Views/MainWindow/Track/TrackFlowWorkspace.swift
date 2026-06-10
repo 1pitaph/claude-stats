@@ -819,6 +819,9 @@ private struct TrackNodeInspector: View {
                 LazyVStack(alignment: .leading, spacing: 16) {
                     if let node {
                         nodeSummary(node)
+                        if let prompt = node.prompt {
+                            promptSection(prompt)
+                        }
                         metadata(node)
                         eventTimeline(node)
                     } else {
@@ -857,6 +860,20 @@ private struct TrackNodeInspector: View {
             if let endedAt = node.endedAt {
                 inspectorRow("Ended", Format.shortTime(endedAt))
             }
+        }
+    }
+
+    private func promptSection(_ prompt: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionLabel("Prompt")
+            Text(prompt)
+                .font(.sora(10))
+                .foregroundStyle(.primary)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 7))
         }
     }
 

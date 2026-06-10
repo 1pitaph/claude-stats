@@ -106,6 +106,159 @@ struct TrackSnapshotBuilderTests {
         #expect(run.edges.contains { $0.from.contains("agent::worker-1") && $0.to.contains("tool::tool-1") })
     }
 
+    @Test("Turn nodes display prompt text")
+    func turnNodesDisplayPromptText() async throws {
+        let events = [
+            Self.event(kind: .turnStarted, id: "turn-1", turnID: "turn-1", summary: "First prompt", detail: "First prompt", prompt: "First prompt"),
+            Self.event(kind: .turnStarted, id: "turn-2", turnID: "turn-2", summary: "Second prompt", detail: "Second prompt", prompt: "Second prompt"),
+        ]
+
+        let snapshot = TrackSnapshotBuilder().build(
+            sessions: [Self.session()],
+            commandEventsBySessionID: [:],
+            hookEvents: events,
+            now: Self.date("2026-06-09T09:05:00Z")
+        )
+
+        let run = try #require(snapshot.runs.first)
+        let turnNodes = run.nodes.filter { $0.kind == .turn }.sorted { $0.id < $1.id }
+        #expect(turnNodes.map(\.title) == ["First prompt", "Second prompt"])
+        #expect(turnNodes.allSatisfy { $0.subtitle == "User input" })
+    }
+
+    @Test("Subagent prompt stays on the subagent node")
+    func subagentPromptStaysOnSubagentNode() async throws {
+        let events = [
+            Self.event(
+                kind: .turnStarted,
+                id: "turn-1",
+                timestamp: Self.date("2026-06-09T09:00:01Z"),
+                turnID: "turn-1",
+                summary: "Root prompt",
+                detail: "Root prompt",
+                prompt: "Root prompt"
+            ),
+            Self.event(
+                kind: .subagentStarted,
+                id: "child-start",
+                timestamp: Self.date("2026-06-09T09:00:02Z"),
+                parentSessionID: "codex-session-1",
+                turnID: "turn-1",
+                agentID: "child-session",
+                agentType: "explorer",
+                summary: "Started explorer",
+                detail: "Research GitHub project structure",
+                prompt: "Research GitHub project structure"
+            ),
+            Self.event(
+                kind: .subagentStopped,
+                id: "child-stop",
+                timestamp: Self.date("2026-06-09T09:00:03Z"),
+                parentSessionID: "codex-session-1",
+                turnID: "turn-1",
+                agentID: "child-session",
+                agentType: "explorer"
+            ),
+        ]
+
+        let snapshot = TrackSnapshotBuilder().build(
+            sessions: [Self.session()],
+            commandEventsBySessionID: [:],
+            hookEvents: events,
+            now: Self.date("2026-06-09T09:05:00Z")
+        )
+
+        let run = try #require(snapshot.runs.first)
+        let turnNodes = run.nodes.filter { $0.kind == .turn }
+        let turnNode = try #require(turnNodes.first)
+        let subagent = try #require(run.nodes.first { $0.kind == .subagent })
+        #expect(turnNodes.count == 1)
+        #expect(turnNode.title == "Root prompt")
+        #expect(subagent.prompt == "Research GitHub project structure")
+        #expect(subagent.subtitle == "Research GitHub project structure")
+        #expect(run.edges.contains { $0.from == turnNode.id && $0.to == subagent.id })
+    }
+
+    @Test("Graph columns follow prompt time windows and stack tools per work column")
+    func graphColumnsFollowPromptWindows() async throws {
+        let events = [
+            Self.event(
+                kind: .turnStarted,
+                id: "turn-1",
+                timestamp: Self.date("2026-06-09T09:00:01Z"),
+                turnID: "turn-1",
+                summary: "First prompt",
+                detail: "First prompt",
+                prompt: "First prompt"
+            ),
+            Self.event(
+                kind: .toolRequested,
+                id: "tool-1",
+                timestamp: Self.date("2026-06-09T09:00:02Z"),
+                turnID: "turn-1",
+                toolUseID: "tool-1",
+                toolName: "exec_command"
+            ),
+            Self.event(
+                kind: .subagentStarted,
+                id: "agent-1",
+                timestamp: Self.date("2026-06-09T09:00:03Z"),
+                turnID: "turn-1",
+                agentID: "agent-1",
+                agentType: "explorer",
+                prompt: "Check related repositories"
+            ),
+            Self.event(
+                kind: .turnStarted,
+                id: "turn-2",
+                timestamp: Self.date("2026-06-09T09:00:10Z"),
+                turnID: "turn-2",
+                summary: "Second prompt",
+                detail: "Second prompt",
+                prompt: "Second prompt"
+            ),
+            Self.event(
+                kind: .toolRequested,
+                id: "tool-2",
+                timestamp: Self.date("2026-06-09T09:00:11Z"),
+                turnID: "turn-2",
+                toolUseID: "tool-2",
+                toolName: "exec_command"
+            ),
+            Self.event(
+                kind: .toolRequested,
+                id: "tool-3",
+                timestamp: Self.date("2026-06-09T09:00:12Z"),
+                turnID: "turn-2",
+                toolUseID: "tool-3",
+                toolName: "read_file"
+            ),
+        ]
+
+        let snapshot = TrackSnapshotBuilder().build(
+            sessions: [Self.session()],
+            commandEventsBySessionID: [:],
+            hookEvents: events,
+            now: Self.date("2026-06-09T09:05:00Z")
+        )
+
+        let run = try #require(snapshot.runs.first)
+        let presentation = TrackGraphPresentation(run: run)
+        let turn1 = try #require(run.nodes.first { $0.kind == .turn && $0.title == "First prompt" })
+        let turn2 = try #require(run.nodes.first { $0.kind == .turn && $0.title == "Second prompt" })
+        let subagent = try #require(run.nodes.first { $0.kind == .subagent })
+        let turn1ItemID = try #require(presentation.itemIDByNodeID[turn1.id])
+        let turn2ItemID = try #require(presentation.itemIDByNodeID[turn2.id])
+        let subagentItemID = try #require(presentation.itemIDByNodeID[subagent.id])
+        let stacks = presentation.stacksByID.values.sorted { $0.column < $1.column }
+
+        #expect(presentation.columnByItemID[turn1ItemID] == 1)
+        #expect(presentation.columnByItemID[subagentItemID] == 2)
+        #expect(presentation.columnByItemID[turn2ItemID] == 3)
+        #expect(stacks.map(\.column) == [2, 4])
+        #expect(stacks.map { $0.nodes.count } == [1, 2])
+    }
+
     @Test("Post tool use resolves waiting approval when no explicit permission reply exists")
     func postToolUseResolvesApproval() async throws {
         let events = [
@@ -203,6 +356,7 @@ struct TrackSnapshotBuilderTests {
     private static func event(
         kind: TrackEventKind,
         id: String,
+        timestamp: Date? = nil,
         sessionID: String = "codex-session-1",
         parentSessionID: String? = nil,
         turnID: String? = nil,
@@ -210,11 +364,14 @@ struct TrackSnapshotBuilderTests {
         agentType: String? = nil,
         toolUseID: String? = nil,
         approvalID: String? = nil,
-        toolName: String? = nil
+        toolName: String? = nil,
+        summary: String? = nil,
+        detail: String? = nil,
+        prompt: String? = nil
     ) -> TrackEvent {
         TrackEvent(
             id: id,
-            timestamp: Self.date("2026-06-09T09:00:00Z"),
+            timestamp: timestamp ?? Self.date("2026-06-09T09:00:00Z"),
             source: .hook,
             kind: kind,
             provider: .codex,
@@ -229,8 +386,9 @@ struct TrackSnapshotBuilderTests {
             permissionMode: nil,
             cwd: "/Users/dev/projects/claude-stats",
             transcriptPath: nil,
-            summary: kind.title,
-            detail: nil,
+            summary: summary ?? kind.title,
+            detail: detail,
+            prompt: prompt,
             confidence: .high
         )
     }

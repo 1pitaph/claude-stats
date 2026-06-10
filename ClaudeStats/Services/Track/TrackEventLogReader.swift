@@ -99,6 +99,10 @@ private struct TrackHookRecord: Decodable {
     let behavior: String?
     let message: String?
     let summary: String?
+    let prompt: String?
+    let promptSnake: String?
+    let subagentPrompt: String?
+    let subagentPromptSnake: String?
     let error: TrackJSONValue?
     let activeFlags: [String]?
     let activeFlagsSnake: [String]?
@@ -147,6 +151,10 @@ private struct TrackHookRecord: Decodable {
         case behavior
         case message
         case summary
+        case prompt
+        case promptSnake = "prompt_text"
+        case subagentPrompt
+        case subagentPromptSnake = "subagent_prompt"
         case error
         case activeFlags
         case activeFlagsSnake = "active_flags"
@@ -178,6 +186,13 @@ private struct TrackHookRecord: Decodable {
             sourceKind,
             sourceKindSnake,
             payload?.stringValue(for: "agent_type", "agentType", "source_kind", "sourceKind")
+        )
+        let prompt = firstNonEmpty(
+            prompt,
+            promptSnake,
+            subagentPrompt,
+            subagentPromptSnake,
+            payload?.stringValue(for: "prompt", "prompt_text", "subagent_prompt", "subagentPrompt", "message")
         )
         let detail = makeDetail()
         let kind = makeKind(hookName: hookName)
@@ -218,6 +233,7 @@ private struct TrackHookRecord: Decodable {
             transcriptPath: firstNonEmpty(transcriptPath, transcriptPathSnake, payload?.stringValue(for: "transcript_path", "transcriptPath")),
             summary: makeSummary(hookName: hookName, kind: kind, toolName: toolName, agentType: agentType),
             detail: detail,
+            prompt: prompt,
             confidence: makeSource().confidence
         )
     }

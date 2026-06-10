@@ -141,6 +141,60 @@ struct CodexTranscriptParserTests {
         #expect(messages.first?.timestamp == (try Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse("2026-01-10T09:00:02.000Z")))
     }
 
+    @Test("Track events include one prompt turn per user message")
+    func trackEventsIncludePromptTurns() async throws {
+        let root = try TempDir.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("rollout.jsonl")
+        try TempDir.write(CodexSampleTranscript.text, to: url)
+        let session = Self.session(url: url, externalID: CodexSampleTranscript.sessionID)
+
+        let events = await CodexTranscriptParser(pricing: CodexSampleTranscript.pricing)
+            .trackEvents(transcriptAt: url, session: session)
+        let turns = events.filter { $0.kind == .turnStarted }
+
+        #expect(turns.map(\.summary) == ["please refactor the parser", "more please"])
+        #expect(turns.map(\.detail) == ["please refactor the parser", "more please"])
+        #expect(turns.map(\.prompt) == ["please refactor the parser", "more please"])
+        #expect(Set(turns.compactMap(\.turnID)).count == 2)
+    }
+
+    @Test("Track events merge function call outputs by call id")
+    func trackEventsMergeFunctionCallOutputsByCallID() async throws {
+        let root = try TempDir.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("rollout.jsonl")
+        let lines = [
+            #"{"timestamp":"2026-01-10T09:00:00.000Z","type":"session_meta","payload":{"id":"tool-session","cwd":"/repo"}}"#,
+            #"{"timestamp":"2026-01-10T09:00:01.000Z","type":"event_msg","payload":{"type":"user_message","message":"run pwd"}}"#,
+            #"{"timestamp":"2026-01-10T09:00:02.000Z","type":"event_msg","payload":{"type":"function_call","id":"fc-1","call_id":"call-1","name":"exec_command","arguments":{"cmd":"pwd"}}}"#,
+            #"{"timestamp":"2026-01-10T09:00:03.000Z","type":"event_msg","payload":{"type":"function_call_output","call_id":"call-1","output":"/repo"}}"#,
+        ]
+        try TempDir.write(lines.joined(separator: "\n") + "\n", to: url)
+        let session = Self.session(url: url, externalID: "tool-session")
+
+        let events = await CodexTranscriptParser(pricing: CodexSampleTranscript.pricing)
+            .trackEvents(transcriptAt: url, session: session)
+        let tools = events.filter { [.toolRequested, .toolSucceeded, .toolFailed].contains($0.kind) }
+
+        #expect(tools.map(\.kind) == [.toolRequested, .toolSucceeded])
+        #expect(tools.map(\.toolUseID) == ["call-1", "call-1"])
+        #expect(tools.first?.toolName == "exec_command")
+        #expect(tools.last?.toolName == nil)
+
+        let snapshot = TrackSnapshotBuilder().build(
+            sessions: [session],
+            commandEventsBySessionID: [:],
+            hookEvents: events,
+            now: try Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse("2026-01-10T09:00:04.000Z")
+        )
+        let run = try #require(snapshot.runs.first)
+        let toolNodes = run.nodes.filter { $0.kind == .tool }
+        #expect(toolNodes.count == 1)
+        #expect(toolNodes.first?.title == "exec_command")
+        #expect(toolNodes.first?.status == .completed)
+    }
+
     @Test("Extracts tolerant executed command schemas and ignores prose")
     func executedCommands() async throws {
         let root = try TempDir.make()
@@ -166,8 +220,9 @@ struct CodexTranscriptParserTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let url = root.appendingPathComponent("rollout.jsonl")
         let lines = [
-            #"{"timestamp":"2026-01-10T09:00:00.000Z","type":"session_meta","payload":{"id":"child-session","cwd":"/repo","source":{"subagent":true},"parent_session_id":"parent-session","agent_id":"explorer-1","agent_type":"explorer"}}"#,
-            #"{"timestamp":"2026-01-10T09:00:01.000Z","type":"turn_context","payload":{"turn_id":"turn-1"}}"#,
+            #"{"timestamp":"2026-01-10T09:00:00.000Z","type":"session_meta","payload":{"id":"child-session","cwd":"/repo","thread_source":"subagent","source":{"subagent":{"thread_spawn":{"parent_thread_id":"parent-session","agent_role":"explorer","depth":1}}},"agent_id":"explorer-1"}}"#,
+            #"{"timestamp":"2026-01-10T09:00:01.000Z","type":"event_msg","payload":{"type":"user_message","message":"Research the GitHub issue and summarize options"}}"#,
+            #"{"timestamp":"2026-01-10T09:00:02.000Z","type":"turn_context","payload":{"turn_id":"turn-1"}}"#,
             #"{"timestamp":"2026-01-10T09:00:02.000Z","type":"event_msg","payload":{"type":"tool_call","tool_name":"exec_command","tool_use_id":"tool-1","arguments":{"cmd":"git status"}}}"#,
             #"{"timestamp":"2026-01-10T09:00:03.000Z","type":"event_msg","payload":{"type":"permission.asked","tool_name":"exec_command","tool_use_id":"tool-1","request_id":"approval-1"}}"#,
         ]
@@ -191,6 +246,8 @@ struct CodexTranscriptParserTests {
         #expect(events.first?.sessionID == "child-session")
         #expect(events.first?.parentSessionID == "parent-session")
         #expect(events.first?.agentType == "explorer")
+        #expect(events.first?.prompt == "Research the GitHub issue and summarize options")
+        #expect(!events.contains { $0.kind == .turnStarted })
         #expect(events.contains { $0.kind == .toolRequested && $0.agentID == "explorer-1" })
         #expect(events.contains { $0.kind == .approvalRequested && $0.approvalID == "approval-1" })
         #expect(events.last?.kind == .subagentStopped)
@@ -275,5 +332,19 @@ struct CodexTranscriptParserTests {
             #"{"timestamp":"2026-01-10T09:00:02.000Z","type":"event_msg","payload":{"type":"agent_message","message":"done"}}"#,
             #"{"timestamp":"2026-01-10T09:00:03.000Z","type":"event_msg","payload":{\#(tokenCountFields),"info":{"last_token_usage":{"input_tokens":1000,"cached_input_tokens":400,"output_tokens":200,"reasoning_output_tokens":0,"total_tokens":1200}}}}"#,
         ]
+    }
+
+    private static func session(url: URL, externalID: String) -> Session {
+        Session(
+            id: "codex::\(externalID)",
+            externalID: externalID,
+            provider: .codex,
+            projectDirectoryName: "-repo",
+            filePath: url.path,
+            cwd: "/repo",
+            lastModified: Date(timeIntervalSince1970: 0),
+            fileSize: 1_024,
+            stats: nil
+        )
     }
 }

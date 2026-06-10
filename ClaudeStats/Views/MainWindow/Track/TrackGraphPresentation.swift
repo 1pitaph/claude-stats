@@ -73,6 +73,14 @@ struct TrackGraphItem: Identifiable, Hashable, Sendable {
         stack?.startedAt ?? node?.startedAt
     }
 
+    var source: TrackEventSource {
+        stack?.source ?? node?.source ?? .transcript
+    }
+
+    var confidence: TrackConfidence {
+        stack?.confidence ?? node?.confidence ?? .low
+    }
+
     var sortID: String {
         id
     }
@@ -107,7 +115,7 @@ struct TrackGraphPresentation: Hashable, Sendable {
     let stacksByID: [TrackToolStack.ID: TrackToolStack]
 
     init(run: TrackRun) {
-        let compression = Self.compressToolStacks(nodes: run.nodes, edges: run.edges)
+        let compression = Self.compressToolStacks(nodes: run.nodes, events: run.events)
         items = compression.items
         itemIDByNodeID = compression.itemIDByNodeID
         columnByItemID = compression.columnByItemID
@@ -128,15 +136,15 @@ struct TrackGraphPresentation: Hashable, Sendable {
         return stacksByID[itemID]
     }
 
-    private static func compressToolStacks(nodes: [TrackNode], edges: [TrackEdge]) -> (
+    private static func compressToolStacks(nodes: [TrackNode], events: [TrackEvent]) -> (
         items: [TrackGraphItem],
         itemIDByNodeID: [TrackNode.ID: TrackGraphItem.ID],
         columnByItemID: [TrackGraphItem.ID: Int],
         stacks: [TrackToolStack]
     ) {
-        let depthByNodeID = Self.nodeDepths(nodes: nodes, edges: edges)
+        let columnByNodeID = Self.timelineColumns(nodes: nodes, events: events)
         let toolNodesByColumn = Dictionary(grouping: nodes.filter { $0.kind == .tool }) { node in
-            depthByNodeID[node.id] ?? 0
+            columnByNodeID[node.id] ?? 1
         }
         let stacksByColumn: [Int: TrackToolStack] = Dictionary(uniqueKeysWithValues: toolNodesByColumn.compactMap { column, tools in
             guard !tools.isEmpty else { return nil }
@@ -158,7 +166,7 @@ struct TrackGraphPresentation: Hashable, Sendable {
 
         for node in nodes.sorted(by: chronologicalOrder) {
             guard node.kind == .tool,
-                  let column = depthByNodeID[node.id],
+                  let column = columnByNodeID[node.id],
                   let stack = stacksByColumn[column] else {
                 if itemIDByNodeID[node.id] == nil {
                     items.append(.node(node))
@@ -180,38 +188,92 @@ struct TrackGraphPresentation: Hashable, Sendable {
 
         for item in items where columnByItemID[item.id] == nil {
             if let node = item.node {
-                columnByItemID[item.id] = depthByNodeID[node.id] ?? 0
+                columnByItemID[item.id] = columnByNodeID[node.id] ?? 1
             }
         }
 
         return (items, itemIDByNodeID, columnByItemID, stacks)
     }
 
-    private static func nodeDepths(nodes: [TrackNode], edges: [TrackEdge]) -> [TrackNode.ID: Int] {
-        let childrenByParent = Dictionary(grouping: edges, by: \.from)
-        var depthByNode: [TrackNode.ID: Int] = [:]
-        var queue: [(TrackNode.ID, Int)] = []
-        if let root = nodes.first(where: { $0.kind == .session }) {
-            queue.append((root.id, 0))
-        }
-        for node in nodes where !depthByNode.keys.contains(node.id) && queue.isEmpty {
-            queue.append((node.id, 0))
+    private static func timelineColumns(nodes: [TrackNode], events: [TrackEvent]) -> [TrackNode.ID: Int] {
+        let eventByID = Dictionary(uniqueKeysWithValues: events.map { ($0.id, $0) })
+        let eventsByNodeID = Dictionary(uniqueKeysWithValues: nodes.map { node in
+            let nodeEvents = node.eventIDs.compactMap { eventByID[$0] }.sorted { lhs, rhs in
+                if lhs.timestamp != rhs.timestamp { return lhs.timestamp < rhs.timestamp }
+                return lhs.id < rhs.id
+            }
+            return (node.id, nodeEvents)
+        })
+        let turnNodes = nodes
+            .filter { $0.kind == .turn }
+            .sorted(by: chronologicalOrder)
+
+        var columnByNodeID: [TrackNode.ID: Int] = [:]
+        guard !turnNodes.isEmpty else {
+            for node in nodes {
+                columnByNodeID[node.id] = node.kind == .session ? 0 : 1
+            }
+            return columnByNodeID
         }
 
-        var cursor = 0
-        while cursor < queue.count {
-            let (id, depth) = queue[cursor]
-            cursor += 1
-            guard depthByNode[id] == nil || depth < depthByNode[id]! else { continue }
-            depthByNode[id] = depth
-            for edge in childrenByParent[id] ?? [] {
-                queue.append((edge.to, depth + 1))
+        var turnIndexByNodeID: [TrackNode.ID: Int] = [:]
+        var turnIndexByTurnID: [String: Int] = [:]
+        for (index, node) in turnNodes.enumerated() {
+            turnIndexByNodeID[node.id] = index
+            for event in eventsByNodeID[node.id] ?? [] {
+                if let turnID = event.turnID {
+                    turnIndexByTurnID[turnID] = index
+                }
             }
         }
-        for node in nodes where depthByNode[node.id] == nil {
-            depthByNode[node.id] = 0
+
+        for node in nodes {
+            switch node.kind {
+            case .session:
+                columnByNodeID[node.id] = 0
+            case .turn:
+                let turnIndex = turnIndexByNodeID[node.id] ?? fallbackTurnIndex(for: node.startedAt, turnNodes: turnNodes)
+                columnByNodeID[node.id] = 1 + turnIndex * 2
+            case .tool, .subagent, .approval, .result:
+                let turnIndex = turnIndex(
+                    for: node,
+                    events: eventsByNodeID[node.id] ?? [],
+                    turnIndexByTurnID: turnIndexByTurnID,
+                    turnNodes: turnNodes
+                )
+                columnByNodeID[node.id] = 2 + turnIndex * 2
+            }
         }
-        return depthByNode
+        return columnByNodeID
+    }
+
+    private static func turnIndex(
+        for node: TrackNode,
+        events: [TrackEvent],
+        turnIndexByTurnID: [String: Int],
+        turnNodes: [TrackNode]
+    ) -> Int {
+        for event in events {
+            guard let turnID = event.turnID,
+                  let turnIndex = turnIndexByTurnID[turnID] else { continue }
+            return turnIndex
+        }
+        return fallbackTurnIndex(for: node.startedAt ?? events.first?.timestamp, turnNodes: turnNodes)
+    }
+
+    private static func fallbackTurnIndex(for date: Date?, turnNodes: [TrackNode]) -> Int {
+        guard !turnNodes.isEmpty else { return 0 }
+        guard let date else { return max(0, turnNodes.count - 1) }
+        var match = 0
+        for (index, turn) in turnNodes.enumerated() {
+            guard let startedAt = turn.startedAt else { continue }
+            if startedAt <= date {
+                match = index
+            } else {
+                break
+            }
+        }
+        return match
     }
 
     private static func displayEdges(
@@ -252,7 +314,7 @@ struct TrackGraphPresentation: Hashable, Sendable {
         }
         Self.addSyntheticFlowEdges(
             items: items,
-            stacks: stacks,
+            columnByItemID: columnByItemID,
             into: &merged
         )
         return merged.values.sorted { lhs, rhs in
@@ -278,7 +340,7 @@ struct TrackGraphPresentation: Hashable, Sendable {
         let forwardAdjacent = toColumn == fromColumn + 1
 
         guard involvesStack else {
-            if forwardAdjacent || fromItem.displayKind == .session {
+            if forwardAdjacent || (fromItem.displayKind == .session && toColumn <= 1) {
                 return (.overview, .relation)
             }
             return (.focusOnly, .relation)
@@ -305,44 +367,52 @@ struct TrackGraphPresentation: Hashable, Sendable {
 
     private static func addSyntheticFlowEdges(
         items: [TrackGraphItem],
-        stacks: [TrackToolStack],
+        columnByItemID: [TrackGraphItem.ID: Int],
         into merged: inout [String: TrackGraphDisplayEdge]
     ) {
-        let sortedStacks = stacks.sorted { lhs, rhs in
-            if lhs.column != rhs.column { return lhs.column < rhs.column }
-            return lhs.id < rhs.id
+        let itemsByColumn = Dictionary(grouping: items) { columnByItemID[$0.id] ?? 0 }
+        let representatives = itemsByColumn.keys.sorted().compactMap { column -> TrackGraphItem? in
+            representativeFlowItem(in: itemsByColumn[column] ?? [])
         }
 
-        if let root = items.first(where: { $0.displayKind == .session }),
-           let firstStack = sortedStacks.first {
-            Self.mergeSyntheticFlow(
-                TrackGraphDisplayEdge(
-                    from: root.id,
-                    to: firstStack.id,
-                    source: firstStack.source,
-                    confidence: firstStack.confidence,
-                    count: firstStack.nodes.count,
-                    visibility: .overview,
-                    role: .flow
-                ),
-                into: &merged
-            )
-        }
-
-        for (lhs, rhs) in zip(sortedStacks, sortedStacks.dropFirst()) {
-            guard rhs.column > lhs.column else { continue }
+        for (lhs, rhs) in zip(representatives, representatives.dropFirst()) {
             Self.mergeSyntheticFlow(
                 TrackGraphDisplayEdge(
                     from: lhs.id,
                     to: rhs.id,
                     source: rhs.source,
                     confidence: max(lhs.confidence, rhs.confidence),
-                    count: rhs.nodes.count,
+                    count: rhs.stack?.nodes.count ?? 1,
                     visibility: .overview,
                     role: .flow
                 ),
                 into: &merged
             )
+        }
+    }
+
+    private static func representativeFlowItem(in items: [TrackGraphItem]) -> TrackGraphItem? {
+        items.sorted { lhs, rhs in
+            let lhsRank = flowRepresentativeRank(lhs)
+            let rhsRank = flowRepresentativeRank(rhs)
+            if lhsRank != rhsRank { return lhsRank < rhsRank }
+            let lhsDate = lhs.startedAt ?? .distantPast
+            let rhsDate = rhs.startedAt ?? .distantPast
+            if lhsDate != rhsDate { return lhsDate < rhsDate }
+            return lhs.id < rhs.id
+        }.first
+    }
+
+    private static func flowRepresentativeRank(_ item: TrackGraphItem) -> Int {
+        if item.displayKind == .session { return 0 }
+        if item.displayKind == .turn { return 1 }
+        if item.stack != nil { return 2 }
+        switch item.displayKind {
+        case .subagent: return 3
+        case .approval: return 4
+        case .result: return 5
+        case .tool: return 6
+        case .session, .turn: return 7
         }
     }
 
@@ -397,7 +467,7 @@ struct TrackGraphPresentation: Hashable, Sendable {
     }
 
     private static func toolStackKey(for node: TrackNode) -> String {
-        let raw = node.metadata["toolName"] ?? node.metadata["tool_name"] ?? node.title
+        let raw = node.metadata["Tool"] ?? node.metadata["toolName"] ?? node.metadata["tool_name"] ?? node.title
         return raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 

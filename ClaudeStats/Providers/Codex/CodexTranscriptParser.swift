@@ -192,10 +192,31 @@ struct CodexTranscriptParser: Sendable {
                     continue
                 }
 
-                if lineType == "turn_context" {
-                    state.currentTurnID = payload.stringValue(for: "turn_id", "turnID") ?? state.currentTurnID
+                if lineType == "turn_context" || (lineType == "event_msg" && eventType == "task_started") {
+                    if let rawTurnID = payload.stringValue(for: "turn_id", "turnID") {
+                        state.currentContextTurnID = rawTurnID
+                        if rawTurnID != state.currentPromptRawTurnID {
+                            state.currentTurnID = nil
+                        }
+                    }
                     state.currentAgentID = payload.stringValue(for: "agent_id", "agentID") ?? state.currentAgentID
                     state.currentAgentType = payload.stringValue(for: "agent_type", "agentType") ?? state.currentAgentType
+                    continue
+                }
+
+                if lineType == "event_msg", eventType == "user_message" {
+                    if state.isSubagent {
+                        state.captureSubagentPrompt(payload: payload, rawLine: json)
+                    } else {
+                        if let event = state.userPromptEvent(
+                            lineIndex: index,
+                            timestamp: timestamp,
+                            payload: payload,
+                            rawLine: json
+                        ) {
+                            state.events.append(event)
+                        }
+                    }
                     continue
                 }
 
@@ -311,6 +332,8 @@ private struct CodexTranscriptTrackState {
     let session: Session
     var events: [TrackEvent] = []
     var currentTurnID: String?
+    var currentContextTurnID: String?
+    var currentPromptRawTurnID: String?
     var currentAgentID: String?
     var currentAgentType: String?
     var firstActivity: Date?
@@ -321,6 +344,7 @@ private struct CodexTranscriptTrackState {
     var agentType: String?
     var cwd: String?
     var isSubagent = false
+    var subagentPrompt: String?
 
     init(session: Session) {
         self.session = session
@@ -337,6 +361,10 @@ private struct CodexTranscriptTrackState {
     mutating func applySessionMeta(_ payload: [String: Any]) {
         sessionID = Self.normalizedSessionID(payload.stringValue(for: "id", "session_id", "sessionID") ?? sessionID)
         cwd = payload.stringValue(for: "cwd") ?? cwd
+        let source = payload.objectValue(for: "source")
+        let sourceSubagent = source?["subagent"]
+        let subagentObject = sourceSubagent as? [String: Any]
+        let threadSpawn = subagentObject?.objectValue(for: "thread_spawn", "threadSpawn")
         parentSessionID = Self.normalizedOptionalSessionID(payload.stringValue(
             for: "parent_session_id",
             "parentSessionID",
@@ -344,15 +372,69 @@ private struct CodexTranscriptTrackState {
             "parent_thread_id",
             "parentThreadID",
             "parentThreadId"
-        )) ?? parentSessionID
+        )
+            ?? subagentObject?.stringValue(for: "parent_session_id", "parentSessionID", "parent_thread_id", "parentThreadID")
+            ?? threadSpawn?.stringValue(for: "parent_session_id", "parentSessionID", "parent_thread_id", "parentThreadID")
+        ) ?? parentSessionID
         agentID = payload.stringValue(for: "agent_id", "agentID") ?? agentID
-        agentType = payload.stringValue(for: "agent_type", "agentType")
-            ?? Self.role(from: payload)
+        let displayAgentType = Self.displayAgentType(payload.stringValue(for: "agent_type", "agentType", "sourceKind", "source_kind"))
+            ?? Self.displayAgentType(payload.stringValue(for: "agent_role", "agentRole", "codex_session_role", "codexSessionRole"))
+            ?? Self.displayAgentType(threadSpawn?.stringValue(for: "agent_role", "agentRole", "agent_type", "agentType"))
+        agentType = displayAgentType
             ?? agentType
-        if parentSessionID != nil || Self.role(from: payload) == "subagent" {
+        let threadSource = payload.stringValue(for: "thread_source", "threadSource")?.lowercased()
+        let subagentDepth = Int(threadSpawn?.stringValue(for: "depth") ?? "") ?? 0
+        let sourceMarksSubagent = (sourceSubagent as? Bool) == true || subagentObject != nil
+        if parentSessionID != nil || threadSource == "subagent" || sourceMarksSubagent || subagentDepth > 0 {
             isSubagent = true
             if agentType == nil { agentType = "subagent" }
         }
+    }
+
+    mutating func captureSubagentPrompt(payload: [String: Any], rawLine: [String: Any]) {
+        guard subagentPrompt == nil,
+              let prompt = promptText(payload: payload, rawLine: rawLine) else { return }
+        subagentPrompt = prompt
+    }
+
+    mutating func userPromptEvent(
+        lineIndex: Int,
+        timestamp: Date?,
+        payload: [String: Any],
+        rawLine: [String: Any]
+    ) -> TrackEvent? {
+        guard let prompt = promptText(payload: payload, rawLine: rawLine) else { return nil }
+
+        let explicitTurnID = payload.stringValue(for: "turn_id", "turnID")
+            ?? rawLine.stringValue(for: "turn_id", "turnID")
+        let baseTurnID = explicitTurnID ?? currentContextTurnID
+        let turnID = baseTurnID.map { "\($0)::prompt::\(lineIndex)" } ?? "prompt::\(lineIndex)"
+        currentTurnID = turnID
+        currentPromptRawTurnID = baseTurnID
+
+        let summary = TitleSanitizer.sanitize(prompt, maxLength: 72) ?? "User prompt"
+        return TrackEvent(
+            id: "transcript::\(session.id)::\(lineIndex)::user_message",
+            timestamp: timestamp ?? lastActivity ?? session.lastModified,
+            source: .transcript,
+            kind: .turnStarted,
+            provider: .codex,
+            sessionID: sessionID,
+            parentSessionID: parentSessionID,
+            turnID: turnID,
+            agentID: currentAgentID ?? agentID,
+            agentType: currentAgentType ?? agentType,
+            toolUseID: nil,
+            approvalID: nil,
+            toolName: nil,
+            permissionMode: payload.stringValue(for: "permission_mode", "permissionMode"),
+            cwd: payload.stringValue(for: "cwd") ?? cwd,
+            transcriptPath: session.filePath,
+            summary: summary,
+            detail: prompt,
+            prompt: prompt,
+            confidence: .medium
+        )
     }
 
     mutating func trackEvent(
@@ -369,28 +451,32 @@ private struct CodexTranscriptTrackState {
             kind = .approvalRequested
         } else if Self.approvalResolvedTypes.contains(lower) {
             kind = Self.isDenied(payload) ? .approvalDenied : .approvalAllowed
-        } else if Self.toolRequestedTypes.contains(lower) || hasToolCallShape(payload, rawLine: rawLine) {
-            kind = .toolRequested
         } else if Self.toolCompletedTypes.contains(lower) {
             kind = Self.isFailure(payload) ? .toolFailed : .toolSucceeded
+        } else if Self.toolRequestedTypes.contains(lower) || hasToolCallShape(payload, rawLine: rawLine) {
+            kind = .toolRequested
         } else {
             return nil
         }
 
-        let toolName = payload.stringValue(for: "tool_name", "toolName", "name", "tool", "type")
-            ?? rawLine.stringValue(for: "tool_name", "toolName", "name", "type")
-        let toolUseID = payload.stringValue(for: "tool_use_id", "toolUseID", "toolUseId", "id", "call_id")
-            ?? rawLine.stringValue(for: "tool_use_id", "toolUseID", "toolUseId", "id", "call_id")
+        let toolName = payload.stringValue(for: "tool_name", "toolName", "name", "tool")
+            ?? rawLine.stringValue(for: "tool_name", "toolName", "name", "tool")
+        let toolUseID = payload.stringValue(for: "tool_use_id", "toolUseID", "toolUseId", "call_id", "callID", "id")
+            ?? rawLine.stringValue(for: "tool_use_id", "toolUseID", "toolUseId", "call_id", "callID", "id")
         let approvalID = payload.stringValue(for: "approval_id", "approvalID", "request_id", "requestID")
             ?? rawLine.stringValue(for: "approval_id", "approvalID", "request_id", "requestID")
-        let detailValue = payload.trackJSONValue(for: "tool_input", "toolInput", "input", "arguments")
+        let detailValue = payload.trackJSONValue(for: "tool_input", "toolInput", "input", "arguments", "output", "result", "content")
         let detail = detailValue?.compactDescription
+        let prompt = payload.stringValue(for: "prompt", "prompt_text", "subagent_prompt", "subagentPrompt")
+            ?? rawLine.stringValue(for: "prompt", "prompt_text", "subagent_prompt", "subagentPrompt")
         let effectiveAgentID = payload.stringValue(for: "agent_id", "agentID")
             ?? currentAgentID
             ?? agentID
         let effectiveAgentType = payload.stringValue(for: "agent_type", "agentType")
             ?? currentAgentType
             ?? agentType
+        let explicitTurnID = payload.stringValue(for: "turn_id", "turnID")
+            ?? rawLine.stringValue(for: "turn_id", "turnID")
 
         return TrackEvent(
             id: "transcript::\(session.id)::\(lineIndex)::\(normalizedType)",
@@ -400,7 +486,7 @@ private struct CodexTranscriptTrackState {
             provider: .codex,
             sessionID: sessionID,
             parentSessionID: parentSessionID,
-            turnID: payload.stringValue(for: "turn_id", "turnID") ?? currentTurnID,
+            turnID: resolvedTurnID(explicitTurnID),
             agentID: effectiveAgentID,
             agentType: effectiveAgentType,
             toolUseID: toolUseID,
@@ -411,6 +497,7 @@ private struct CodexTranscriptTrackState {
             transcriptPath: session.filePath,
             summary: summary(kind: kind, toolName: toolName, agentType: effectiveAgentType),
             detail: detail,
+            prompt: prompt,
             confidence: .medium
         )
     }
@@ -439,7 +526,8 @@ private struct CodexTranscriptTrackState {
             cwd: cwd,
             transcriptPath: session.filePath,
             summary: "Started \(effectiveAgentType)",
-            detail: session.stats?.title,
+            detail: subagentPrompt ?? session.stats?.title,
+            prompt: subagentPrompt,
             confidence: .medium
         )
         let stop = TrackEvent(
@@ -461,6 +549,7 @@ private struct CodexTranscriptTrackState {
             transcriptPath: session.filePath,
             summary: "Stopped \(effectiveAgentType)",
             detail: session.stats?.title,
+            prompt: nil,
             confidence: .medium
         )
         return ([start] + events + [stop]).sorted { lhs, rhs in
@@ -521,6 +610,10 @@ private struct CodexTranscriptTrackState {
         "tool_result",
         "tool.succeeded",
         "tool.failed",
+        "function_call_output",
+        "tool_search_output",
+        "mcp_tool_call_end",
+        "mcp_tool_call_output",
         "item/completed",
     ]
 
@@ -550,30 +643,43 @@ private struct CodexTranscriptTrackState {
             .contains { $0.contains("deny") || $0.contains("denied") || $0.contains("reject") }
     }
 
-    private static func role(from payload: [String: Any]) -> String? {
-        if let role = normalizeRole(payload.stringValue(for: "codex_session_role", "agent_role", "agent_type", "agentType")) {
-            return role
-        }
-        if let source = payload["source"] as? [String: Any] {
-            if let subagent = source["subagent"] as? Bool {
-                return subagent ? "subagent" : "root"
-            }
-            return normalizeRole(source.stringValue(for: "role", "type", "kind"))
-        }
-        return normalizeRole(payload.stringValue(for: "source"))
+    private func promptText(payload: [String: Any], rawLine: [String: Any]) -> String? {
+        let rawPrompt = payload.stringValue(for: "message", "prompt", "text", "content")
+            ?? rawLine.stringValue(for: "message", "prompt", "text", "content")
+            ?? payload.trackJSONValue(for: "message", "prompt", "text", "content")?.compactDescription
+            ?? rawLine.trackJSONValue(for: "message", "prompt", "text", "content")?.compactDescription
+        guard let prompt = rawPrompt?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !prompt.isEmpty else { return nil }
+        return prompt
     }
 
-    private static func normalizeRole(_ value: String?) -> String? {
+    private func resolvedTurnID(_ explicitTurnID: String?) -> String? {
+        if let explicitTurnID {
+            if explicitTurnID == currentPromptRawTurnID,
+               let currentTurnID {
+                return currentTurnID
+            }
+            if explicitTurnID == currentContextTurnID,
+               currentPromptRawTurnID == currentContextTurnID,
+               let currentTurnID {
+                return currentTurnID
+            }
+            return explicitTurnID
+        }
+        return currentTurnID ?? currentContextTurnID
+    }
+
+    private static func displayAgentType(_ value: String?) -> String? {
         guard let value else { return nil }
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !normalized.isEmpty else { return nil }
-        if ["subagent", "child", "delegate", "delegated", "explorer", "worker"].contains(normalized) {
-            return "subagent"
+        if ["root", "main", "primary", "cli", "codex-cli", "codex-tui", "user"].contains(normalized) {
+            return nil
         }
-        if ["root", "main", "primary", "cli", "codex-cli", "codex-tui"].contains(normalized) {
-            return "root"
+        if ["default", "codex", "codex-desktop"].contains(normalized) {
+            return nil
         }
-        return nil
+        return normalized
     }
 
     private static func normalizedOptionalSessionID(_ value: String?) -> String? {

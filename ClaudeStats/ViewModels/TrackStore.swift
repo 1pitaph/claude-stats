@@ -106,10 +106,11 @@ final class TrackStore {
 
     func loadIfNeeded(
         sessions: [Session],
-        commandLoader: (Session) async -> [SessionCommandEvent]
+        commandLoader: (Session) async -> [SessionCommandEvent],
+        trackEventLoader: (Session) async -> [TrackEvent] = { _ in [] }
     ) async {
         guard !hasLoaded else { return }
-        await refresh(sessions: sessions, commandLoader: commandLoader)
+        await refresh(sessions: sessions, commandLoader: commandLoader, trackEventLoader: trackEventLoader)
     }
 
     func refresh(

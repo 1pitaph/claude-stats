@@ -11,7 +11,8 @@ struct TrackSnapshotBuilder: Sendable {
         let fallbackEvents = transcriptFallbackEvents(
             sessions: sessions,
             commandEventsBySessionID: commandEventsBySessionID,
-            now: now
+            now: now,
+            explicitEventSessionAliases: Self.explicitEventSessionAliases(from: hookEvents)
         )
         let allEvents = (hookEvents + fallbackEvents).sorted { lhs, rhs in
             if lhs.timestamp != rhs.timestamp { return lhs.timestamp < rhs.timestamp }
@@ -67,9 +68,13 @@ struct TrackSnapshotBuilder: Sendable {
     private func transcriptFallbackEvents(
         sessions: [Session],
         commandEventsBySessionID: [Session.ID: [SessionCommandEvent]],
-        now: Date
+        now: Date,
+        explicitEventSessionAliases: Set<String>
     ) -> [TrackEvent] {
-        sessions.flatMap { session in
+        sessions.flatMap { session -> [TrackEvent] in
+            let sessionAliases = Self.sessionAliases(for: session)
+            guard sessionAliases.isDisjoint(with: explicitEventSessionAliases) else { return [] }
+
             var events: [TrackEvent] = []
             let lastActivity = session.stats?.lastActivity ?? session.lastModified
             let age = now.timeIntervalSince(lastActivity)
@@ -140,6 +145,24 @@ struct TrackSnapshotBuilder: Sendable {
         }
         return index
     }
+
+    private static func explicitEventSessionAliases(from events: [TrackEvent]) -> Set<String> {
+        var aliases: Set<String> = []
+        for event in events {
+            for id in [event.sessionID, event.parentSessionID].compactMap({ $0 }) {
+                aliases.formUnion(SessionIndex.aliases(for: id))
+            }
+        }
+        return aliases
+    }
+
+    private static func sessionAliases(for session: Session) -> Set<String> {
+        var aliases = SessionIndex.aliases(for: session.id)
+        if !session.externalID.isEmpty {
+            aliases.formUnion(SessionIndex.aliases(for: session.externalID))
+        }
+        return aliases
+    }
 }
 
 private struct SessionIndex {
@@ -168,7 +191,7 @@ private struct SessionIndex {
         byRunID[runID]
     }
 
-    private static func aliases(for raw: String) -> Set<String> {
+    static func aliases(for raw: String) -> Set<String> {
         var values: Set<String> = [raw]
         if raw.hasPrefix("codex:") {
             values.insert(String(raw.dropFirst("codex:".count)))
@@ -223,6 +246,7 @@ private struct RunReducer {
         var edgeIDs: Set<String> = []
         var eventIDsByNodeID: [TrackNode.ID: Set<TrackEvent.ID>] = [:]
         var lastTurnNodeID: TrackNode.ID?
+        var turnNodeIDByTurnID: [String: TrackNode.ID] = [:]
         var activeAgentNodeIDByAgentID: [String: TrackNode.ID] = [:]
         var activeToolNodeIDByToolUseID: [String: TrackNode.ID] = [:]
         var approvalNodeIDByApprovalID: [String: TrackNode.ID] = [:]
@@ -284,36 +308,41 @@ private struct RunReducer {
                 upsertNode(
                     id: id,
                     kind: .turn,
-                    title: "Turn",
-                    subtitle: event.permissionMode ?? "Prompt submitted",
+                    title: turnTitle(for: event),
+                    subtitle: turnSubtitle(for: event),
                     status: .running,
                     event: event,
                     parent: sessionNodeID
                 )
                 lastTurnNodeID = id
+                if let turnID = event.turnID {
+                    turnNodeIDByTurnID[turnID] = id
+                }
             case .subagentStarted:
                 let agentID = event.agentID ?? event.id
                 let id = nodeID("agent", agentID)
+                let existing = nodes[id]
                 upsertNode(
                     id: id,
                     kind: .subagent,
                     title: event.agentType ?? "Subagent",
-                    subtitle: event.agentID ?? "Parallel worker",
+                    subtitle: subagentSubtitle(for: event, existing: existing),
                     status: .running,
                     event: event,
-                    parent: lastTurnNodeID ?? sessionNodeID
+                    parent: existing == nil ? parentTurnNodeID(for: event) ?? sessionNodeID : nil
                 )
                 activeAgentNodeIDByAgentID[agentID] = id
             case .subagentStopped:
                 let id = event.agentID.flatMap { activeAgentNodeIDByAgentID[$0] } ?? nodeID("agent", event.agentID ?? event.id)
+                let existing = nodes[id]
                 upsertNode(
                     id: id,
                     kind: .subagent,
                     title: event.agentType ?? "Subagent",
-                    subtitle: "Finished",
+                    subtitle: subagentSubtitle(for: event, existing: existing),
                     status: eventStatus(for: event),
                     event: event,
-                    parent: lastTurnNodeID ?? sessionNodeID
+                    parent: existing == nil ? parentTurnNodeID(for: event) ?? sessionNodeID : nil
                 )
                 mark(id, status: eventStatus(for: event), event: event, endedAt: event.timestamp)
                 if let agentID = event.agentID { activeAgentNodeIDByAgentID.removeValue(forKey: agentID) }
@@ -395,12 +424,15 @@ private struct RunReducer {
             let toolID = event.toolUseID ?? event.id
             let id = activeToolNodeIDByToolUseID[toolID] ?? nodeID("tool", toolID)
             let status = eventStatus(for: event)
-            let parent = activeAgentNodeID(for: event) ?? lastTurnNodeID ?? sessionNodeID
+            let existingNode = nodes[id]
+            let parent = existingNode == nil
+                ? activeAgentNodeID(for: event) ?? parentTurnNodeID(for: event) ?? sessionNodeID
+                : nil
             upsertNode(
                 id: id,
                 kind: .tool,
-                title: event.toolName ?? "Tool",
-                subtitle: event.detail ?? event.summary,
+                title: event.toolName ?? existingNode?.title ?? "Tool",
+                subtitle: event.detail ?? existingNode?.subtitle ?? event.summary,
                 status: status,
                 event: event,
                 parent: parent
@@ -445,7 +477,7 @@ private struct RunReducer {
                 subtitle: event.agentID ?? "Inferred worker",
                 status: .running,
                 event: event,
-                parent: lastTurnNodeID ?? sessionNodeID
+                parent: parentTurnNodeID(for: event) ?? sessionNodeID
             )
             activeAgentNodeIDByAgentID[agentID] = id
         }
@@ -473,10 +505,13 @@ private struct RunReducer {
             let approvalID = event.approvalID ?? event.toolUseID ?? event.id
             let id = approvalNodeIDByApprovalID[approvalID] ?? nodeID("approval", approvalID)
             let status = eventStatus(for: event)
-            let parent = event.toolUseID.flatMap { activeToolNodeIDByToolUseID[$0] }
-                ?? activeAgentNodeID(for: event)
-                ?? lastTurnNodeID
-                ?? sessionNodeID
+            let existingNode = nodes[id]
+            let parent = existingNode == nil
+                ? event.toolUseID.flatMap { activeToolNodeIDByToolUseID[$0] }
+                    ?? activeAgentNodeID(for: event)
+                    ?? parentTurnNodeID(for: event)
+                    ?? sessionNodeID
+                : nil
             upsertNode(
                 id: id,
                 kind: .approval,
@@ -534,7 +569,7 @@ private struct RunReducer {
                     subtitle: event.detail ?? event.summary,
                     status: .failed,
                     event: event,
-                    parent: lastTurnNodeID ?? sessionNodeID
+                    parent: parentTurnNodeID(for: event) ?? sessionNodeID
                 )
             }
         }
@@ -555,6 +590,7 @@ private struct RunReducer {
                 node.confidence = max(node.confidence, event.confidence)
                 node.source = node.confidence >= event.confidence ? node.source : event.source
                 node.startedAt = node.startedAt ?? event.timestamp
+                node.prompt = node.prompt ?? event.prompt
                 appendEventIDIfNeeded(event.id, to: &node)
                 node.metadata = mergedMetadata(node.metadata, event: event)
                 nodes[id] = node
@@ -571,7 +607,8 @@ private struct RunReducer {
                     endedAt: nil,
                     provider: event.provider,
                     eventIDs: [event.id],
-                    metadata: mergedMetadata([:], event: event)
+                    metadata: mergedMetadata([:], event: event),
+                    prompt: event.prompt
                 )
                 eventIDsByNodeID[id] = [event.id]
             }
@@ -624,7 +661,51 @@ private struct RunReducer {
 
         private func activeAgentNodeID(for event: TrackEvent) -> TrackNode.ID? {
             if let agentID = event.agentID, let match = activeAgentNodeIDByAgentID[agentID] { return match }
-            return activeAgentNodeIDByAgentID.values.sorted().last
+            return nil
+        }
+
+        private func parentTurnNodeID(for event: TrackEvent) -> TrackNode.ID? {
+            if let turnID = event.turnID,
+               let match = turnNodeIDByTurnID[turnID] {
+                return match
+            }
+            return lastTurnNodeID
+        }
+
+        private func subagentSubtitle(for event: TrackEvent, existing: TrackNode?) -> String {
+            if let prompt = event.prompt ?? existing?.prompt {
+                return promptSummary(prompt)
+            }
+            if event.kind == .subagentStopped {
+                return "Finished"
+            }
+            return event.agentID ?? "Parallel worker"
+        }
+
+        private func turnTitle(for event: TrackEvent) -> String {
+            if let prompt = event.prompt ?? event.detail,
+               let title = TitleSanitizer.sanitize(prompt, maxLength: 72) {
+                return title
+            }
+            if event.summary != event.kind.title,
+               let title = TitleSanitizer.sanitize(event.summary, maxLength: 72) {
+                return title
+            }
+            return "Prompt"
+        }
+
+        private func turnSubtitle(for event: TrackEvent) -> String {
+            if let permissionMode = event.permissionMode {
+                return "Permission: \(permissionMode)"
+            }
+            if event.prompt != nil || event.detail != nil || event.summary != event.kind.title {
+                return "User input"
+            }
+            return "Prompt submitted"
+        }
+
+        private func promptSummary(_ prompt: String) -> String {
+            TitleSanitizer.sanitize(prompt, maxLength: 72) ?? "Prompt available"
         }
 
         private func eventStatus(for event: TrackEvent) -> TrackStatus {

@@ -207,6 +207,7 @@ struct TrackEvent: Identifiable, Codable, Sendable, Hashable {
     var transcriptPath: String?
     var summary: String
     var detail: String?
+    var prompt: String? = nil
     var confidence: TrackConfidence
 }
 
@@ -223,6 +224,7 @@ struct TrackNode: Identifiable, Codable, Sendable, Hashable {
     var provider: ProviderKind?
     var eventIDs: [TrackEvent.ID]
     var metadata: [String: String] = [:]
+    var prompt: String? = nil
 }
 
 struct TrackEdge: Identifiable, Codable, Sendable, Hashable {

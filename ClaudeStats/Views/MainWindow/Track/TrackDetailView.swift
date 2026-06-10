@@ -16,15 +16,11 @@ struct TrackDetailView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .task {
-            await store.loadIfNeeded(sessions: env.store.sessions) { session in
-                await env.store.executedCommands(for: session)
-            }
+            await loadTrackIfNeeded()
         }
         .onChange(of: env.store.lastRefreshedAt) { _, _ in
             Task {
-                await store.refresh(sessions: env.store.sessions) { session in
-                    await env.store.executedCommands(for: session)
-                }
+                await refreshTrack()
             }
         }
         .alert("Track", isPresented: errorPresented) {
@@ -58,9 +54,7 @@ struct TrackDetailView: View {
 
             Button {
                 Task {
-                    await store.refresh(sessions: env.store.sessions) { session in
-                        await env.store.executedCommands(for: session)
-                    }
+                    await refreshTrack()
                 }
             } label: {
                 Image(systemName: AppIcon.Action.refresh)
@@ -134,6 +128,22 @@ struct TrackDetailView: View {
         }
         .padding(.horizontal, horizontalInset)
         .padding(.vertical, 10)
+    }
+
+    private func loadTrackIfNeeded() async {
+        await store.loadIfNeeded(sessions: env.store.sessions) { session in
+            await env.store.executedCommands(for: session)
+        } trackEventLoader: { session in
+            await env.store.trackEvents(for: session)
+        }
+    }
+
+    private func refreshTrack() async {
+        await store.refresh(sessions: env.store.sessions) { session in
+            await env.store.executedCommands(for: session)
+        } trackEventLoader: { session in
+            await env.store.trackEvents(for: session)
+        }
     }
 
     private func filterLabel(title: String, symbol: String) -> some View {
