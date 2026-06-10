@@ -151,16 +151,7 @@ struct TrackDetailView: View {
 
     @ViewBuilder
     private var content: some View {
-        switch section {
-        case .flow:
-            TrackFlowWorkspace(store: store)
-        case .approvals:
-            TrackApprovalListView(items: store.visibleApprovals)
-        case .tools:
-            TrackToolListView(items: store.visibleTools)
-        case .events:
-            TrackEventListView(events: store.visibleEvents)
-        }
+        TrackFlowWorkspace(store: store)
     }
 
     private var errorPresented: Binding<Bool> {

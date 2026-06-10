@@ -13,8 +13,16 @@ struct TrackingSettingsView: View {
 
         VStack(alignment: .leading, spacing: 28) {
             aiActivityGroup(prefs: prefs)
+            #if !CLAUDE_STATS_LITE
+            trackIntegrationGroup
+            #endif
             gitTrackingGroup(prefs: prefs)
         }
+        #if !CLAUDE_STATS_LITE
+        .task {
+            await env.track.refreshHookInstallationStatus()
+        }
+        #endif
     }
 
     // MARK: - AI activity
@@ -192,6 +200,69 @@ struct TrackingSettingsView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
     }
+
+    // MARK: - Track
+
+    #if !CLAUDE_STATS_LITE
+    private var trackIntegrationGroup: some View {
+        SettingGroup(
+            title: "Track",
+            caption: "Captures Codex subagents, tool use, and approval gates through Codex hooks, then enriches the graph with transcript metadata."
+        ) {
+            VStack(spacing: 0) {
+                let status = env.track.hookInstallationStatus
+                SettingRow(
+                    title: "Codex hook writer",
+                    description: status?.statusDetail ?? "Install the Track hook helper to capture structured Codex runtime events."
+                ) {
+                    HStack(spacing: 8) {
+                        Text(status?.statusTitle ?? "Unknown")
+                            .font(.sora(12, weight: .semibold))
+                            .foregroundStyle(status?.isInstalled == true ? Color.stxMuted : Color.stxAccent)
+                        Button(env.track.isInstallingHookIntegration ? "Installing…" : "Install / Repair") {
+                            Task {
+                                await env.track.installCodexHookIntegration()
+                                await env.refreshTrack()
+                            }
+                        }
+                        .disabled(env.track.isInstallingHookIntegration)
+                    }
+                }
+
+                SettingRowDivider()
+
+                SettingRow(
+                    title: "Event log",
+                    description: status?.eventLogURL.path.memoryAbbreviatingHomeDirectory ?? "Claude Stats Track event log path."
+                ) {
+                    Text(status?.eventLogExists == true ? "Receiving events" : "No events yet")
+                        .font(.sora(12, weight: .semibold))
+                        .foregroundStyle(Color.stxMuted)
+                }
+
+                SettingRowDivider()
+
+                SettingRow(
+                    title: "Registered hooks",
+                    description: registeredHookDescription(status)
+                ) {
+                    Text("\(status?.configuredEvents.count ?? 0)/\(CodexTrackHookInstaller.requiredEvents.count)")
+                        .font(.sora(12, weight: .semibold))
+                        .foregroundStyle(Color.stxMuted)
+                }
+            }
+            .settingCard()
+        }
+    }
+
+    private func registeredHookDescription(_ status: CodexTrackHookInstallationStatus?) -> String {
+        guard let status else { return "Codex hook registration has not been checked yet." }
+        guard !status.missingEvents.isEmpty else {
+            return "Session, turn, subagent, tool, approval, and stop hooks are registered."
+        }
+        return "Missing: \(status.missingEvents.sorted().joined(separator: ", "))"
+    }
+    #endif
 
     // MARK: - Git tracking
 

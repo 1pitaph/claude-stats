@@ -169,6 +169,51 @@ struct CodexTranscriptParser: Sendable {
         return events
     }
 
+    func trackEvents(transcriptAt url: URL, session: Session) async -> [TrackEvent] {
+        guard let data = try? Data(contentsOf: url) else { return [] }
+
+        return await Task.detached(priority: .utility) {
+            var state = CodexTranscriptTrackState(session: session)
+            let decoder = JSONDecoder()
+
+            for (index, lineBytes) in data.split(separator: 0x0A /* \n */, omittingEmptySubsequences: true).enumerated() {
+                let lineData = Data(lineBytes)
+                let line = try? decoder.decode(CodexLine.self, from: lineData)
+                let timestamp = line.flatMap { ISO8601.parse($0.timestamp) }
+                state.track(timestamp)
+
+                guard let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] else { continue }
+                let lineType = json.stringValue(for: "type")
+                let payload = json.objectValue(for: "payload") ?? [:]
+                let eventType = payload.stringValue(for: "type", "eventName", "event_name") ?? lineType ?? "StatusChanged"
+
+                if lineType == "session_meta" {
+                    state.applySessionMeta(payload)
+                    continue
+                }
+
+                if lineType == "turn_context" {
+                    state.currentTurnID = payload.stringValue(for: "turn_id", "turnID") ?? state.currentTurnID
+                    state.currentAgentID = payload.stringValue(for: "agent_id", "agentID") ?? state.currentAgentID
+                    state.currentAgentType = payload.stringValue(for: "agent_type", "agentType") ?? state.currentAgentType
+                    continue
+                }
+
+                if let event = state.trackEvent(
+                    lineIndex: index,
+                    timestamp: timestamp,
+                    eventType: eventType,
+                    payload: payload,
+                    rawLine: json
+                ) {
+                    state.events.append(event)
+                }
+            }
+
+            return state.finalizedEvents()
+        }.value
+    }
+
     private func track(_ date: Date?, _ first: inout Date?, _ last: inout Date?) {
         guard let date else { return }
         if first == nil || date < first! { first = date }
@@ -260,6 +305,332 @@ struct CodexTranscriptParser: Sendable {
         "subtype",
         "category",
     ]
+}
+
+private struct CodexTranscriptTrackState {
+    let session: Session
+    var events: [TrackEvent] = []
+    var currentTurnID: String?
+    var currentAgentID: String?
+    var currentAgentType: String?
+    var firstActivity: Date?
+    var lastActivity: Date?
+    var sessionID: String
+    var parentSessionID: String?
+    var agentID: String?
+    var agentType: String?
+    var cwd: String?
+    var isSubagent = false
+
+    init(session: Session) {
+        self.session = session
+        self.sessionID = Self.normalizedSessionID(session.externalID.isEmpty ? session.id : session.externalID)
+        self.cwd = session.cwd
+    }
+
+    mutating func track(_ date: Date?) {
+        guard let date else { return }
+        if firstActivity == nil || date < firstActivity! { firstActivity = date }
+        if lastActivity == nil || date > lastActivity! { lastActivity = date }
+    }
+
+    mutating func applySessionMeta(_ payload: [String: Any]) {
+        sessionID = Self.normalizedSessionID(payload.stringValue(for: "id", "session_id", "sessionID") ?? sessionID)
+        cwd = payload.stringValue(for: "cwd") ?? cwd
+        parentSessionID = Self.normalizedOptionalSessionID(payload.stringValue(
+            for: "parent_session_id",
+            "parentSessionID",
+            "parentSessionId",
+            "parent_thread_id",
+            "parentThreadID",
+            "parentThreadId"
+        )) ?? parentSessionID
+        agentID = payload.stringValue(for: "agent_id", "agentID") ?? agentID
+        agentType = payload.stringValue(for: "agent_type", "agentType")
+            ?? Self.role(from: payload)
+            ?? agentType
+        if parentSessionID != nil || Self.role(from: payload) == "subagent" {
+            isSubagent = true
+            if agentType == nil { agentType = "subagent" }
+        }
+    }
+
+    mutating func trackEvent(
+        lineIndex: Int,
+        timestamp: Date?,
+        eventType: String,
+        payload: [String: Any],
+        rawLine: [String: Any]
+    ) -> TrackEvent? {
+        let normalizedType = eventType.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = normalizedType.lowercased()
+        let kind: TrackEventKind
+        if Self.approvalRequestedTypes.contains(lower) || indicatesWaitingApproval(payload) {
+            kind = .approvalRequested
+        } else if Self.approvalResolvedTypes.contains(lower) {
+            kind = Self.isDenied(payload) ? .approvalDenied : .approvalAllowed
+        } else if Self.toolRequestedTypes.contains(lower) || hasToolCallShape(payload, rawLine: rawLine) {
+            kind = .toolRequested
+        } else if Self.toolCompletedTypes.contains(lower) {
+            kind = Self.isFailure(payload) ? .toolFailed : .toolSucceeded
+        } else {
+            return nil
+        }
+
+        let toolName = payload.stringValue(for: "tool_name", "toolName", "name", "tool", "type")
+            ?? rawLine.stringValue(for: "tool_name", "toolName", "name", "type")
+        let toolUseID = payload.stringValue(for: "tool_use_id", "toolUseID", "toolUseId", "id", "call_id")
+            ?? rawLine.stringValue(for: "tool_use_id", "toolUseID", "toolUseId", "id", "call_id")
+        let approvalID = payload.stringValue(for: "approval_id", "approvalID", "request_id", "requestID")
+            ?? rawLine.stringValue(for: "approval_id", "approvalID", "request_id", "requestID")
+        let detailValue = payload.trackJSONValue(for: "tool_input", "toolInput", "input", "arguments")
+        let detail = detailValue?.compactDescription
+        let effectiveAgentID = payload.stringValue(for: "agent_id", "agentID")
+            ?? currentAgentID
+            ?? agentID
+        let effectiveAgentType = payload.stringValue(for: "agent_type", "agentType")
+            ?? currentAgentType
+            ?? agentType
+
+        return TrackEvent(
+            id: "transcript::\(session.id)::\(lineIndex)::\(normalizedType)",
+            timestamp: timestamp ?? lastActivity ?? session.lastModified,
+            source: .transcript,
+            kind: kind,
+            provider: .codex,
+            sessionID: sessionID,
+            parentSessionID: parentSessionID,
+            turnID: payload.stringValue(for: "turn_id", "turnID") ?? currentTurnID,
+            agentID: effectiveAgentID,
+            agentType: effectiveAgentType,
+            toolUseID: toolUseID,
+            approvalID: approvalID,
+            toolName: toolName,
+            permissionMode: payload.stringValue(for: "permission_mode", "permissionMode"),
+            cwd: payload.stringValue(for: "cwd") ?? cwd,
+            transcriptPath: session.filePath,
+            summary: summary(kind: kind, toolName: toolName, agentType: effectiveAgentType),
+            detail: detail,
+            confidence: .medium
+        )
+    }
+
+    func finalizedEvents() -> [TrackEvent] {
+        guard isSubagent else { return events }
+        let effectiveAgentID = agentID ?? sessionID
+        let effectiveAgentType = agentType ?? "subagent"
+        let startedAt = firstActivity ?? session.stats?.firstActivity ?? session.lastModified
+        let endedAt = lastActivity ?? session.stats?.lastActivity ?? session.lastModified
+        let start = TrackEvent(
+            id: "transcript::\(session.id)::subagent-start",
+            timestamp: startedAt,
+            source: .transcript,
+            kind: .subagentStarted,
+            provider: .codex,
+            sessionID: sessionID,
+            parentSessionID: parentSessionID,
+            turnID: currentTurnID,
+            agentID: effectiveAgentID,
+            agentType: effectiveAgentType,
+            toolUseID: nil,
+            approvalID: nil,
+            toolName: nil,
+            permissionMode: nil,
+            cwd: cwd,
+            transcriptPath: session.filePath,
+            summary: "Started \(effectiveAgentType)",
+            detail: session.stats?.title,
+            confidence: .medium
+        )
+        let stop = TrackEvent(
+            id: "transcript::\(session.id)::subagent-stop",
+            timestamp: max(startedAt, endedAt),
+            source: .transcript,
+            kind: .subagentStopped,
+            provider: .codex,
+            sessionID: sessionID,
+            parentSessionID: parentSessionID,
+            turnID: currentTurnID,
+            agentID: effectiveAgentID,
+            agentType: effectiveAgentType,
+            toolUseID: nil,
+            approvalID: nil,
+            toolName: nil,
+            permissionMode: nil,
+            cwd: cwd,
+            transcriptPath: session.filePath,
+            summary: "Stopped \(effectiveAgentType)",
+            detail: session.stats?.title,
+            confidence: .medium
+        )
+        return ([start] + events + [stop]).sorted { lhs, rhs in
+            if lhs.timestamp != rhs.timestamp { return lhs.timestamp < rhs.timestamp }
+            return lhs.id < rhs.id
+        }
+    }
+
+    private func hasToolCallShape(_ payload: [String: Any], rawLine: [String: Any]) -> Bool {
+        payload.stringValue(for: "tool_name", "toolName", "tool", "call_id") != nil
+            || rawLine.stringValue(for: "tool_name", "toolName", "tool", "call_id") != nil
+    }
+
+    private func indicatesWaitingApproval(_ payload: [String: Any]) -> Bool {
+        let values = payload.stringArrayValue(for: "activeFlags", "active_flags")
+            + [payload.stringValue(for: "status", "phase")].compactMap { $0 }
+        return values.contains { value in
+            let normalized = value.lowercased()
+            return normalized.contains("waitingonapproval")
+                || normalized.contains("waiting_on_approval")
+                || normalized.contains("waiting approval")
+        }
+    }
+
+    private func summary(kind: TrackEventKind, toolName: String?, agentType: String?) -> String {
+        switch kind {
+        case .toolRequested:
+            "Requested \(toolName ?? "tool")"
+        case .toolSucceeded:
+            "\(toolName ?? "Tool") succeeded"
+        case .toolFailed:
+            "\(toolName ?? "Tool") failed"
+        case .approvalRequested:
+            "Approval requested for \(toolName ?? "tool")"
+        case .approvalAllowed:
+            "Approval allowed"
+        case .approvalDenied:
+            "Approval denied"
+        case .subagentStarted:
+            "Started \(agentType ?? "subagent")"
+        case .subagentStopped:
+            "Stopped \(agentType ?? "subagent")"
+        default:
+            kind.title
+        }
+    }
+
+    private static let toolRequestedTypes: Set<String> = [
+        "tool_call",
+        "tool.started",
+        "tool.requested",
+        "exec_command",
+        "function_call",
+        "item/started",
+    ]
+
+    private static let toolCompletedTypes: Set<String> = [
+        "tool_result",
+        "tool.succeeded",
+        "tool.failed",
+        "item/completed",
+    ]
+
+    private static let approvalRequestedTypes: Set<String> = [
+        "permission.asked",
+        "approval.requested",
+        "permissionrequest",
+        "serverrequest/requested",
+    ]
+
+    private static let approvalResolvedTypes: Set<String> = [
+        "permission.replied",
+        "approval.allowed",
+        "approval.denied",
+        "serverrequest/resolved",
+    ]
+
+    private static func isFailure(_ payload: [String: Any]) -> Bool {
+        [payload.stringValue(for: "status"), payload.stringValue(for: "result"), payload.stringValue(for: "error")]
+            .compactMap { $0?.lowercased() }
+            .contains { $0.contains("fail") || $0.contains("error") || $0.contains("denied") }
+    }
+
+    private static func isDenied(_ payload: [String: Any]) -> Bool {
+        [payload.stringValue(for: "decision"), payload.stringValue(for: "behavior"), payload.stringValue(for: "status")]
+            .compactMap { $0?.lowercased() }
+            .contains { $0.contains("deny") || $0.contains("denied") || $0.contains("reject") }
+    }
+
+    private static func role(from payload: [String: Any]) -> String? {
+        if let role = normalizeRole(payload.stringValue(for: "codex_session_role", "agent_role", "agent_type", "agentType")) {
+            return role
+        }
+        if let source = payload["source"] as? [String: Any] {
+            if let subagent = source["subagent"] as? Bool {
+                return subagent ? "subagent" : "root"
+            }
+            return normalizeRole(source.stringValue(for: "role", "type", "kind"))
+        }
+        return normalizeRole(payload.stringValue(for: "source"))
+    }
+
+    private static func normalizeRole(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return nil }
+        if ["subagent", "child", "delegate", "delegated", "explorer", "worker"].contains(normalized) {
+            return "subagent"
+        }
+        if ["root", "main", "primary", "cli", "codex-cli", "codex-tui"].contains(normalized) {
+            return "root"
+        }
+        return nil
+    }
+
+    private static func normalizedOptionalSessionID(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let normalized = normalizedSessionID(value)
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    private static func normalizedSessionID(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("codex:") {
+            return String(trimmed.dropFirst("codex:".count))
+        }
+        return trimmed
+    }
+}
+
+private extension Dictionary where Key == String, Value == Any {
+    func stringValue(for keys: String...) -> String? {
+        for key in keys {
+            guard let value = self[key] else { continue }
+            if let string = value as? String {
+                let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { return trimmed }
+            } else if let number = value as? NSNumber {
+                return number.stringValue
+            }
+        }
+        return nil
+    }
+
+    func objectValue(for keys: String...) -> [String: Any]? {
+        for key in keys {
+            if let object = self[key] as? [String: Any] { return object }
+        }
+        return nil
+    }
+
+    func stringArrayValue(for keys: String...) -> [String] {
+        for key in keys {
+            if let values = self[key] as? [String] {
+                return values
+            }
+            if let values = self[key] as? [Any] {
+                return values.compactMap { $0 as? String }
+            }
+        }
+        return []
+    }
+
+    func trackJSONValue(for keys: String...) -> TrackJSONValue? {
+        for key in keys {
+            guard let value = self[key] else { continue }
+            return TrackJSONValue(any: value)
+        }
+        return nil
+    }
 }
 
 // MARK: - JSONL line shapes (only the fields we read)

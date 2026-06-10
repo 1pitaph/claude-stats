@@ -270,6 +270,9 @@ final class AppEnvironment {
         await track.refresh(sessions: store.sessions) { [weak self] session in
             guard let self else { return [] }
             return await self.store.executedCommands(for: session)
+        } trackEventLoader: { [weak self] session in
+            guard let self else { return [] }
+            return await self.store.trackEvents(for: session)
         }
     }
     #endif

@@ -65,6 +65,105 @@ struct TrackSnapshotBuilderTests {
         #expect(run.nodes.contains { $0.kind == .approval && $0.status == .approved })
     }
 
+    @Test("Reader accepts app-server status and alternate subagent event names")
+    func readerAcceptsAppServerAndAlternateSubagentNames() async throws {
+        let root = try TempDir.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("track-events.jsonl")
+        let lines = [
+            #"{"timestamp":"2026-06-09T09:00:00Z","source":"app-server","thread_id":"codex-session-1","type":"thread/status/changed","activeFlags":["waitingOnApproval"],"tool_use_id":"tool-1","tool_name":"exec_command"}"#,
+            #"{"timestamp":"2026-06-09T09:00:01Z","session_id":"codex-session-1","eventName":"SubagentStarted","sourceKind":"explorer","agent_id":"agent-1"}"#,
+        ]
+        try TempDir.write(lines.joined(separator: "\n") + "\n", to: url)
+
+        let events = await TrackEventLogReader(eventLogURLs: [url]).loadEvents()
+
+        #expect(events.count == 2)
+        #expect(events[0].source == .appServer)
+        #expect(events[0].kind == .approvalRequested)
+        #expect(events[0].sessionID == "codex-session-1")
+        #expect(events[1].kind == .subagentStarted)
+        #expect(events[1].agentType == "explorer")
+    }
+
+    @Test("Tool events with agent ids synthesize subagent nodes")
+    func toolEventsWithAgentIDsSynthesizeSubagents() async throws {
+        let events = [
+            Self.event(kind: .turnStarted, id: "turn", turnID: "turn-1"),
+            Self.event(kind: .toolRequested, id: "tool", agentID: "worker-1", agentType: "worker", toolUseID: "tool-1", toolName: "exec_command"),
+        ]
+
+        let snapshot = TrackSnapshotBuilder().build(
+            sessions: [Self.session()],
+            commandEventsBySessionID: [:],
+            hookEvents: events,
+            now: Self.date("2026-06-09T09:05:00Z")
+        )
+
+        let run = try #require(snapshot.runs.first)
+        let subagent = try #require(run.nodes.first { $0.kind == .subagent })
+        #expect(subagent.title == "worker")
+        #expect(run.edges.contains { $0.from.contains("agent::worker-1") && $0.to.contains("tool::tool-1") })
+    }
+
+    @Test("Post tool use resolves waiting approval when no explicit permission reply exists")
+    func postToolUseResolvesApproval() async throws {
+        let events = [
+            Self.event(kind: .turnStarted, id: "turn", turnID: "turn-1"),
+            Self.event(kind: .approvalRequested, id: "approval", toolUseID: "tool-1", approvalID: "approval-1", toolName: "exec_command"),
+            Self.event(kind: .toolSucceeded, id: "tool-done", toolUseID: "tool-1", toolName: "exec_command"),
+        ]
+
+        let snapshot = TrackSnapshotBuilder().build(
+            sessions: [Self.session()],
+            commandEventsBySessionID: [:],
+            hookEvents: events,
+            now: Self.date("2026-06-09T09:05:00Z")
+        )
+
+        let approval = try #require(snapshot.approvals.first)
+        #expect(approval.status == .approved)
+        #expect(approval.resolvedAt != nil)
+    }
+
+    @Test("Parent session id groups child transcript events into parent run")
+    func parentSessionIDGroupsChildEvents() async throws {
+        let parent = Self.session()
+        let child = Session(
+            id: "encoded-project::child-session",
+            externalID: "child-session",
+            provider: .codex,
+            projectDirectoryName: "-Users-dev-projects-claude-stats",
+            filePath: "/tmp/child-session.jsonl",
+            cwd: "/Users/dev/projects/claude-stats",
+            lastModified: Self.date("2026-06-09T09:00:08Z"),
+            fileSize: 1_024,
+            stats: SessionStats(
+                title: "Research",
+                messageCount: 1,
+                firstActivity: Self.date("2026-06-09T09:00:02Z"),
+                lastActivity: Self.date("2026-06-09T09:00:05Z"),
+                models: [],
+                timeline: []
+            )
+        )
+        let events = [
+            Self.event(kind: .subagentStarted, id: "child-start", sessionID: "child-session", parentSessionID: "codex-session-1", agentID: "child-session", agentType: "explorer"),
+            Self.event(kind: .subagentStopped, id: "child-stop", sessionID: "child-session", parentSessionID: "codex-session-1", agentID: "child-session", agentType: "explorer"),
+        ]
+
+        let snapshot = TrackSnapshotBuilder().build(
+            sessions: [parent, child],
+            commandEventsBySessionID: [:],
+            hookEvents: events,
+            now: Self.date("2026-06-09T09:05:00Z")
+        )
+
+        #expect(snapshot.runs.count == 1)
+        let parentRun = try #require(snapshot.runs.first { $0.id == parent.id })
+        #expect(parentRun.nodes.contains { $0.kind == .subagent && $0.title == "explorer" })
+    }
+
     private static let pendingApprovalLines = [
         #"{"received_at":"2026-06-09T09:00:00Z","session_id":"codex-session-1","hook_event_name":"SessionStart","cwd":"/Users/dev/projects/claude-stats"}"#,
         #"{"received_at":"2026-06-09T09:00:01Z","session_id":"codex-session-1","turn_id":"turn-1","hook_event_name":"UserPromptSubmit","permission_mode":"default","summary":"Implement Track module"}"#,
@@ -98,6 +197,41 @@ struct TrackSnapshotBuilderTests {
                 models: [],
                 timeline: []
             )
+        )
+    }
+
+    private static func event(
+        kind: TrackEventKind,
+        id: String,
+        sessionID: String = "codex-session-1",
+        parentSessionID: String? = nil,
+        turnID: String? = nil,
+        agentID: String? = nil,
+        agentType: String? = nil,
+        toolUseID: String? = nil,
+        approvalID: String? = nil,
+        toolName: String? = nil
+    ) -> TrackEvent {
+        TrackEvent(
+            id: id,
+            timestamp: Self.date("2026-06-09T09:00:00Z"),
+            source: .hook,
+            kind: kind,
+            provider: .codex,
+            sessionID: sessionID,
+            parentSessionID: parentSessionID,
+            turnID: turnID,
+            agentID: agentID,
+            agentType: agentType,
+            toolUseID: toolUseID,
+            approvalID: approvalID,
+            toolName: toolName,
+            permissionMode: nil,
+            cwd: "/Users/dev/projects/claude-stats",
+            transcriptPath: nil,
+            summary: kind.title,
+            detail: nil,
+            confidence: .high
         )
     }
 

@@ -25,26 +25,16 @@ struct TrackSidebarColumn: View {
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
 
-            sectionHeader("TRACK")
-
-            ForEach(TrackSection.allCases) { item in
-                SidebarRow(
-                    title: item.title,
-                    symbol: item.symbol,
-                    isSelected: section == item
-                ) {
-                    section = item
-                }
-            }
-
             sectionHeader("RUNS")
 
             AppScrollView {
+                let filteredRuns = store.filteredRuns
+                let selectedRunID = store.selectedRunID ?? filteredRuns.first?.id ?? store.snapshot.runs.first?.id
                 LazyVStack(alignment: .leading, spacing: 4) {
-                    ForEach(store.filteredRuns) { run in
+                    ForEach(filteredRuns) { run in
                         TrackRunSidebarRow(
                             run: run,
-                            isSelected: store.selectedRun?.id == run.id
+                            isSelected: selectedRunID == run.id
                         ) {
                             store.selectRun(run)
                         }

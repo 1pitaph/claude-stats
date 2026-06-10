@@ -32,7 +32,14 @@ final class SessionStore {
         let events: [SessionCommandEvent]
     }
 
+    private struct TrackEventCacheEntry {
+        let fileSize: Int64
+        let lastModified: Date
+        let events: [TrackEvent]
+    }
+
     private var commandCache: [String: CommandCacheEntry] = [:]
+    private var trackEventCache: [String: TrackEventCacheEntry] = [:]
 
     /// Max transcripts parsed concurrently.
     private static let parseBatchSize = 16
@@ -99,6 +106,24 @@ final class SessionStore {
         guard let provider = registry.provider(for: session.provider) else { return [] }
         let events = await provider.executedCommands(for: session)
         commandCache[cacheKey] = CommandCacheEntry(
+            fileSize: session.fileSize,
+            lastModified: session.lastModified,
+            events: events
+        )
+        return events
+    }
+
+    func trackEvents(for session: Session) async -> [TrackEvent] {
+        let cacheKey = commandCacheKey(for: session)
+        if let cached = trackEventCache[cacheKey],
+           cached.fileSize == session.fileSize,
+           cached.lastModified == session.lastModified {
+            return cached.events
+        }
+
+        guard let provider = registry.provider(for: session.provider) else { return [] }
+        let events = await provider.trackEvents(for: session)
+        trackEventCache[cacheKey] = TrackEventCacheEntry(
             fileSize: session.fileSize,
             lastModified: session.lastModified,
             events: events
@@ -184,6 +209,7 @@ final class SessionStore {
         let liveCommandKeys = Set(discovered.map { commandCacheKey(for: $0) })
         cache = cache.filter { liveIDs.contains($0.key) }
         commandCache = commandCache.filter { liveCommandKeys.contains($0.key) }
+        trackEventCache = trackEventCache.filter { liveCommandKeys.contains($0.key) }
 
         var withStats = discovered
         for i in withStats.indices { withStats[i].stats = cache[withStats[i].id]?.stats }

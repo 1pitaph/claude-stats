@@ -6,13 +6,16 @@ import Observation
 final class TrackStore {
     private let eventReader: any TrackEventLogReading
     private let builder: TrackSnapshotBuilder
+    private let hookInstaller: CodexTrackHookInstaller
 
     var snapshot: TrackSnapshot = .empty {
         didSet { keepSelectionValid() }
     }
+    var hookInstallationStatus: CodexTrackHookInstallationStatus?
     var selectedRunID: TrackRun.ID?
     var selectedNodeID: TrackNode.ID?
     var isLoading = false
+    var isInstallingHookIntegration = false
     var lastError: String?
     var searchText = ""
     var statusFilter: TrackStatus?
@@ -23,10 +26,13 @@ final class TrackStore {
 
     init(
         eventReader: any TrackEventLogReading = TrackEventLogReader(),
-        builder: TrackSnapshotBuilder = TrackSnapshotBuilder()
+        builder: TrackSnapshotBuilder = TrackSnapshotBuilder(),
+        hookInstaller: CodexTrackHookInstaller = CodexTrackHookInstaller()
     ) {
         self.eventReader = eventReader
         self.builder = builder
+        self.hookInstaller = hookInstaller
+        self.hookInstallationStatus = hookInstaller.status()
     }
 
     var filteredRuns: [TrackRun] {
@@ -51,11 +57,15 @@ final class TrackStore {
 
     var selectedNode: TrackNode? {
         guard let selectedRun else { return nil }
+        return selectedNode(in: selectedRun)
+    }
+
+    func selectedNode(in run: TrackRun) -> TrackNode? {
         if let selectedNodeID,
-           let match = selectedRun.nodes.first(where: { $0.id == selectedNodeID }) {
+           let match = run.nodes.first(where: { $0.id == selectedNodeID }) {
             return match
         }
-        return selectedRun.nodes.first
+        return run.nodes.first
     }
 
     var visibleApprovals: [TrackApprovalItem] {
@@ -104,7 +114,8 @@ final class TrackStore {
 
     func refresh(
         sessions: [Session],
-        commandLoader: (Session) async -> [SessionCommandEvent]
+        commandLoader: (Session) async -> [SessionCommandEvent],
+        trackEventLoader: (Session) async -> [TrackEvent] = { _ in [] }
     ) async {
         if isLoading {
             queuedRefresh = true
@@ -114,23 +125,64 @@ final class TrackStore {
         isLoading = true
         repeat {
             queuedRefresh = false
+            let sortedSessions = sessions.sorted { $0.lastModified > $1.lastModified }
+            let commandSessions = Array(sortedSessions.prefix(24))
+            let trackSessions = Array(sortedSessions.prefix(80))
             var commandEventsBySessionID: [Session.ID: [SessionCommandEvent]] = [:]
-            for session in sessions.sorted(by: { $0.lastModified > $1.lastModified }).prefix(24) {
+            var providerTrackEvents: [TrackEvent] = []
+            async let hookEvents = eventReader.loadEvents()
+            for session in commandSessions {
                 commandEventsBySessionID[session.id] = await commandLoader(session)
             }
+            for session in trackSessions {
+                providerTrackEvents.append(contentsOf: await trackEventLoader(session))
+            }
 
-            let hookEvents = await eventReader.loadEvents()
-            let nextSnapshot = builder.build(
-                sessions: Array(sessions.prefix(80)),
-                commandEventsBySessionID: commandEventsBySessionID,
-                hookEvents: hookEvents,
-                eventLogURLs: eventReader.eventLogURLs
-            )
+            let snapshotBuilder = builder
+            let eventLogURLs = eventReader.eventLogURLs
+            let allHookEvents = await hookEvents + providerTrackEvents
+            let nextSnapshot = await Task.detached(priority: .userInitiated) {
+                snapshotBuilder.build(
+                    sessions: trackSessions,
+                    commandEventsBySessionID: commandEventsBySessionID,
+                    hookEvents: allHookEvents,
+                    eventLogURLs: eventLogURLs
+                )
+            }.value
+            let installer = hookInstaller
+            let nextHookInstallationStatus = await Task.detached(priority: .utility) {
+                installer.status()
+            }.value
+
             snapshot = nextSnapshot
+            hookInstallationStatus = nextHookInstallationStatus
             hasLoaded = true
         } while queuedRefresh
 
         isLoading = false
+    }
+
+    func refreshHookInstallationStatus() async {
+        let installer = hookInstaller
+        hookInstallationStatus = await Task.detached(priority: .utility) {
+            installer.status()
+        }.value
+    }
+
+    func installCodexHookIntegration() async {
+        guard !isInstallingHookIntegration else { return }
+        isInstallingHookIntegration = true
+        lastError = nil
+        let installer = hookInstaller
+        do {
+            let status = try await Task.detached(priority: .utility) {
+                try installer.install().status
+            }.value
+            hookInstallationStatus = status
+        } catch {
+            lastError = error.localizedDescription
+        }
+        isInstallingHookIntegration = false
     }
 
     func selectRun(_ run: TrackRun) {

@@ -37,7 +37,7 @@ struct TrackEventLogReader: TrackEventLogReading {
         }.value
     }
 
-    static func defaultEventLogURLs() -> [URL] {
+    static func defaultEventLogURLs(codexHome: URL = CodexPaths.default.homeDirectory) -> [URL] {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? home.appendingPathComponent("Library/Application Support", isDirectory: true)
@@ -50,27 +50,33 @@ struct TrackEventLogReader: TrackEventLogReading {
                 .appendingPathComponent("com.claudestats.ClaudeStats", isDirectory: true)
                 .appendingPathComponent("Track", isDirectory: true)
                 .appendingPathComponent("events.jsonl", isDirectory: false),
-            home
-                .appendingPathComponent(".codex", isDirectory: true)
+            codexHome
                 .appendingPathComponent("track-events.jsonl", isDirectory: false),
         ]
     }
 }
 
 private struct TrackHookRecord: Decodable {
+    let type: String?
     let receivedAt: String?
     let receivedAtSnake: String?
     let timestamp: TrackTimestamp?
     let sessionID: String?
     let sessionIDSnake: String?
+    let threadID: String?
+    let threadIDSnake: String?
     let parentSessionID: String?
     let parentSessionIDSnake: String?
+    let parentThreadID: String?
+    let parentThreadIDSnake: String?
     let turnID: String?
     let turnIDSnake: String?
     let agentID: String?
     let agentIDSnake: String?
     let agentType: String?
     let agentTypeSnake: String?
+    let sourceKind: String?
+    let sourceKindSnake: String?
     let hookEventName: String?
     let hookEventNameSnake: String?
     let eventName: String?
@@ -94,21 +100,31 @@ private struct TrackHookRecord: Decodable {
     let message: String?
     let summary: String?
     let error: TrackJSONValue?
+    let activeFlags: [String]?
+    let activeFlagsSnake: [String]?
+    let payload: TrackJSONValue?
 
     enum CodingKeys: String, CodingKey {
+        case type
         case receivedAt
         case receivedAtSnake = "received_at"
         case timestamp
         case sessionID
         case sessionIDSnake = "session_id"
+        case threadID
+        case threadIDSnake = "thread_id"
         case parentSessionID
         case parentSessionIDSnake = "parent_session_id"
+        case parentThreadID
+        case parentThreadIDSnake = "parent_thread_id"
         case turnID
         case turnIDSnake = "turn_id"
         case agentID
         case agentIDSnake = "agent_id"
         case agentType
         case agentTypeSnake = "agent_type"
+        case sourceKind
+        case sourceKindSnake = "source_kind"
         case hookEventName
         case hookEventNameSnake = "hook_event_name"
         case eventName
@@ -132,16 +148,37 @@ private struct TrackHookRecord: Decodable {
         case message
         case summary
         case error
+        case activeFlags
+        case activeFlagsSnake = "active_flags"
+        case payload
     }
 
     func makeEvent(sourceURL: URL, offset: Int) -> TrackEvent? {
-        guard let sessionID = firstNonEmpty(sessionID, sessionIDSnake) else { return nil }
-        let hookName = firstNonEmpty(hookEventName, hookEventNameSnake, eventName) ?? "StatusChanged"
+        guard let sessionID = normalizedSessionID(firstNonEmpty(
+            sessionID,
+            sessionIDSnake,
+            threadID,
+            threadIDSnake,
+            payload?.stringValue(for: "session_id", "sessionID", "thread_id", "threadID")
+        )) else { return nil }
+        let hookName = firstNonEmpty(
+            hookEventName,
+            hookEventNameSnake,
+            eventName,
+            type,
+            payload?.stringValue(for: "hook_event_name", "hookEventName", "eventName", "type")
+        ) ?? "StatusChanged"
         let timestamp = parsedTimestamp ?? .now
-        let toolUseID = firstNonEmpty(toolUseID, toolUseIDSnake)
-        let approvalID = firstNonEmpty(approvalID, approvalIDSnake)
-        let toolName = firstNonEmpty(toolName, toolNameSnake)
-        let agentType = firstNonEmpty(agentType, agentTypeSnake)
+        let toolUseID = firstNonEmpty(toolUseID, toolUseIDSnake, payload?.stringValue(for: "tool_use_id", "toolUseID", "toolUseId"))
+        let approvalID = firstNonEmpty(approvalID, approvalIDSnake, payload?.stringValue(for: "approval_id", "approvalID", "request_id", "requestID"))
+        let toolName = firstNonEmpty(toolName, toolNameSnake, payload?.stringValue(for: "tool_name", "toolName", "name"))
+        let agentType = firstNonEmpty(
+            agentType,
+            agentTypeSnake,
+            sourceKind,
+            sourceKindSnake,
+            payload?.stringValue(for: "agent_type", "agentType", "source_kind", "sourceKind")
+        )
         let detail = makeDetail()
         let kind = makeKind(hookName: hookName)
         let stableParts = [
@@ -163,16 +200,22 @@ private struct TrackHookRecord: Decodable {
             kind: kind,
             provider: .codex,
             sessionID: sessionID,
-            parentSessionID: firstNonEmpty(parentSessionID, parentSessionIDSnake),
-            turnID: firstNonEmpty(turnID, turnIDSnake),
-            agentID: firstNonEmpty(agentID, agentIDSnake),
+            parentSessionID: normalizedSessionID(firstNonEmpty(
+                parentSessionID,
+                parentSessionIDSnake,
+                parentThreadID,
+                parentThreadIDSnake,
+                payload?.stringValue(for: "parent_session_id", "parentSessionID", "parentSessionId", "parent_thread_id", "parentThreadID", "parentThreadId")
+            )),
+            turnID: firstNonEmpty(turnID, turnIDSnake, payload?.stringValue(for: "turn_id", "turnID")),
+            agentID: firstNonEmpty(agentID, agentIDSnake, payload?.stringValue(for: "agent_id", "agentID")),
             agentType: agentType,
             toolUseID: toolUseID,
             approvalID: approvalID,
             toolName: toolName,
-            permissionMode: firstNonEmpty(permissionMode, permissionModeSnake),
-            cwd: cwd,
-            transcriptPath: firstNonEmpty(transcriptPath, transcriptPathSnake),
+            permissionMode: firstNonEmpty(permissionMode, permissionModeSnake, payload?.stringValue(for: "permission_mode", "permissionMode")),
+            cwd: firstNonEmpty(cwd, payload?.stringValue(for: "cwd")),
+            transcriptPath: firstNonEmpty(transcriptPath, transcriptPathSnake, payload?.stringValue(for: "transcript_path", "transcriptPath")),
             summary: makeSummary(hookName: hookName, kind: kind, toolName: toolName, agentType: agentType),
             detail: detail,
             confidence: makeSource().confidence
@@ -195,18 +238,18 @@ private struct TrackHookRecord: Decodable {
             return .sessionStopped
         case "UserPromptSubmit", "turn.started", "prompt_submit":
             return .turnStarted
-        case "SubagentStart", "subagent.started", "subagent_start":
+        case "SubagentStart", "SubagentStarted", "subagent.started", "subagent.start", "subagent_start", "subagent_started", "task.started", "task.start":
             return .subagentStarted
-        case "SubagentStop", "subagent.stopped", "subagent_stop":
+        case "SubagentStop", "SubagentStopped", "subagent.stopped", "subagent.stop", "subagent_stop", "subagent_stopped", "task.stopped", "task.stop":
             return .subagentStopped
         case "PreToolUse", "tool.requested", "tool.started":
             return .toolRequested
         case "PostToolUse", "tool.succeeded", "tool.failed":
             if isFailure { return .toolFailed }
             return .toolSucceeded
-        case "PermissionRequest", "approval.requested", "permission.asked":
+        case "PermissionRequest", "approval.requested", "permission.asked", "serverRequest/requested", "server_request.requested":
             return .approvalRequested
-        case "permission.replied", "approval.allowed", "approval.denied":
+        case "permission.replied", "approval.allowed", "approval.denied", "serverRequest/resolved", "server_request.resolved":
             if normalizedDecision == "deny" || normalizedDecision == "denied" {
                 return .approvalDenied
             }
@@ -215,6 +258,9 @@ private struct TrackHookRecord: Decodable {
             return .questionAsked
         case "QuestionReplied", "question.replied":
             return .questionReplied
+        case "thread/status/changed", "thread.status.changed":
+            if indicatesWaitingApproval { return .approvalRequested }
+            return .statusChanged
         default:
             if isFailure { return .error }
             return .statusChanged
@@ -235,18 +281,35 @@ private struct TrackHookRecord: Decodable {
         firstNonEmpty(decision, behavior, status)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
+    private var indicatesWaitingApproval: Bool {
+        let values = (activeFlags ?? []) + (activeFlagsSnake ?? []) + [
+            status,
+            decision,
+            behavior,
+            payload?.stringValue(for: "status", "phase"),
+        ].compactMap { $0 }
+        return values.contains { value in
+            let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return normalized.contains("waitingonapproval")
+                || normalized.contains("waiting_on_approval")
+                || normalized.contains("waiting approval")
+                || normalized.contains("approval")
+        }
+    }
+
     private func makeSource() -> TrackEventSource {
-        switch source?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        let rawSource = source ?? payload?.stringValue(for: "source")
+        switch rawSource?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "appserver", "app-server", "app_server":
-            .appServer
+            return .appServer
         case "transcript":
-            .transcript
+            return .transcript
         case "process":
-            .process
+            return .process
         case "notification":
-            .notification
+            return .notification
         default:
-            .hook
+            return .hook
         }
     }
 
@@ -271,7 +334,7 @@ private struct TrackHookRecord: Decodable {
     }
 
     private func makeDetail() -> String? {
-        if let input = toolInputSnake ?? toolInput {
+        if let input = toolInputSnake ?? toolInput ?? payload?.objectValue(for: "tool_input", "toolInput", "input", "arguments") {
             return input.compactDescription
         }
         if let error {
@@ -284,6 +347,14 @@ private struct TrackHookRecord: Decodable {
         values.compactMap { value in
             value?.trimmingCharacters(in: .whitespacesAndNewlines)
         }.first { !$0.isEmpty }
+    }
+
+    private func normalizedSessionID(_ value: String?) -> String? {
+        guard let value = firstNonEmpty(value) else { return nil }
+        if value.hasPrefix("codex:") {
+            return String(value.dropFirst("codex:".count))
+        }
+        return value
     }
 }
 

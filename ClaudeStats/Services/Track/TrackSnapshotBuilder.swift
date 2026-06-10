@@ -19,8 +19,13 @@ struct TrackSnapshotBuilder: Sendable {
         }
 
         let sessionIndex = SessionIndex(sessions: sessions)
+        let parentSessionIDBySessionID = Self.parentSessionIndex(from: allEvents)
         let grouped = Dictionary(grouping: allEvents) { event in
-            sessionIndex.runID(for: event.sessionID) ?? "hook::\(event.sessionID)"
+            if let parentSessionID = parentSessionIDBySessionID[event.sessionID] ?? event.parentSessionID {
+                return sessionIndex.runID(for: parentSessionID)
+                    ?? "hook::\(parentSessionID)"
+            }
+            return sessionIndex.runID(for: event.sessionID) ?? "hook::\(event.sessionID)"
         }
 
         let runs = grouped.map { runID, events in
@@ -125,6 +130,16 @@ struct TrackSnapshotBuilder: Sendable {
     private func commandName(from command: String) -> String {
         command.split(whereSeparator: \.isWhitespace).first.map(String.init) ?? "command"
     }
+
+    private static func parentSessionIndex(from events: [TrackEvent]) -> [String: String] {
+        var index: [String: String] = [:]
+        for event in events {
+            guard let parentSessionID = event.parentSessionID,
+                  parentSessionID != event.sessionID else { continue }
+            index[event.sessionID] = parentSessionID
+        }
+        return index
+    }
 }
 
 private struct SessionIndex {
@@ -133,7 +148,16 @@ private struct SessionIndex {
 
     init(sessions: [Session]) {
         byRunID = Dictionary(uniqueKeysWithValues: sessions.map { ($0.id, $0) })
-        runIDByExternalID = Dictionary(uniqueKeysWithValues: sessions.map { (($0.externalID.isEmpty ? $0.id : $0.externalID), $0.id) })
+        var ids: [String: String] = [:]
+        for session in sessions {
+            for externalID in Self.aliases(for: session.externalID.isEmpty ? session.id : session.externalID) {
+                ids[externalID] = session.id
+            }
+            for id in Self.aliases(for: session.id) {
+                ids[id] = session.id
+            }
+        }
+        runIDByExternalID = ids
     }
 
     func runID(for externalID: String) -> String? {
@@ -142,6 +166,21 @@ private struct SessionIndex {
 
     func session(forRunID runID: String) -> Session? {
         byRunID[runID]
+    }
+
+    private static func aliases(for raw: String) -> Set<String> {
+        var values: Set<String> = [raw]
+        if raw.hasPrefix("codex:") {
+            values.insert(String(raw.dropFirst("codex:".count)))
+        } else {
+            values.insert("codex:\(raw)")
+        }
+        if raw.hasPrefix("codex::") {
+            let stripped = String(raw.dropFirst("codex::".count))
+            values.insert(stripped)
+            values.insert("codex:\(stripped)")
+        }
+        return values
     }
 }
 
@@ -181,6 +220,8 @@ private struct RunReducer {
         let fallbackUpdatedAt: Date
         var nodes: [TrackNode.ID: TrackNode] = [:]
         var edges: [TrackEdge] = []
+        var edgeIDs: Set<String> = []
+        var eventIDsByNodeID: [TrackNode.ID: Set<TrackEvent.ID>] = [:]
         var lastTurnNodeID: TrackNode.ID?
         var activeAgentNodeIDByAgentID: [String: TrackNode.ID] = [:]
         var activeToolNodeIDByToolUseID: [String: TrackNode.ID] = [:]
@@ -197,6 +238,7 @@ private struct RunReducer {
             let id = sessionNodeID
             guard nodes[id] == nil else { return }
             let stats = session?.stats
+            let eventIDs = event.map { [$0.id] } ?? []
             nodes[id] = TrackNode(
                 id: id,
                 kind: .session,
@@ -208,12 +250,13 @@ private struct RunReducer {
                 startedAt: stats?.firstActivity ?? event?.timestamp,
                 endedAt: nil,
                 provider: session?.provider ?? event?.provider,
-                eventIDs: event.map { [$0.id] } ?? [],
+                eventIDs: eventIDs,
                 metadata: [
                     "Session": sessionID,
                     "Provider": (session?.provider ?? event?.provider)?.displayName ?? "Unknown",
                 ]
             )
+            eventIDsByNodeID[id] = Set(eventIDs)
         }
 
         mutating func apply(_ event: TrackEvent) {
@@ -348,6 +391,7 @@ private struct RunReducer {
         }
 
         private mutating func applyTool(_ event: TrackEvent) {
+            ensureSyntheticAgentIfNeeded(for: event)
             let toolID = event.toolUseID ?? event.id
             let id = activeToolNodeIDByToolUseID[toolID] ?? nodeID("tool", toolID)
             let status = eventStatus(for: event)
@@ -383,6 +427,46 @@ private struct RunReducer {
                 source: event.source,
                 confidence: max(existing?.confidence ?? .low, event.confidence)
             )
+            resolveApprovalForCompletedToolIfNeeded(event: event, toolStatus: status)
+        }
+
+        private mutating func ensureSyntheticAgentIfNeeded(for event: TrackEvent) {
+            guard let agentID = event.agentID,
+                  activeAgentNodeIDByAgentID[agentID] == nil else { return }
+            let id = nodeID("agent", agentID)
+            guard nodes[id] == nil else {
+                activeAgentNodeIDByAgentID[agentID] = id
+                return
+            }
+            upsertNode(
+                id: id,
+                kind: .subagent,
+                title: event.agentType ?? "Subagent",
+                subtitle: event.agentID ?? "Inferred worker",
+                status: .running,
+                event: event,
+                parent: lastTurnNodeID ?? sessionNodeID
+            )
+            activeAgentNodeIDByAgentID[agentID] = id
+        }
+
+        private mutating func resolveApprovalForCompletedToolIfNeeded(event: TrackEvent, toolStatus: TrackStatus) {
+            guard toolStatus.isTerminalToolStatus,
+                  let toolUseID = event.toolUseID else { return }
+            guard let nodeID = approvalNodeIDByApprovalID[toolUseID] else { return }
+            let matchingApprovalID = approvalItems.first { _, item in
+                item.status == .waitingApproval && item.nodeID == nodeID
+            }?.key
+            guard let matchingApprovalID else { return }
+
+            let resolvedStatus: TrackStatus = toolStatus == .failed ? .denied : .approved
+            mark(nodeID, status: resolvedStatus, event: event, endedAt: event.timestamp)
+            if var item = approvalItems[matchingApprovalID] {
+                item.status = resolvedStatus
+                item.resolvedAt = event.timestamp
+                item.confidence = max(item.confidence, event.confidence)
+                approvalItems[matchingApprovalID] = item
+            }
         }
 
         private mutating func applyApproval(_ event: TrackEvent) {
@@ -403,6 +487,9 @@ private struct RunReducer {
                 parent: parent
             )
             approvalNodeIDByApprovalID[approvalID] = id
+            if let toolUseID = event.toolUseID {
+                approvalNodeIDByApprovalID[toolUseID] = id
+            }
             mark(id, status: status, event: event, endedAt: status == .waitingApproval ? nil : event.timestamp)
             let itemID = "approval::\(approvalID)"
             let existing = approvalItems[itemID]
@@ -468,7 +555,7 @@ private struct RunReducer {
                 node.confidence = max(node.confidence, event.confidence)
                 node.source = node.confidence >= event.confidence ? node.source : event.source
                 node.startedAt = node.startedAt ?? event.timestamp
-                if !node.eventIDs.contains(event.id) { node.eventIDs.append(event.id) }
+                appendEventIDIfNeeded(event.id, to: &node)
                 node.metadata = mergedMetadata(node.metadata, event: event)
                 nodes[id] = node
             } else {
@@ -486,6 +573,7 @@ private struct RunReducer {
                     eventIDs: [event.id],
                     metadata: mergedMetadata([:], event: event)
                 )
+                eventIDsByNodeID[id] = [event.id]
             }
             if let parent { appendEdge(from: parent, to: id, source: event.source, confidence: event.confidence) }
         }
@@ -495,7 +583,7 @@ private struct RunReducer {
             node.status = status
             node.confidence = max(node.confidence, event.confidence)
             node.endedAt = endedAt ?? node.endedAt
-            if !node.eventIDs.contains(event.id) { node.eventIDs.append(event.id) }
+            appendEventIDIfNeeded(event.id, to: &node)
             nodes[id] = node
         }
 
@@ -508,9 +596,17 @@ private struct RunReducer {
         }
 
         private mutating func appendEventID(_ eventID: TrackEvent.ID, to nodeID: TrackNode.ID) {
-            guard var node = nodes[nodeID], !node.eventIDs.contains(eventID) else { return }
-            node.eventIDs.append(eventID)
+            guard var node = nodes[nodeID] else { return }
+            appendEventIDIfNeeded(eventID, to: &node)
             nodes[nodeID] = node
+        }
+
+        private mutating func appendEventIDIfNeeded(_ eventID: TrackEvent.ID, to node: inout TrackNode) {
+            var eventIDs = eventIDsByNodeID[node.id] ?? Set(node.eventIDs)
+            if eventIDs.insert(eventID).inserted {
+                node.eventIDs.append(eventID)
+            }
+            eventIDsByNodeID[node.id] = eventIDs
         }
 
         private mutating func appendEdge(
@@ -521,7 +617,7 @@ private struct RunReducer {
         ) {
             guard from != to else { return }
             let edge = TrackEdge(from: from, to: to, source: source, confidence: confidence)
-            if !edges.contains(where: { $0.id == edge.id }) {
+            if edgeIDs.insert(edge.id).inserted {
                 edges.append(edge)
             }
         }

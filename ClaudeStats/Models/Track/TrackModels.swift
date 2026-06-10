@@ -2,36 +2,24 @@ import Foundation
 
 enum TrackSection: String, CaseIterable, Identifiable, Sendable, Hashable {
     case flow
-    case approvals
-    case tools
-    case events
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .flow: "Flow"
-        case .approvals: "Approvals"
-        case .tools: "Tool Use"
-        case .events: "Events"
         }
     }
 
     var symbol: String {
         switch self {
         case .flow: AppIcon.Track.flow
-        case .approvals: AppIcon.Track.approvals
-        case .tools: AppIcon.Track.tools
-        case .events: AppIcon.Track.events
         }
     }
 
     var detailTitle: String {
         switch self {
         case .flow: "Agent flow"
-        case .approvals: "Approval queue"
-        case .tools: "Tool activity"
-        case .events: "Event stream"
         }
     }
 
@@ -39,12 +27,6 @@ enum TrackSection: String, CaseIterable, Identifiable, Sendable, Hashable {
         switch self {
         case .flow:
             "Track parent sessions, subagents, tool calls, and approval gates as a connected execution graph."
-        case .approvals:
-            "Review tool calls that are waiting for user permission or recently resolved."
-        case .tools:
-            "Inspect recent tool use, inferred commands, and completion status across active sessions."
-        case .events:
-            "Audit raw Track events from hooks, app-server signals, and transcript fallbacks."
         }
     }
 }
@@ -357,6 +339,22 @@ enum TrackJSONValue: Decodable, Sendable, Hashable {
         }
     }
 
+    init(any value: Any) {
+        if let value = value as? String {
+            self = .string(value)
+        } else if let value = value as? Bool {
+            self = .bool(value)
+        } else if let value = value as? NSNumber {
+            self = .number(value.doubleValue)
+        } else if let value = value as? [String: Any] {
+            self = .object(value.mapValues { TrackJSONValue(any: $0) })
+        } else if let value = value as? [Any] {
+            self = .array(value.map { TrackJSONValue(any: $0) })
+        } else {
+            self = .null
+        }
+    }
+
     var compactDescription: String {
         switch self {
         case .string(let value):
@@ -375,6 +373,39 @@ enum TrackJSONValue: Decodable, Sendable, Hashable {
                 .sorted { $0.key < $1.key }
                 .map { "\($0.key): \($0.value.compactDescription)" }
                 .joined(separator: ", ")
+        }
+    }
+
+    func stringValue(for keys: String...) -> String? {
+        guard case .object(let object) = self else { return nil }
+        for key in keys {
+            guard let value = object[key] else { continue }
+            if let string = value.stringScalar {
+                let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { return trimmed }
+            }
+        }
+        return nil
+    }
+
+    func objectValue(for keys: String...) -> TrackJSONValue? {
+        guard case .object(let object) = self else { return nil }
+        for key in keys {
+            if let value = object[key] { return value }
+        }
+        return nil
+    }
+
+    private var stringScalar: String? {
+        switch self {
+        case .string(let value):
+            value
+        case .number(let value):
+            value.rounded() == value ? "\(Int(value))" : "\(value)"
+        case .bool(let value):
+            value ? "true" : "false"
+        case .null, .object, .array:
+            nil
         }
     }
 }

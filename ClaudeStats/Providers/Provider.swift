@@ -34,6 +34,11 @@ protocol Provider: Sendable {
     /// Mentions in natural-language messages are intentionally ignored.
     func executedCommands(for session: Session) async -> [SessionCommandEvent]
 
+    /// Provider-owned structured events used by Track when hooks/app-server
+    /// data is absent or incomplete. Providers should keep low-confidence
+    /// transcript heuristics behind this boundary.
+    func trackEvents(for session: Session) async -> [TrackEvent]
+
     /// Pretty label for a canonical model id. Used wherever a model surfaces
     /// to the user (Dashboard breakdown, "Favorite model" stat, …). Default
     /// returns the id unchanged — providers override when their ids carry a
@@ -75,6 +80,7 @@ extension Provider {
     var dataDirectoryPath: String? { nil }
     func transcriptMessages(for session: Session) async -> [SessionTranscriptMessage] { [] }
     func executedCommands(for session: Session) async -> [SessionCommandEvent] { [] }
+    func trackEvents(for session: Session) async -> [TrackEvent] { [] }
     func displayName(forModel id: String) -> String { id }
     func cacheHitRate(for usage: TokenUsage) -> Double? { usage.cacheHitRate }
     func globalConfigurationLocations() -> [ProviderConfigLocation] { [] }

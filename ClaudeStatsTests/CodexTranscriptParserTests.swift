@@ -160,6 +160,42 @@ struct CodexTranscriptParserTests {
         #expect(commands.map(\.command) == ["git status", "npm test", "swift test"])
     }
 
+    @Test("Track events infer subagent metadata from Codex transcript session meta")
+    func trackEventsInferSubagentMetadata() async throws {
+        let root = try TempDir.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("rollout.jsonl")
+        let lines = [
+            #"{"timestamp":"2026-01-10T09:00:00.000Z","type":"session_meta","payload":{"id":"child-session","cwd":"/repo","source":{"subagent":true},"parent_session_id":"parent-session","agent_id":"explorer-1","agent_type":"explorer"}}"#,
+            #"{"timestamp":"2026-01-10T09:00:01.000Z","type":"turn_context","payload":{"turn_id":"turn-1"}}"#,
+            #"{"timestamp":"2026-01-10T09:00:02.000Z","type":"event_msg","payload":{"type":"tool_call","tool_name":"exec_command","tool_use_id":"tool-1","arguments":{"cmd":"git status"}}}"#,
+            #"{"timestamp":"2026-01-10T09:00:03.000Z","type":"event_msg","payload":{"type":"permission.asked","tool_name":"exec_command","tool_use_id":"tool-1","request_id":"approval-1"}}"#,
+        ]
+        try TempDir.write(lines.joined(separator: "\n") + "\n", to: url)
+        let session = Session(
+            id: "codex::child-session",
+            externalID: "child-session",
+            provider: .codex,
+            projectDirectoryName: "-repo",
+            filePath: url.path,
+            cwd: "/repo",
+            lastModified: Date(timeIntervalSince1970: 0),
+            fileSize: 1_024,
+            stats: nil
+        )
+
+        let events = await CodexTranscriptParser(pricing: CodexSampleTranscript.pricing)
+            .trackEvents(transcriptAt: url, session: session)
+
+        #expect(events.first?.kind == .subagentStarted)
+        #expect(events.first?.sessionID == "child-session")
+        #expect(events.first?.parentSessionID == "parent-session")
+        #expect(events.first?.agentType == "explorer")
+        #expect(events.contains { $0.kind == .toolRequested && $0.agentID == "explorer-1" })
+        #expect(events.contains { $0.kind == .approvalRequested && $0.approvalID == "approval-1" })
+        #expect(events.last?.kind == .subagentStopped)
+    }
+
     @Test("First/last activity span the transcript; timeline has one bucket per hour")
     func activityWindow() async throws {
         let stats = try await parseSample()
