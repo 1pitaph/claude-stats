@@ -46,6 +46,86 @@ struct LeaderboardScoreBuilderTests {
         #expect(submissions.contains { $0.metric == .activityMinutes } == false)
     }
 
+    @Test("Token scores dedupe Claude cowork turns by billable message hash")
+    func tokenScoresDedupeClaudeBillableMessages() {
+        let now = dateUTC(2026, 5, 15, 13)
+        let window = LeaderboardPeriodCalculator.window(for: .day, now: now)
+        let parentOnly = billable(
+            hash: "msg_parent:req_parent",
+            model: "sonnet",
+            usage: TokenUsage(inputTokens: 500),
+            at: dateUTC(2026, 5, 15, 9)
+        )
+        let sharedCoworkTurn = billable(
+            hash: "msg_cowork:req_cowork",
+            model: "sonnet",
+            usage: TokenUsage(inputTokens: 1_000, cacheReadTokens: 9_000),
+            at: dateUTC(2026, 5, 15, 10)
+        )
+        let sessions = [
+            billableSession("parent", at: dateUTC(2026, 5, 15, 10), messages: [parentOnly, sharedCoworkTurn]),
+            billableSession("cowork", at: dateUTC(2026, 5, 15, 10), messages: [sharedCoworkTurn]),
+        ]
+
+        let submissions = builder.submissions(
+            sessions: sessions,
+            nickname: "Ada",
+            includeActivity: false,
+            window: window,
+            now: now,
+            appVersion: "test"
+        )
+        let withCacheHistory = Dictionary(uniqueKeysWithValues: builder.historyPoints(
+            sessions: sessions,
+            metric: .tokensWithCache,
+            period: .day,
+            includeActivity: false,
+            now: now
+        ).map { ($0.periodKey, $0.score) })
+        let withoutCacheHistory = Dictionary(uniqueKeysWithValues: builder.historyPoints(
+            sessions: sessions,
+            metric: .tokensWithoutCacheRead,
+            period: .day,
+            includeActivity: false,
+            now: now
+        ).map { ($0.periodKey, $0.score) })
+
+        #expect(submissions.first { $0.metric == .tokensWithCache }?.score == 10_500)
+        #expect(submissions.first { $0.metric == .tokensWithoutCacheRead }?.score == 1_500)
+        #expect(withCacheHistory["2026-05-15"] == 10_500)
+        #expect(withoutCacheHistory["2026-05-15"] == 1_500)
+    }
+
+    @Test("Current token scores use timeline buckets for window attribution")
+    func tokenScoresUseTimelineBuckets() {
+        let now = dateUTC(2026, 5, 16, 8)
+        let window = LeaderboardPeriodCalculator.window(for: .day, now: now)
+        let sessions = [
+            session(
+                "cross-day",
+                provider: .claude,
+                at: dateUTC(2026, 5, 16, 23),
+                usage: TokenUsage(inputTokens: 9_999),
+                timeline: [
+                    ModelBucket(model: "model", start: dateUTC(2026, 5, 15, 23), usage: TokenUsage(inputTokens: 100)),
+                    ModelBucket(model: "model", start: dateUTC(2026, 5, 16, 1), usage: TokenUsage(inputTokens: 250, cacheReadTokens: 1_000)),
+                ]
+            )
+        ]
+
+        let submissions = builder.submissions(
+            sessions: sessions,
+            nickname: "Ada",
+            includeActivity: false,
+            window: window,
+            now: now,
+            appVersion: "test"
+        )
+
+        #expect(submissions.first { $0.metric == .tokensWithCache }?.score == 1_250)
+        #expect(submissions.first { $0.metric == .tokensWithoutCacheRead }?.score == 250)
+    }
+
     @Test("Activity score is optional and measured in whole minutes")
     func activityScore() {
         let now = dateUTC(2026, 5, 15, 13)
@@ -211,6 +291,32 @@ struct LeaderboardScoreBuilderTests {
         #expect(favoriteModels.map(\.rank) == [1, 2, 3])
     }
 
+    @Test("Favorite models dedupe Claude cowork turns by billable message hash")
+    func favoriteModelsDedupeClaudeBillableMessages() {
+        let now = dateUTC(2026, 5, 16, 8)
+        let parentOnly = billable(
+            hash: "msg_parent:req_parent",
+            model: "opus",
+            usage: TokenUsage(inputTokens: 700),
+            at: dateUTC(2026, 5, 16, 7)
+        )
+        let sharedCoworkTurn = billable(
+            hash: "msg_cowork:req_cowork",
+            model: "sonnet",
+            usage: TokenUsage(inputTokens: 1_000),
+            at: dateUTC(2026, 5, 16, 8)
+        )
+        let sessions = [
+            billableSession("parent", at: now, messages: [parentOnly, sharedCoworkTurn]),
+            billableSession("cowork", at: now, messages: [sharedCoworkTurn]),
+        ]
+
+        let favoriteModels = builder.favoriteModels(sessions: sessions)
+
+        #expect(favoriteModels.map(\.model) == ["sonnet", "opus"])
+        #expect(favoriteModels.map(\.tokens) == [1_000, 700])
+    }
+
     private func session(_ id: String,
                          provider: ProviderKind,
                          at date: Date,
@@ -231,6 +337,51 @@ struct LeaderboardScoreBuilderTests {
             id: id,
             externalID: id,
             provider: provider,
+            projectDirectoryName: "-project",
+            filePath: "/tmp/\(id).jsonl",
+            cwd: nil,
+            lastModified: date,
+            fileSize: 1,
+            stats: stats
+        )
+    }
+
+    private func billable(hash: String, model: String, usage: TokenUsage, at date: Date) -> BillableMessage {
+        BillableMessage(
+            hash: hash,
+            model: model,
+            usage: usage,
+            cost: CostEstimate(standardAPI: 0),
+            timestamp: date
+        )
+    }
+
+    private func billableSession(_ id: String, at date: Date, messages: [BillableMessage]) -> Session {
+        var byModel: [String: (count: Int, usage: TokenUsage, cost: CostEstimate)] = [:]
+        for message in messages {
+            var acc = byModel[message.model] ?? (0, .zero, .zero)
+            acc.count += 1
+            acc.usage += message.usage
+            acc.cost += message.cost
+            byModel[message.model] = acc
+        }
+        let models = byModel
+            .map { ModelUsage(model: $0.key, messageCount: $0.value.count, usage: $0.value.usage, costEstimate: $0.value.cost) }
+            .sorted { $0.usage.total > $1.usage.total }
+        let timestamps = messages.compactMap(\.timestamp)
+        let stats = SessionStats(
+            title: id,
+            messageCount: messages.count,
+            firstActivity: timestamps.min() ?? date,
+            lastActivity: timestamps.max() ?? date,
+            models: models,
+            timeline: [],
+            billableMessages: messages
+        )
+        return Session(
+            id: id,
+            externalID: id,
+            provider: .claude,
             projectDirectoryName: "-project",
             filePath: "/tmp/\(id).jsonl",
             cwd: nil,

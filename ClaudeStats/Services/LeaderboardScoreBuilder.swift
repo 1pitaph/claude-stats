@@ -103,23 +103,7 @@ struct LeaderboardScoreBuilder: Sendable {
     func favoriteModels(sessions: [Session], limit: Int = 3) -> [LeaderboardFavoriteModel] {
         guard limit > 0 else { return [] }
 
-        var totals: [String: Int64] = [:]
-        for session in sessions {
-            guard let stats = session.stats else { continue }
-            if stats.timeline.isEmpty {
-                for model in stats.models {
-                    let name = model.model.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !name.isEmpty else { continue }
-                    totals[name, default: 0] += Int64(model.usage.total)
-                }
-            } else {
-                for bucket in stats.timeline {
-                    let name = bucket.model.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !name.isEmpty else { continue }
-                    totals[name, default: 0] += Int64(bucket.usage.total)
-                }
-            }
-        }
+        let totals = SessionUsageAggregator.favoriteModelTotals(sessions: sessions)
 
         return totals
             .filter { $0.value > 0 }
@@ -134,12 +118,7 @@ struct LeaderboardScoreBuilder: Sendable {
     }
 
     private func tokenUsage(in sessions: [Session], window: LeaderboardPeriodWindow) -> TokenUsage {
-        sessions.reduce(.zero) { partial, session in
-            guard let stats = session.stats else { return partial }
-            let when = stats.lastActivity ?? session.lastModified
-            guard window.contains(when) else { return partial }
-            return partial + stats.totalUsage
-        }
+        SessionUsageAggregator.aggregate(sessions: sessions, in: interval(for: window)).totalUsage
     }
 
     private func activitySeconds(in sessions: [Session], window: LeaderboardPeriodWindow) -> Int {
@@ -176,29 +155,23 @@ struct LeaderboardScoreBuilder: Sendable {
     }
 
     private func historyTokenUsage(in sessions: [Session], window: LeaderboardPeriodWindow) -> TokenUsage {
-        sessions.reduce(.zero) { partial, session in
-            guard let stats = session.stats else { return partial }
-            if stats.timeline.isEmpty {
-                let when = stats.lastActivity ?? session.lastModified
-                guard window.contains(when) else { return partial }
-                return partial + stats.totalUsage
-            }
-            let usage = stats.timeline.reduce(TokenUsage.zero) { timelinePartial, bucket in
-                window.contains(bucket.start) ? timelinePartial + bucket.usage : timelinePartial
-            }
-            return partial + usage
-        }
+        SessionUsageAggregator.aggregate(sessions: sessions, in: interval(for: window)).totalUsage
     }
 
     private func historyStartDate(sessions: [Session]) -> Date? {
         sessions.compactMap { session -> Date? in
             guard let stats = session.stats else { return nil }
+            let billableStart = stats.billableMessages.compactMap(\.timestamp).min()
             let timelineStart = stats.timeline.map(\.start).min()
             let activityStart = stats.activityIntervals.map(\.start).min()
             let fallbackStart = stats.totalUsage.total > 0 ? (stats.lastActivity ?? session.lastModified) : nil
-            return [timelineStart, activityStart, fallbackStart].compactMap { $0 }.min()
+            return [billableStart, timelineStart, activityStart, fallbackStart].compactMap { $0 }.min()
         }
         .min()
+    }
+
+    private func interval(for window: LeaderboardPeriodWindow) -> DateInterval {
+        DateInterval(start: window.startUTC, end: window.endUTC ?? Date.distantFuture)
     }
 
     private func append(_ metric: LeaderboardMetric,
