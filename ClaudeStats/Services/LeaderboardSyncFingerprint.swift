@@ -22,6 +22,7 @@ enum LeaderboardSyncFingerprint {
         let period: LeaderboardPeriod
         let periodKey: String
         let score: Int64
+        let calculationVersion: Int
 
         static func < (lhs: Score, rhs: Score) -> Bool {
             [
@@ -29,11 +30,13 @@ enum LeaderboardSyncFingerprint {
                 lhs.period.rawValue,
                 lhs.periodKey,
                 "\(lhs.score)",
+                "\(lhs.calculationVersion)",
             ].lexicographicallyPrecedes([
                 rhs.metric.rawValue,
                 rhs.period.rawValue,
                 rhs.periodKey,
                 "\(rhs.score)",
+                "\(rhs.calculationVersion)",
             ])
         }
     }
@@ -43,6 +46,7 @@ enum LeaderboardSyncFingerprint {
         let bucketPeriod: LeaderboardPeriod
         let periodKey: String
         let score: Int64
+        let calculationVersion: Int
 
         static func < (lhs: History, rhs: History) -> Bool {
             [
@@ -50,11 +54,13 @@ enum LeaderboardSyncFingerprint {
                 lhs.bucketPeriod.rawValue,
                 lhs.periodKey,
                 "\(lhs.score)",
+                "\(lhs.calculationVersion)",
             ].lexicographicallyPrecedes([
                 rhs.metric.rawValue,
                 rhs.bucketPeriod.rawValue,
                 rhs.periodKey,
                 "\(rhs.score)",
+                "\(rhs.calculationVersion)",
             ])
         }
     }
@@ -72,10 +78,10 @@ enum LeaderboardSyncFingerprint {
                 recentStatusUpdatedAt: profile.recentStatusUpdatedAt
             ),
             scores: submissions
-                .map { Score(metric: $0.metric, period: $0.period, periodKey: $0.periodKey, score: $0.score) }
+                .map { Score(metric: $0.metric, period: $0.period, periodKey: $0.periodKey, score: $0.score, calculationVersion: $0.calculationVersion) }
                 .sorted(),
             history: historySubmissions
-                .map { History(metric: $0.metric, bucketPeriod: $0.bucketPeriod, periodKey: $0.periodKey, score: $0.score) }
+                .map { History(metric: $0.metric, bucketPeriod: $0.bucketPeriod, periodKey: $0.periodKey, score: $0.score, calculationVersion: $0.calculationVersion) }
                 .sorted()
         )
         let encoder = JSONEncoder()

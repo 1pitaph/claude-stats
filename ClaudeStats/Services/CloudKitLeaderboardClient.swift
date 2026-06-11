@@ -114,6 +114,7 @@ enum CloudKitLeaderboardRecordMapper {
         static let periodStartUTC = "periodStartUTC"
         static let periodEndUTC = "periodEndUTC"
         static let appVersion = "appVersion"
+        static let calculationVersion = "calculationVersion"
         static let updatedAt = "updatedAt"
         static let avatarSeed = "avatarSeed"
         static let avatarVariant = "avatarVariant"
@@ -205,6 +206,7 @@ enum CloudKitLeaderboardRecordMapper {
             record[Field.periodEndUTC] = periodEndUTC as NSDate
         }
         record[Field.appVersion] = submission.appVersion
+        record[Field.calculationVersion] = NSNumber(value: submission.calculationVersion)
         record[Field.updatedAt] = submission.updatedAt as NSDate
         return record
     }
@@ -228,6 +230,7 @@ enum CloudKitLeaderboardRecordMapper {
             record[Field.periodEndUTC] = periodEndUTC as NSDate
         }
         record[Field.appVersion] = submission.appVersion
+        record[Field.calculationVersion] = NSNumber(value: submission.calculationVersion)
         record[Field.updatedAt] = submission.updatedAt as NSDate
         return record
     }
@@ -356,6 +359,10 @@ enum CloudKitLeaderboardRecordMapper {
 
     static func int64Value(_ value: Any?) -> Int64? {
         (value as? NSNumber)?.int64Value
+    }
+
+    static func intValue(_ value: Any?) -> Int? {
+        (value as? NSNumber)?.intValue
     }
 
     static func dateValue(_ value: Any?) -> Date? {
@@ -587,6 +594,7 @@ struct CloudKitLeaderboardClient: LeaderboardCloudServicing {
             for: pairs.map { $0.1 },
             desiredKeys: [
                 CloudKitLeaderboardRecordMapper.Field.score,
+                CloudKitLeaderboardRecordMapper.Field.calculationVersion,
                 CloudKitLeaderboardRecordMapper.Field.updatedAt,
             ]
         )
@@ -595,6 +603,7 @@ struct CloudKitLeaderboardClient: LeaderboardCloudServicing {
             return LeaderboardSubmissionMergePolicy.merge(
                 local: submission,
                 remoteScore: record.flatMap { CloudKitLeaderboardRecordMapper.int64Value($0[CloudKitLeaderboardRecordMapper.Field.score]) },
+                remoteCalculationVersion: record.flatMap { CloudKitLeaderboardRecordMapper.intValue($0[CloudKitLeaderboardRecordMapper.Field.calculationVersion]) },
                 remoteUpdatedAt: record.flatMap { CloudKitLeaderboardRecordMapper.dateValue($0[CloudKitLeaderboardRecordMapper.Field.updatedAt]) }
             )
         }
@@ -617,6 +626,7 @@ struct CloudKitLeaderboardClient: LeaderboardCloudServicing {
             for: pairs.map { $0.1 },
             desiredKeys: [
                 CloudKitLeaderboardRecordMapper.Field.score,
+                CloudKitLeaderboardRecordMapper.Field.calculationVersion,
                 CloudKitLeaderboardRecordMapper.Field.updatedAt,
             ]
         )
@@ -625,6 +635,7 @@ struct CloudKitLeaderboardClient: LeaderboardCloudServicing {
             return LeaderboardSubmissionMergePolicy.merge(
                 local: submission,
                 remoteScore: record.flatMap { CloudKitLeaderboardRecordMapper.int64Value($0[CloudKitLeaderboardRecordMapper.Field.score]) },
+                remoteCalculationVersion: record.flatMap { CloudKitLeaderboardRecordMapper.intValue($0[CloudKitLeaderboardRecordMapper.Field.calculationVersion]) },
                 remoteUpdatedAt: record.flatMap { CloudKitLeaderboardRecordMapper.dateValue($0[CloudKitLeaderboardRecordMapper.Field.updatedAt]) }
             )
         }

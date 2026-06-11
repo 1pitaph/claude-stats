@@ -36,6 +36,7 @@ struct LeaderboardCloudKitMappingTests {
         #expect(record[CloudKitLeaderboardRecordMapper.Field.period] as? String == "week")
         #expect(record[CloudKitLeaderboardRecordMapper.Field.periodKey] as? String == "2026-W20")
         #expect((record[CloudKitLeaderboardRecordMapper.Field.score] as? NSNumber)?.int64Value == 42_000)
+        #expect((record[CloudKitLeaderboardRecordMapper.Field.calculationVersion] as? NSNumber)?.intValue == LeaderboardScoreCalculation.currentVersion)
         #expect(record[CloudKitLeaderboardRecordMapper.Field.providerScope] as? String == "all")
     }
 
@@ -59,6 +60,7 @@ struct LeaderboardCloudKitMappingTests {
         #expect(record[CloudKitLeaderboardRecordMapper.Field.period] as? String == "month")
         #expect(record[CloudKitLeaderboardRecordMapper.Field.periodKey] as? String == "2026-05")
         #expect((record[CloudKitLeaderboardRecordMapper.Field.score] as? NSNumber)?.int64Value == 123_000)
+        #expect((record[CloudKitLeaderboardRecordMapper.Field.calculationVersion] as? NSNumber)?.intValue == LeaderboardScoreCalculation.currentVersion)
         #expect(record[CloudKitLeaderboardRecordMapper.Field.providerScope] as? String == "history")
     }
 

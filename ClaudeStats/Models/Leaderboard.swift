@@ -195,6 +195,11 @@ struct LeaderboardScoreHistoryPoint: Sendable, Hashable, Identifiable, Codable {
     }
 }
 
+enum LeaderboardScoreCalculation {
+    static let legacyVersion = 1
+    static let currentVersion = 2
+}
+
 enum LeaderboardSelectionResolver {
     static func selectedScore(preferredUserHash: String?,
                               currentUserHash: String?,
@@ -220,9 +225,32 @@ struct LeaderboardSubmission: Sendable, Hashable, Codable {
     let periodStartUTC: Date
     let periodEndUTC: Date?
     let appVersion: String
+    let calculationVersion: Int
     let updatedAt: Date
 
     var id: String { "\(metric.rawValue)-\(period.rawValue)-\(periodKey)" }
+
+    init(metric: LeaderboardMetric,
+         period: LeaderboardPeriod,
+         periodKey: String,
+         score: Int64,
+         nickname: String,
+         periodStartUTC: Date,
+         periodEndUTC: Date?,
+         appVersion: String,
+         calculationVersion: Int = LeaderboardScoreCalculation.currentVersion,
+         updatedAt: Date) {
+        self.metric = metric
+        self.period = period
+        self.periodKey = periodKey
+        self.score = score
+        self.nickname = nickname
+        self.periodStartUTC = periodStartUTC
+        self.periodEndUTC = periodEndUTC
+        self.appVersion = appVersion
+        self.calculationVersion = calculationVersion
+        self.updatedAt = updatedAt
+    }
 }
 
 struct LeaderboardHistorySubmission: Sendable, Hashable, Codable {
@@ -233,9 +261,30 @@ struct LeaderboardHistorySubmission: Sendable, Hashable, Codable {
     let periodStartUTC: Date
     let periodEndUTC: Date?
     let appVersion: String
+    let calculationVersion: Int
     let updatedAt: Date
 
     var id: String { "\(metric.rawValue)-\(bucketPeriod.rawValue)-\(periodKey)" }
+
+    init(metric: LeaderboardMetric,
+         bucketPeriod: LeaderboardPeriod,
+         periodKey: String,
+         score: Int64,
+         periodStartUTC: Date,
+         periodEndUTC: Date?,
+         appVersion: String,
+         calculationVersion: Int = LeaderboardScoreCalculation.currentVersion,
+         updatedAt: Date) {
+        self.metric = metric
+        self.bucketPeriod = bucketPeriod
+        self.periodKey = periodKey
+        self.score = score
+        self.periodStartUTC = periodStartUTC
+        self.periodEndUTC = periodEndUTC
+        self.appVersion = appVersion
+        self.calculationVersion = calculationVersion
+        self.updatedAt = updatedAt
+    }
 }
 
 struct LeaderboardProfile: Sendable, Hashable, Identifiable, Codable {
