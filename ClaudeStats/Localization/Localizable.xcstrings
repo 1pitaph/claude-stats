@@ -1980,12 +1980,42 @@
         }
       }
     },
+    "Daily Report" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日报"
+          }
+        }
+      }
+    },
+    "Daily Reports" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日报"
+          }
+        }
+      }
+    },
     "DAILY BREAKDOWN" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "每日明细"
+          }
+        }
+      }
+    },
+    "DAILY REPORT" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日报"
           }
         }
       }
@@ -3246,7 +3276,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "全球排名"
+            "value" : "ranking"
           }
         }
       }
@@ -3682,6 +3712,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "仪表盘"
+          }
+        }
+      }
+    },
+    "main_page.daily_report" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daily Report"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日报"
           }
         }
       }

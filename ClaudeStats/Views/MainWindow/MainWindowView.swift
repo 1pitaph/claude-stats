@@ -14,7 +14,7 @@ enum MainPage: String, CaseIterable, Identifiable, Sendable {
         case .usage: L10n.string("main_page.usage", defaultValue: "Usage")
         case .leaderboards: L10n.string("main_page.leaderboards", defaultValue: "Leaderboards")
         case .activity: L10n.string("main_page.activity", defaultValue: "Activity")
-        case .dailyReport: "Daily Report"
+        case .dailyReport: L10n.string("main_page.daily_report", defaultValue: "Daily Report")
         case .gantt: L10n.string("main_page.gantt", defaultValue: "Gantt")
         case .git: L10n.string("main_page.git", defaultValue: "Git")
         case .system: L10n.string("main_page.system", defaultValue: "System")

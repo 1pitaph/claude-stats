@@ -46,6 +46,9 @@ struct LocalizationTests {
         #expect(L10n.refreshInterval(minutes: 5, locale: zh) == "5 分钟")
         #expect(L10n.contributionCount(2, locale: zh) == "2 次贡献")
         #expect(L10n.format("stats.header.provider_stats", defaultValue: "%@ STATS", locale: zh, "Claude") == "Claude 统计")
+        #expect(L10n.string("Daily Report", defaultValue: "Daily Report", locale: zh) == "日报")
+        #expect(L10n.string("main_page.daily_report", defaultValue: "Daily Report", locale: zh) == "日报")
+        #expect(L10n.string("Global rankings", defaultValue: "Global rankings", locale: zh) == "ranking")
     }
 
     @Test("Typography chooses Sora for English and system font for Chinese")
