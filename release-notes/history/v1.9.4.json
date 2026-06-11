@@ -1,0 +1,10 @@
+{
+  "headline": "新增Claude Fable/Mythos、GPT-5.5 Pro等模型定价",
+  "changes": [
+    "过滤掉占位符模型名称，优化收藏模型统计",
+    "重构OpenCode转录解析，从消息元数据获取模型名",
+    "修复OpenAI兼容格式的token统计逻辑",
+    "新增了LeaderboardScoreCalculation枚举管理计算版本，为排行榜提交数据添加calculationVersion字段，更新CloudKit映射和同步指纹逻辑，修改合并策略以优先使用更新的计算版本。",
+    "为Daily Report相关字符串添加简体中文翻译\"日报\""
+  ]
+}
