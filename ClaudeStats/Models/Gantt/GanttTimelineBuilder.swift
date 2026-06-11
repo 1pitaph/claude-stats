@@ -59,7 +59,11 @@ enum GanttTimelineBuilder {
         }
         let focus = ActivityAnalyzer.union(clippedFocusItems.map(\.interval))
 
-        let rows = projects.values.compactMap { project -> GanttProjectTimeline? in
+        var seenBillableHashes = Set<String>()
+        let rows = projects.values.sorted { lhs, rhs in
+            lhs.id.localizedStandardCompare(rhs.id) == .orderedAscending
+        }
+        .compactMap { project -> GanttProjectTimeline? in
             let active = ActivityAnalyzer.union(project.records.map(\.interval))
             let visible: [DateInterval]
             switch activityMode {
@@ -76,7 +80,8 @@ enum GanttTimelineBuilder {
                 let metrics = aggregateSegmentMetrics(
                     interval: interval,
                     records: project.records,
-                    focus: focus
+                    focus: focus,
+                    seenBillableHashes: &seenBillableHashes
                 )
                 segments.append(GanttTimelineSegment(
                     id: "\(project.id)|\(interval.start.timeIntervalSinceReferenceDate)|\(interval.end.timeIntervalSinceReferenceDate)",
@@ -353,7 +358,8 @@ enum GanttTimelineBuilder {
     private static func aggregateSegmentMetrics(
         interval: DateInterval,
         records: [SourceInterval],
-        focus: [DateInterval]
+        focus: [DateInterval],
+        seenBillableHashes: inout Set<String>
     ) -> SegmentMetrics {
         var providers = Set<ProviderKind>()
         var sessionIDs = Set<String>()
@@ -370,6 +376,31 @@ enum GanttTimelineBuilder {
             providers.insert(record.profile.provider)
             sessionIDs.insert(record.profile.sessionID)
             sessionTitlesByID[record.profile.sessionID] = record.profile.title
+
+            if record.profile.hasTimestampedBillableMessages {
+                for bill in record.profile.billableMessages {
+                    guard let timestamp = bill.timestamp,
+                          timestamp >= interval.start,
+                          timestamp < interval.end else {
+                        continue
+                    }
+                    if let hash = bill.hash {
+                        if seenBillableHashes.contains(hash) { continue }
+                        seenBillableHashes.insert(hash)
+                    }
+
+                    usage += bill.usage
+                    cost += bill.cost.standardAPI
+                    messageCount += 1
+                    var acc = modelsByID[bill.model] ?? (.zero, 0, 0)
+                    acc.usage += bill.usage
+                    acc.cost += bill.cost.standardAPI
+                    acc.messages += 1
+                    modelsByID[bill.model] = acc
+                }
+                continue
+            }
+
             usage += scaled(record.profile.totalUsage, by: fraction)
             cost += record.profile.totalCost * fraction
             messageCount += roundedInt(Double(record.profile.messageCount) * fraction)
@@ -747,6 +778,8 @@ enum GanttTimelineBuilder {
         let totalUsage: TokenUsage
         let totalCost: Double
         let messageCount: Int
+        let billableMessages: [BillableMessage]
+        let hasTimestampedBillableMessages: Bool
 
         init(session: Session, activeIntervals: [DateInterval]) {
             let stats = session.stats
@@ -765,6 +798,9 @@ enum GanttTimelineBuilder {
             totalUsage = stats?.totalUsage ?? .zero
             totalCost = stats?.totalCost ?? 0
             messageCount = stats?.messageCount ?? 0
+            let bills = stats?.billableMessages ?? []
+            billableMessages = bills
+            hasTimestampedBillableMessages = bills.contains { $0.timestamp != nil }
         }
 
         func fraction(for duration: TimeInterval) -> Double {

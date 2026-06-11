@@ -40,7 +40,8 @@ struct GanttTimelineBuilderTests {
         cwd: String?,
         intervals: [DateInterval],
         models: [ModelUsage] = [],
-        messageCount: Int = 1
+        messageCount: Int = 1,
+        billableMessages: [BillableMessage] = []
     ) -> Session {
         let stats = SessionStats(
             title: id,
@@ -49,7 +50,8 @@ struct GanttTimelineBuilderTests {
             lastActivity: intervals.map(\.end).max(),
             models: models,
             timeline: [],
-            activityIntervals: intervals
+            activityIntervals: intervals,
+            billableMessages: billableMessages
         )
         return Session(
             id: "\(projectDirectoryName)::\(id)",
@@ -298,6 +300,109 @@ struct GanttTimelineBuilderTests {
         #expect(focusLane?.id == "com.apple.dt.Xcode")
         #expect(usageLimitLane?.id == "\(ProviderKind.claude.rawValue)|five_hour")
         #expect(abs((usageLimitLane?.intensity ?? 0) - 0.75) < 0.001)
+    }
+
+    @Test("Claude billable hashes dedupe across overlapping parent and subagent records")
+    func claudeBillableHashesDedupeAcrossOverlappingRecords() {
+        let bill = BillableMessage(
+            hash: "assistant-shared:req-1",
+            model: "claude-sonnet-4.5",
+            usage: TokenUsage(inputTokens: 1_000),
+            cost: CostEstimate(standardAPI: 0.80),
+            timestamp: h(1.5)
+        )
+        let rawModel = ModelUsage(
+            model: bill.model,
+            messageCount: 1,
+            usage: bill.usage,
+            costEstimate: bill.cost
+        )
+        let snapshot = GanttTimelineBuilder.build(
+            sessions: [
+                session(
+                    "parent",
+                    projectDirectoryName: "-Users-dev-app",
+                    cwd: "/Users/dev/app",
+                    intervals: [iv(1, 2)],
+                    models: [rawModel],
+                    messageCount: 1,
+                    billableMessages: [bill]
+                ),
+                session(
+                    "subagent",
+                    projectDirectoryName: "-Users-dev-app",
+                    cwd: "/Users/dev/app",
+                    intervals: [iv(1, 2)],
+                    models: [rawModel],
+                    messageCount: 1,
+                    billableMessages: [bill]
+                ),
+            ],
+            period: period(),
+            activityMode: .aiActive
+        )
+
+        let project = snapshot.projects.first
+        let segment = project?.segments.first
+        let modelLane = snapshot.load.groups.first { $0.kind == .model }?.lanes.first
+        let providerLane = snapshot.load.groups.first { $0.kind == .provider }?.lanes.first
+
+        #expect(project?.sessionCount == 2)
+        #expect(project?.messageCount == 1)
+        #expect(project?.totalUsage.total == 1_000)
+        #expect(abs((project?.totalCost ?? 0) - 0.80) < 0.001)
+        #expect(segment?.usage.total == 1_000)
+        #expect(segment?.messageCount == 1)
+        #expect(segment?.models.first?.tokens == 1_000)
+        #expect(snapshot.metrics.tokens == 1_000)
+        #expect(snapshot.metrics.messageCount == 1)
+        #expect(modelLane?.tokens == 1_000)
+        #expect(providerLane?.tokens == 1_000)
+        #expect(snapshot.load.summary.highestTokenWindowTokens == 1_000)
+    }
+
+    @Test("Claude billable timestamps assign usage to the matching Gantt segment")
+    func claudeBillableTimestampsAssignUsageToMatchingSegment() {
+        let first = BillableMessage(
+            hash: "first:req",
+            model: "claude-sonnet-4.5",
+            usage: TokenUsage(inputTokens: 900),
+            cost: CostEstimate(standardAPI: 0.90),
+            timestamp: h(1.5)
+        )
+        let second = BillableMessage(
+            hash: "second:req",
+            model: "claude-sonnet-4.5",
+            usage: TokenUsage(inputTokens: 100),
+            cost: CostEstimate(standardAPI: 0.10),
+            timestamp: h(5.5)
+        )
+        let rawModel = ModelUsage(
+            model: "claude-sonnet-4.5",
+            messageCount: 2,
+            usage: TokenUsage(inputTokens: 1_000),
+            costEstimate: CostEstimate(standardAPI: 1.00)
+        )
+        let snapshot = GanttTimelineBuilder.build(
+            sessions: [
+                session(
+                    "timestamped",
+                    projectDirectoryName: "-Users-dev-app",
+                    cwd: "/Users/dev/app",
+                    intervals: [iv(1, 3), iv(5, 6)],
+                    models: [rawModel],
+                    messageCount: 2,
+                    billableMessages: [first, second]
+                ),
+            ],
+            period: period(),
+            activityMode: .aiActive
+        )
+
+        #expect(snapshot.projects.first?.segments.map { $0.usage.total } == [900, 100])
+        #expect(snapshot.projects.first?.segments.map(\.messageCount) == [1, 1])
+        #expect(snapshot.projects.first?.totalUsage.total == 1_000)
+        #expect(abs((snapshot.projects.first?.totalCost ?? 0) - 1.00) < 0.001)
     }
 
     @Test("Baseline comparison exposes metric deltas")

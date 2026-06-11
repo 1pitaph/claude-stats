@@ -105,6 +105,35 @@ struct DashboardViewModelTests {
         #expect(viewModel.modelTrend.dataRevisionID != last7Revision)
     }
 
+    @MainActor
+    @Test("Claude cowork billable turns are deduped across dashboard totals and charts")
+    func claudeCoworkBillableTurnsAreDeduped() async {
+        let viewModel = DashboardViewModel(pricing: TestPricing.table)
+        viewModel.period = .last7Days
+        let timestamp = dayTime(daysAgo: 1, hour: 14)
+        let shared = BillableMessage(
+            hash: "assistant-shared:req-1",
+            model: "claude-sonnet-4.5",
+            usage: usage(1_000),
+            cost: CostEstimate(standardAPI: 0.42),
+            timestamp: timestamp
+        )
+        let sessions = [
+            billableSession("parent", timestamp: timestamp, messages: [shared]),
+            billableSession("cowork", timestamp: timestamp, messages: [shared]),
+        ]
+
+        await viewModel.reload(sessions: sessions)
+
+        #expect(viewModel.stats.totalTokens == 1_000)
+        #expect(abs(viewModel.stats.totalCost - 0.42) < 1e-9)
+        #expect(viewModel.stats.favoriteModel == DashboardModelKey(provider: .claude, model: "claude-sonnet-4.5"))
+        #expect(viewModel.modelBreakdown.map(\.usage.total) == [1_000])
+        #expect(viewModel.modelTrend.buckets.reduce(0) { $0 + $1.tokens } == 1_000)
+        #expect(viewModel.heatmapCells.reduce(0) { $0 + $1.value } == 1_000)
+        #expect(viewModel.stats.peakHour == 14)
+    }
+
     private func session(
         _ id: String,
         provider: ProviderKind,
@@ -146,6 +175,54 @@ struct DashboardViewModelTests {
             lastModified: when,
             fileSize: 1,
             stats: stats
+        )
+    }
+
+    private func billableSession(
+        _ id: String,
+        timestamp: Date,
+        messages: [BillableMessage]
+    ) -> Session {
+        let modelUsage = ModelUsage(
+            model: "claude-sonnet-4.5",
+            messageCount: messages.count,
+            usage: messages.reduce(.zero) { $0 + $1.usage },
+            costEstimate: messages.reduce(.zero) { $0 + $1.cost }
+        )
+        let stats = SessionStats(
+            title: id,
+            messageCount: messages.count,
+            firstActivity: timestamp,
+            lastActivity: timestamp,
+            models: [modelUsage],
+            timeline: messages.map { ModelBucket(model: $0.model, start: timestamp, usage: $0.usage) },
+            billableMessages: messages
+        )
+        return Session(
+            id: "claude-\(id)",
+            externalID: id,
+            provider: .claude,
+            projectDirectoryName: "-p",
+            filePath: "/claude-\(id).jsonl",
+            cwd: nil,
+            lastModified: timestamp,
+            fileSize: 1,
+            stats: stats
+        )
+    }
+
+    private func dayTime(daysAgo: Int, hour: Int) -> Date {
+        let dayStart = calendar.startOfDay(for: calendar.date(byAdding: .day, value: -daysAgo, to: .now)!)
+        return calendar.date(byAdding: .hour, value: hour, to: dayStart)!
+    }
+
+    private func usage(_ tokens: Int) -> TokenUsage {
+        TokenUsage(
+            inputTokens: tokens,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheCreation5mTokens: 0,
+            cacheCreation1hTokens: 0
         )
     }
 }

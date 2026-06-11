@@ -251,6 +251,66 @@ struct UsageSummaryTests {
         #expect(summary.models.first?.messageCount == 2)
     }
 
+    @Test("Claude billable messages are attributed to explicit day by timestamp")
+    func billableMessagesUseTimestampForExplicitDay() {
+        let selectedDay = cal.date(byAdding: .day, value: -2, to: .now)!
+        let selectedStart = cal.startOfDay(for: selectedDay)
+        let selectedTimestamp = cal.date(byAdding: .hour, value: 9, to: selectedStart)!
+        let laterTimestamp = cal.date(byAdding: .day, value: 1, to: selectedTimestamp)!
+        let selectedBill = BillableMessage(
+            hash: "selected:req",
+            model: "model-a",
+            usage: tokens(100),
+            cost: CostEstimate(standardAPI: 0.10),
+            timestamp: selectedTimestamp
+        )
+        let laterBill = BillableMessage(
+            hash: "later:req",
+            model: "model-a",
+            usage: tokens(900),
+            cost: CostEstimate(standardAPI: 0.90),
+            timestamp: laterTimestamp
+        )
+        let session = billableSession(
+            "cross-day",
+            lastActivity: laterTimestamp,
+            messages: [selectedBill, laterBill]
+        )
+
+        let summary = UsageSummary.makeDay(selectedDay, sessions: [session], pricing: TestPricing.table, calendar: cal)
+        let custom = UsageSummary.makeCustom(start: selectedDay, end: selectedDay, sessions: [session], pricing: TestPricing.table, calendar: cal)
+
+        #expect(summary.sessionCount == 1)
+        #expect(summary.totalTokens == 100)
+        #expect(summary.timeline.totalTokens == 100)
+        #expect(abs(summary.totalCost(for: .standardAPI) - 0.10) < 1e-9)
+        #expect(custom.totalTokens == 100)
+    }
+
+    @Test("Claude billable duplicate hashes are deduped inside custom intervals")
+    func billableDuplicateHashesDedupedInCustomIntervals() {
+        let day = cal.date(byAdding: .day, value: -1, to: .now)!
+        let timestamp = cal.date(byAdding: .hour, value: 10, to: cal.startOfDay(for: day))!
+        let shared = BillableMessage(
+            hash: "shared:req",
+            model: "model-a",
+            usage: tokens(700),
+            cost: CostEstimate(standardAPI: 0.70),
+            timestamp: timestamp
+        )
+        let sessions = [
+            billableSession("parent", lastActivity: timestamp, messages: [shared]),
+            billableSession("subagent", lastActivity: timestamp, messages: [shared]),
+        ]
+
+        let summary = UsageSummary.makeCustom(start: day, end: day, sessions: sessions, pricing: TestPricing.table, calendar: cal)
+
+        #expect(summary.totalTokens == 700)
+        #expect(summary.models.first?.messageCount == 1)
+        #expect(summary.timeline.totalTokens == 700)
+        #expect(abs(summary.totalCost(for: .standardAPI) - 0.70) < 1e-9)
+    }
+
     @Test("Existing timeline is not double counted by model fallback")
     func existingTimelineIsNotDoubleCounted() {
         let bucketStart = cal.date(byAdding: .hour, value: 9, to: cal.startOfDay(for: .now))!
@@ -442,5 +502,29 @@ struct UsageSummaryTests {
         #expect(data.series.models == ["model-a"])
         #expect(data.series.isEmpty == false)
         #expect(breakdown.rows.map(\.id) == ["model-a"])
+    }
+
+    private func billableSession(
+        _ id: String,
+        lastActivity: Date,
+        messages: [BillableMessage]
+    ) -> Session {
+        let usage = messages.reduce(.zero) { $0 + $1.usage }
+        let cost = messages.reduce(.zero) { $0 + $1.cost }
+        let modelUsage = ModelUsage(model: "model-a", messageCount: messages.count, usage: usage, costEstimate: cost)
+        let stats = SessionStats(
+            title: id,
+            messageCount: messages.count,
+            firstActivity: messages.compactMap(\.timestamp).min() ?? lastActivity,
+            lastActivity: lastActivity,
+            models: [modelUsage],
+            timeline: messages.compactMap { bill in
+                guard let timestamp = bill.timestamp else { return nil }
+                return ModelBucket(model: bill.model, start: timestamp, usage: bill.usage)
+            },
+            billableMessages: messages
+        )
+        return Session(id: id, externalID: id, provider: .claude, projectDirectoryName: "-p",
+                       filePath: "/\(id).jsonl", cwd: nil, lastModified: lastActivity, fileSize: 1, stats: stats)
     }
 }

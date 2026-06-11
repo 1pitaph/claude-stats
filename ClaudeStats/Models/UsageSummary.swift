@@ -32,12 +32,10 @@ struct UsageSummary: Sendable, Hashable {
 
     /// Build a summary from already-parsed sessions.
     ///
-    /// A session is attributed to the period by its last activity (an
-    /// approximation: a session straddling the boundary is counted whole).
-    /// The timeline buckets come from the sessions that count, clipped to the
-    /// period's lower bound. Sessions that carry ``SessionStats/billableMessages``
-    /// (Claude transcripts) are deduped across files by message hash — see
-    /// ``BillableMessage``.
+    /// Token totals and timeline buckets are attributed by the billable/timeline
+    /// timestamp when available, scoped to the requested interval. Sessions that
+    /// carry ``SessionStats/billableMessages`` (Claude transcripts) are deduped
+    /// across files by message hash — see ``BillableMessage``.
     static func make(
         period: StatsPeriod,
         sessions: [Session],
@@ -45,15 +43,21 @@ struct UsageSummary: Sendable, Hashable {
         now: Date = .now,
         calendar: Calendar = .current
     ) -> UsageSummary {
-        let inPeriod = sessions.filter { session in
-            let when = session.stats?.lastActivity ?? session.lastModified
-            return period.contains(when, now: now, calendar: calendar)
+        let interval = period.interval(now: now, calendar: calendar)
+        let aggregate = if let interval {
+            SessionUsageAggregator.aggregate(sessions: sessions, in: interval, calendar: calendar)
+        } else {
+            SessionUsageAggregator.aggregate(sessions: sessions, calendar: calendar)
         }
-        let aggregate = SessionUsageAggregator.aggregate(sessions: inPeriod, calendar: calendar)
+        let inPeriod = sessions.filter { sessionIntersects($0, interval: interval) }
         let messageCount = inPeriod.reduce(0) { $0 + ($1.stats?.messageCount ?? 0) }
-        let filteredTimeline = aggregate.timeline
-            .filter { period.contains($0.start, now: now, calendar: calendar) }
-        return UsageSummary(period: period, sessionCount: inPeriod.count, models: aggregate.models, messageCount: messageCount, timeline: filteredTimeline)
+        return UsageSummary(
+            period: period,
+            sessionCount: inPeriod.count,
+            models: aggregate.models,
+            messageCount: messageCount,
+            timeline: aggregate.timeline
+        )
     }
 
     /// Build a summary for one explicit local calendar day while preserving
@@ -68,15 +72,17 @@ struct UsageSummary: Sendable, Hashable {
         guard let hiExclusive = calendar.date(byAdding: .day, value: 1, to: lo) else {
             return .empty(period: .today)
         }
-        let inDay = sessions.filter { session in
-            let when = session.stats?.lastActivity ?? session.lastModified
-            return when >= lo && when < hiExclusive
-        }
-        let aggregate = SessionUsageAggregator.aggregate(sessions: inDay, calendar: calendar)
+        let interval = DateInterval(start: lo, end: hiExclusive)
+        let inDay = sessions.filter { sessionIntersects($0, interval: interval) }
+        let aggregate = SessionUsageAggregator.aggregate(sessions: sessions, in: interval, calendar: calendar)
         let messageCount = inDay.reduce(0) { $0 + ($1.stats?.messageCount ?? 0) }
-        let filteredTimeline = aggregate.timeline
-            .filter { $0.start >= lo && $0.start < hiExclusive }
-        return UsageSummary(period: .today, sessionCount: inDay.count, models: aggregate.models, messageCount: messageCount, timeline: filteredTimeline)
+        return UsageSummary(
+            period: .today,
+            sessionCount: inDay.count,
+            models: aggregate.models,
+            messageCount: messageCount,
+            timeline: aggregate.timeline
+        )
     }
 
     /// Build a summary scoped to an explicit `[start, end]` range of calendar
@@ -89,15 +95,17 @@ struct UsageSummary: Sendable, Hashable {
         guard let hiExclusive = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: max(start, end))) else {
             return .empty(period: .allTime)
         }
-        let inRange = sessions.filter { session in
-            let when = session.stats?.lastActivity ?? session.lastModified
-            return when >= lo && when < hiExclusive
-        }
-        let aggregate = SessionUsageAggregator.aggregate(sessions: inRange, calendar: calendar)
+        let interval = DateInterval(start: lo, end: hiExclusive)
+        let inRange = sessions.filter { sessionIntersects($0, interval: interval) }
+        let aggregate = SessionUsageAggregator.aggregate(sessions: sessions, in: interval, calendar: calendar)
         let messageCount = inRange.reduce(0) { $0 + ($1.stats?.messageCount ?? 0) }
-        let filteredTimeline = aggregate.timeline
-            .filter { $0.start >= lo && $0.start < hiExclusive }
-        return UsageSummary(period: .allTime, sessionCount: inRange.count, models: aggregate.models, messageCount: messageCount, timeline: filteredTimeline)
+        return UsageSummary(
+            period: .allTime,
+            sessionCount: inRange.count,
+            models: aggregate.models,
+            messageCount: messageCount,
+            timeline: aggregate.timeline
+        )
     }
 
     /// Per-model series for the trend chart: hourly across *today* for
@@ -144,6 +152,37 @@ struct UsageSummary: Sendable, Hashable {
             }
         }
         return TrendSeries(granularity: granularity, models: models, buckets: filled)
+    }
+}
+
+private extension UsageSummary {
+    static func sessionIntersects(_ session: Session, interval: DateInterval?) -> Bool {
+        guard let interval else { return true }
+        guard let stats = session.stats else {
+            return contains(session.lastModified, in: interval)
+        }
+
+        let fallback = stats.lastActivity ?? session.lastModified
+        if !stats.billableMessages.isEmpty {
+            return stats.billableMessages.contains { contains($0.timestamp ?? fallback, in: interval) }
+        }
+
+        if !stats.timeline.isEmpty {
+            return stats.timeline.contains { contains($0.start, in: interval) }
+        }
+
+        return contains(fallback, in: interval)
+    }
+
+    static func contains(_ date: Date, in interval: DateInterval) -> Bool {
+        date >= interval.start && date < interval.end
+    }
+}
+
+private extension StatsPeriod {
+    func interval(now: Date, calendar: Calendar) -> DateInterval? {
+        guard let lower = lowerBound(now: now, calendar: calendar) else { return nil }
+        return DateInterval(start: lower, end: .distantFuture)
     }
 }
 

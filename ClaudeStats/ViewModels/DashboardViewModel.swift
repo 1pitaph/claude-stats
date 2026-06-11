@@ -200,25 +200,26 @@ final class DashboardViewModel {
             try accumulator.add(
                 session,
                 period: period,
-                heatmapInterval: heatmapInterval,
                 calendar: cal,
                 now: now
             )
         }
 
         try Task.checkCancellation()
-        return try accumulator.result(period: period, calendar: cal, now: now)
+        return try accumulator.result(
+            sessions: sessions,
+            period: period,
+            heatmapInterval: heatmapInterval,
+            calendar: cal,
+            now: now
+        )
     }
 
     private struct ReloadAccumulator {
         var sessionsInPeriod = 0
         var messageCount = 0
-        var modelTotals: [DashboardModelKey: ModelTotal] = [:]
-        var periodTimeline: [String: [Date: TokenUsage]] = [:]
-        var peakTokensByHour: [Int: Int] = [:]
         var activeDaysInPeriod: Set<Date> = []
         var activeDaysAllTime: Set<Date> = []
-        var heatmapTokensByDay: [Date: Int] = [:]
 
         mutating func reserveCapacity(sessionCount: Int) {
             activeDaysAllTime.reserveCapacity(min(sessionCount, 512))
@@ -228,7 +229,6 @@ final class DashboardViewModel {
         mutating func add(
             _ session: Session,
             period: StatsPeriod,
-            heatmapInterval: DateInterval,
             calendar cal: Calendar,
             now: Date
         ) throws {
@@ -245,99 +245,35 @@ final class DashboardViewModel {
             guard let stats = session.stats else { return }
             if isInPeriod {
                 messageCount += stats.messageCount
-                for model in stats.models {
-                    let key = DashboardModelKey(provider: session.provider, model: model.model)
-                    var total = modelTotals[key] ?? ModelTotal()
-                    total.messageCount += model.messageCount
-                    total.usage += model.usage
-                    total.costEstimate += model.costEstimate
-                    modelTotals[key] = total
-                }
             }
-
-            try addTimeline(
-                stats: stats,
-                session: session,
-                isInPeriod: isInPeriod,
-                period: period,
-                heatmapInterval: heatmapInterval,
-                calendar: cal,
-                now: now
-            )
         }
 
-        private mutating func addTimeline(
-            stats: SessionStats,
-            session: Session,
-            isInPeriod: Bool,
+        func result(
+            sessions: [Session],
             period: StatsPeriod,
             heatmapInterval: DateInterval,
             calendar cal: Calendar,
             now: Date
-        ) throws {
-            if stats.timeline.isEmpty {
-                let activityDate = stats.lastActivity ?? session.lastModified
-                let bucketStart = cal.dateInterval(of: .hour, for: activityDate)?.start ?? activityDate
-                for model in stats.models where model.usage.total > 0 {
-                    try Task.checkCancellation()
-                    let key = DashboardModelKey(provider: session.provider, model: model.model).id
-                    addTimelineBucket(
-                        modelID: key,
-                        start: bucketStart,
-                        usage: model.usage,
-                        isInPeriod: isInPeriod,
-                        period: period,
-                        heatmapInterval: heatmapInterval,
-                        calendar: cal,
-                        now: now
-                    )
-                }
+        ) throws -> ReloadResult {
+            let periodAggregate = if let interval = period.interval(now: now, calendar: cal) {
+                SessionUsageAggregator.aggregateByProvider(sessions: sessions, in: interval, calendar: cal)
             } else {
-                for bucket in stats.timeline {
-                    try Task.checkCancellation()
-                    let key = DashboardModelKey(provider: session.provider, model: bucket.model).id
-                    addTimelineBucket(
-                        modelID: key,
-                        start: bucket.start,
-                        usage: bucket.usage,
-                        isInPeriod: isInPeriod,
-                        period: period,
-                        heatmapInterval: heatmapInterval,
-                        calendar: cal,
-                        now: now
-                    )
-                }
+                SessionUsageAggregator.aggregateByProvider(sessions: sessions, calendar: cal)
             }
-        }
+            try Task.checkCancellation()
+            let heatmapAggregate = SessionUsageAggregator.aggregateByProvider(
+                sessions: sessions,
+                in: heatmapInterval,
+                calendar: cal
+            )
+            try Task.checkCancellation()
 
-        private mutating func addTimelineBucket(
-            modelID: String,
-            start: Date,
-            usage: TokenUsage,
-            isInPeriod: Bool,
-            period: StatsPeriod,
-            heatmapInterval: DateInterval,
-            calendar cal: Calendar,
-            now: Date
-        ) {
-            let day = cal.startOfDay(for: start)
-            if heatmapInterval.contains(day) {
-                heatmapTokensByDay[day, default: 0] += usage.total
-            }
-
-            guard isInPeriod, period.contains(start, now: now, calendar: cal) else { return }
-            periodTimeline[modelID, default: [:]][start, default: .zero] += usage
-            let hour = cal.component(.hour, from: start)
-            peakTokensByHour[hour, default: 0] += usage.total
-        }
-
-        func result(period: StatsPeriod, calendar cal: Calendar, now: Date) throws -> ReloadResult {
-            let models = modelBreakdown()
-            let timeline = periodTimelineBuckets()
+            let models = modelBreakdown(from: periodAggregate.models)
+            let timeline = periodTimelineBuckets(from: periodAggregate.timeline)
             let totalUsage = models.reduce(.zero) { $0 + $1.usage }
             let totalCost = models.reduce(0) { $0 + $1.estimatedCost }
             let (current, longest) = streaks(calendar: cal, now: now)
-            let heatmap = heatmapCells()
+            let heatmap = heatmapCells(from: heatmapAggregate.timeline, interval: heatmapInterval, calendar: cal)
             let trend = try DashboardViewModel.trendSeries(
                 timeline: timeline,
                 models: models,
@@ -355,7 +291,7 @@ final class DashboardViewModel {
                     activeDays: activeDaysInPeriod.count,
                     currentStreak: current,
                     longestStreak: longest,
-                    peakHour: peakHour(),
+                    peakHour: peakHour(from: periodAggregate.timeline, calendar: cal),
                     favoriteModel: models.first { SessionUsageAggregator.isFavoriteModelName($0.key.model) }?.key
                 ),
                 heatmapCells: heatmap,
@@ -365,14 +301,14 @@ final class DashboardViewModel {
             )
         }
 
-        private func modelBreakdown() -> [DashboardModelUsage] {
-            modelTotals
-                .map { key, total in
+        private func modelBreakdown(from models: [ProviderModelUsage]) -> [DashboardModelUsage] {
+            models
+                .map { model in
                     DashboardModelUsage(
-                        key: key,
-                        messageCount: total.messageCount,
-                        usage: total.usage,
-                        costEstimate: total.costEstimate
+                        key: DashboardModelKey(provider: model.provider, model: model.model),
+                        messageCount: model.messageCount,
+                        usage: model.usage,
+                        costEstimate: model.costEstimate
                     )
                 }
                 .sorted { lhs, rhs in
@@ -382,16 +318,26 @@ final class DashboardViewModel {
                 }
         }
 
-        private func periodTimelineBuckets() -> [ModelBucket] {
-            periodTimeline
-                .flatMap { model, byStart in
-                    byStart.map { ModelBucket(model: model, start: $0.key, usage: $0.value) }
+        private func periodTimelineBuckets(from timeline: [ProviderModelBucket]) -> [ModelBucket] {
+            timeline
+                .map {
+                    ModelBucket(model: $0.modelID, start: $0.start, usage: $0.usage)
                 }
                 .sorted { $0.start < $1.start }
         }
 
-        private func heatmapCells() -> [HeatmapCell] {
-            heatmapTokensByDay
+        private func heatmapCells(
+            from timeline: [ProviderModelBucket],
+            interval: DateInterval,
+            calendar cal: Calendar
+        ) -> [HeatmapCell] {
+            var tokensByDay: [Date: Int] = [:]
+            for bucket in timeline {
+                let day = cal.startOfDay(for: bucket.start)
+                guard day >= interval.start && day < interval.end else { continue }
+                tokensByDay[day, default: 0] += bucket.tokens
+            }
+            return tokensByDay
                 .map { HeatmapCell(date: $0.key, value: $0.value) }
                 .sorted { $0.date < $1.date }
         }
@@ -430,15 +376,13 @@ final class DashboardViewModel {
             return (current, longest)
         }
 
-        private func peakHour() -> Int? {
-            peakTokensByHour.max(by: { $0.value < $1.value })?.key
+        private func peakHour(from timeline: [ProviderModelBucket], calendar cal: Calendar) -> Int? {
+            var tokensByHour: [Int: Int] = [:]
+            for bucket in timeline {
+                tokensByHour[cal.component(.hour, from: bucket.start), default: 0] += bucket.tokens
+            }
+            return tokensByHour.max(by: { $0.value < $1.value })?.key
         }
-    }
-
-    private struct ModelTotal {
-        var messageCount = 0
-        var usage: TokenUsage = .zero
-        var costEstimate: CostEstimate = .zero
     }
 
     nonisolated private static func trendSeries(
@@ -491,5 +435,12 @@ final class DashboardViewModel {
             }
         }
         return TrendSeries(granularity: granularity, models: modelIDs, buckets: filled)
+    }
+}
+
+private extension StatsPeriod {
+    func interval(now: Date, calendar: Calendar) -> DateInterval? {
+        guard let lower = lowerBound(now: now, calendar: calendar) else { return nil }
+        return DateInterval(start: lower, end: .distantFuture)
     }
 }
