@@ -3,6 +3,18 @@
 extension ReleaseHistoryCatalog {
     static let generatedEntries: [ReleaseHistoryEntry] = [
         ReleaseHistoryEntry(
+            version: "1.9.3",
+            date: "June 11, 2026",
+            headline: "为TrackEvent和TrackNode新增prompt存储属性",
+            changes: [
+                "扩展日志解析器以提取并保存prompt数据",
+                "在节点详情面板中显示prompt内容",
+                "优化流程图布局和节点展示逻辑",
+                "新增相关测试用例验证功能正确性",
+                "主要变更：",
+            ]
+        ),
+        ReleaseHistoryEntry(
             version: "1.9.2",
             date: "June 7, 2026",
             headline: "添加了三款新AI助手的完整支持：",
