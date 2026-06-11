@@ -4,6 +4,67 @@ import Testing
 
 @Suite("Additional provider tracking")
 struct AdditionalProviderTrackingTests {
+    @Test("OpenAI-compatible usage splits cached prompt tokens and avoids reasoning double count")
+    func openAICompatibleUsageDetails() throws {
+        let object: [String: Any] = [
+            "usage": [
+                "prompt_tokens": 1_000,
+                "prompt_tokens_details": ["cached_tokens": 400],
+                "completion_tokens": 200,
+                "completion_tokens_details": ["reasoning_tokens": 50],
+            ],
+        ]
+
+        let usage = try #require(ProviderTranscriptExtraction.usage(from: object))
+        #expect(usage.inputTokens == 600)
+        #expect(usage.cacheReadTokens == 400)
+        #expect(usage.outputTokens == 200)
+    }
+
+    @Test("OpenAI-compatible cache read input tokens are subtracted from prompt tokens")
+    func cacheReadInputTokensAreCachedPromptSubset() throws {
+        let object: [String: Any] = [
+            "usage": [
+                "prompt_tokens": 1_000,
+                "cache_read_input_tokens": 400,
+                "completion_tokens": 200,
+            ],
+        ]
+
+        let usage = try #require(ProviderTranscriptExtraction.usage(from: object))
+        #expect(usage.inputTokens == 600)
+        #expect(usage.cacheReadTokens == 400)
+        #expect(usage.outputTokens == 200)
+    }
+
+    @Test("OpenAI-compatible top-level cached input tokens are subtracted")
+    func topLevelCachedInputTokensAreCachedPromptSubset() throws {
+        let object: [String: Any] = [
+            "usage": [
+                "input_tokens": 900,
+                "cached_input_tokens": 250,
+            ],
+        ]
+
+        let usage = try #require(ProviderTranscriptExtraction.usage(from: object))
+        #expect(usage.inputTokens == 650)
+        #expect(usage.cacheReadTokens == 250)
+    }
+
+    @Test("Reasoning-only compatible usage is preserved when no completion total exists")
+    func reasoningOnlyUsageDetails() throws {
+        let object: [String: Any] = [
+            "usage": [
+                "prompt_tokens": 12,
+                "completion_tokens_details": ["reasoning_tokens": 34],
+            ],
+        ]
+
+        let usage = try #require(ProviderTranscriptExtraction.usage(from: object))
+        #expect(usage.inputTokens == 12)
+        #expect(usage.outputTokens == 34)
+    }
+
     @Test("OpenCode reads SQLite sessions, usage, messages, and commands")
     func openCodeSQLiteTracking() async throws {
         let root = try TempDir.make()
@@ -65,6 +126,7 @@ struct AdditionalProviderTrackingTests {
         let model = try #require(stats.models.first)
         #expect(stats.title == "OpenCode task")
         #expect(stats.messageCount == 2)
+        #expect(model.model == "gpt-5")
         #expect(model.usage.inputTokens == 10)
         #expect(model.usage.outputTokens == 23)
         #expect(model.usage.cacheReadTokens == 4)
@@ -75,6 +137,54 @@ struct AdditionalProviderTrackingTests {
         #expect(messages.map(\.text) == ["build it", "done"])
         let commands = await provider.executedCommands(for: session)
         #expect(commands.map(\.command) == ["git status"])
+    }
+
+    @Test("OpenCode infers model from message metadata instead of provider fallback")
+    func openCodeInfersModelFromMessages() async throws {
+        let root = try TempDir.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dbURL = root.appendingPathComponent("opencode.db")
+        let db = try SQLiteConnection(url: dbURL)
+        try db.execute("""
+        CREATE TABLE session (
+            id TEXT PRIMARY KEY,
+            directory TEXT,
+            title TEXT,
+            model TEXT,
+            time_created INTEGER,
+            time_updated INTEGER,
+            cost REAL,
+            tokens_input INTEGER,
+            tokens_output INTEGER,
+            tokens_reasoning INTEGER,
+            tokens_cache_read INTEGER,
+            tokens_cache_write INTEGER
+        );
+        CREATE TABLE message (
+            id TEXT PRIMARY KEY,
+            session_id TEXT,
+            time_created INTEGER,
+            data TEXT
+        );
+        """)
+        try db.execute("""
+        INSERT INTO session VALUES (
+            'oc-2', '/tmp/opencode-demo', 'OpenCode task', 'opencode',
+            1760000000000, 1760003600000, NULL, 8, 13, 0, 0, 0
+        );
+        INSERT INTO message VALUES
+            ('m1', 'oc-2', 1760000000000, '{"role":"assistant","content":"done","metadata":{"model":"MiniMax-M3"}}');
+        """)
+
+        let provider = OpenCodeProvider(
+            paths: OpenCodePaths(dataDirectories: [root]),
+            pricing: TestPricing.table
+        )
+        let session = try #require(await provider.discoverSessions().first)
+        let stats = try #require(await provider.parse(session))
+
+        #expect(stats.models.first?.model == "MiniMax-M3")
+        #expect(stats.timeline.first?.model == "MiniMax-M3")
     }
 
     @Test("Kiro prefers JSONL sessions over archives and estimates token usage")

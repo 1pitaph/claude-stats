@@ -33,6 +33,23 @@ struct DashboardViewModelTests {
     }
 
     @MainActor
+    @Test("Favorite model stat ignores provider placeholder names")
+    func favoriteModelStatIgnoresProviderPlaceholderNames() async {
+        let viewModel = DashboardViewModel(pricing: TestPricing.table)
+        viewModel.period = .last7Days
+        let sessions = [
+            session("placeholder", provider: .opencode, daysAgo: 1, hour: 10, model: "opencode", tokens: 1_000, messages: 3),
+            session("real", provider: .opencode, daysAgo: 1, hour: 11, model: "gpt-5.3-codex", tokens: 50, messages: 1),
+        ]
+
+        await viewModel.reload(sessions: sessions)
+
+        #expect(viewModel.stats.totalTokens == 1_050)
+        #expect(viewModel.stats.favoriteModel == DashboardModelKey(provider: .opencode, model: "gpt-5.3-codex"))
+        #expect(viewModel.modelBreakdown.map(\.key.model) == ["opencode", "gpt-5.3-codex"])
+    }
+
+    @MainActor
     @Test("Heatmap aggregates all providers over the fixed 90 day window")
     func heatmapAggregatesAllProvidersInFixedWindow() async {
         let viewModel = DashboardViewModel(pricing: TestPricing.table)

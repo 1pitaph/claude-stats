@@ -30,25 +30,47 @@ enum SessionUsageAggregator {
                         seen.insert(hash)
                     }
                     let name = bill.model.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !name.isEmpty else { continue }
+                    guard isFavoriteModelName(name) else { continue }
                     totals[name, default: 0] += Int64(bill.usage.total)
                 }
             } else if !stats.timeline.isEmpty {
                 for bucket in stats.timeline {
                     let name = bucket.model.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !name.isEmpty else { continue }
+                    guard isFavoriteModelName(name) else { continue }
                     totals[name, default: 0] += Int64(bucket.usage.total)
                 }
             } else {
                 for model in stats.models {
                     let name = model.model.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !name.isEmpty else { continue }
+                    guard isFavoriteModelName(name) else { continue }
                     totals[name, default: 0] += Int64(model.usage.total)
                 }
             }
         }
 
         return totals
+    }
+
+    private static let providerPlaceholderModelNames: Set<String> = {
+        Set(ProviderKind.allCases.flatMap { provider in
+            [
+                normalizedFavoriteModelKey(provider.rawValue),
+                normalizedFavoriteModelKey(provider.displayName),
+                normalizedFavoriteModelKey(provider.shortName),
+            ]
+        })
+    }()
+
+    static func isFavoriteModelName(_ name: String) -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        return !providerPlaceholderModelNames.contains(normalizedFavoriteModelKey(trimmed))
+    }
+
+    private static func normalizedFavoriteModelKey(_ value: String) -> String {
+        value
+            .lowercased()
+            .filter { $0.isLetter || $0.isNumber }
     }
 
     private static func aggregate(

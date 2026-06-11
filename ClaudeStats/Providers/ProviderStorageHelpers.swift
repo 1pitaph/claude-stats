@@ -244,23 +244,53 @@ enum ProviderTranscriptExtraction {
 
     private static func collectUsage(from value: Any, into usage: inout TokenUsage) {
         if let dictionary = value as? [String: Any] {
-            usage.inputTokens += ProviderJSON.int(dictionary, keys: [
+            let rawInputTokens = ProviderJSON.int(dictionary, keys: [
                 "input_tokens", "inputTokens", "prompt_tokens", "promptTokens",
             ]) ?? 0
-            usage.outputTokens += ProviderJSON.int(dictionary, keys: [
+            let explicitCachedInputTokens = max(
+                ProviderJSON.int(dictionary, keys: ["cached_input_tokens", "cachedInputTokens"]) ?? 0,
+                Self.nestedInt(dictionary, path: ["prompt_tokens_details"], keys: ["cached_tokens", "cachedTokens"]) ?? 0,
+                Self.nestedInt(dictionary, path: ["input_tokens_details"], keys: ["cached_tokens", "cachedTokens"]) ?? 0
+            )
+            let standaloneCacheReadTokens = ProviderJSON.int(dictionary, keys: [
+                "cache_read_tokens", "cacheReadTokens", "cache_read_input_tokens",
+                "cacheReadInputTokens", "cache_read", "cacheRead",
+            ]) ?? 0
+            let cachedInputTokens = rawInputTokens > 0
+                ? max(explicitCachedInputTokens, standaloneCacheReadTokens)
+                : explicitCachedInputTokens
+
+            usage.inputTokens += max(0, rawInputTokens - cachedInputTokens)
+            usage.cacheReadTokens += max(standaloneCacheReadTokens, explicitCachedInputTokens)
+
+            let outputTokens = ProviderJSON.int(dictionary, keys: [
                 "output_tokens", "outputTokens", "completion_tokens", "completionTokens",
             ]) ?? 0
-            usage.outputTokens += ProviderJSON.int(dictionary, keys: [
-                "reasoning_tokens", "reasoningTokens", "tokens_reasoning",
-            ]) ?? 0
-            usage.cacheReadTokens += ProviderJSON.int(dictionary, keys: [
-                "cache_read_tokens", "cacheReadTokens", "cached_input_tokens",
-                "cachedInputTokens", "cache_read", "cacheRead",
-            ]) ?? 0
-            usage.cacheCreation5mTokens += ProviderJSON.int(dictionary, keys: [
-                "cache_write_tokens", "cacheWriteTokens", "cache_creation_input_tokens",
-                "cacheCreationInputTokens", "cache_write", "cacheWrite",
-            ]) ?? 0
+            let reasoningTokens = max(
+                ProviderJSON.int(dictionary, keys: [
+                    "reasoning_tokens", "reasoningTokens", "tokens_reasoning",
+                ]) ?? 0,
+                Self.nestedInt(dictionary, path: ["completion_tokens_details"], keys: [
+                    "reasoning_tokens", "reasoningTokens",
+                ]) ?? 0,
+                Self.nestedInt(dictionary, path: ["output_tokens_details"], keys: [
+                    "reasoning_tokens", "reasoningTokens",
+                ]) ?? 0
+            )
+            usage.outputTokens += outputTokens > 0 ? outputTokens : reasoningTokens
+
+            let nestedCacheWriteTokens = Self.nestedInt(
+                dictionary,
+                path: ["prompt_tokens_details"],
+                keys: ["cache_creation_tokens", "cacheCreationTokens", "cache_write_tokens", "cacheWriteTokens"]
+            ) ?? 0
+            usage.cacheCreation5mTokens += max(
+                ProviderJSON.int(dictionary, keys: [
+                    "cache_write_tokens", "cacheWriteTokens", "cache_creation_input_tokens",
+                    "cacheCreationInputTokens", "cache_write", "cacheWrite",
+                ]) ?? 0,
+                nestedCacheWriteTokens
+            )
 
             for key in ["usage", "token_usage", "tokenUsage", "metadata", "details"] {
                 if let child = dictionary[key] {
@@ -272,6 +302,19 @@ enum ProviderTranscriptExtraction {
         if let array = value as? [Any] {
             for child in array { collectUsage(from: child, into: &usage) }
         }
+    }
+
+    private static func nestedInt(_ dictionary: [String: Any], path: [String], keys: [String]) -> Int? {
+        var current: Any = dictionary
+        for segment in path {
+            guard let object = current as? [String: Any],
+                  let next = object[segment] else {
+                return nil
+            }
+            current = next
+        }
+        guard let object = current as? [String: Any] else { return nil }
+        return ProviderJSON.int(object, keys: keys)
     }
 
     private static func collectCommands(from value: Any,

@@ -47,6 +47,77 @@ struct ModelPricingTests {
         #expect(rate.output == 25)
     }
 
+    @Test("Provider-prefixed and dotted model ids match bundled rates")
+    func providerPrefixedAliases() {
+        let pricing = ModelPricing.loadDefault(bundle: .main, userFile: nil)
+
+        #expect(pricing.rate(for: "anthropic/claude-opus-4.8").input == 5)
+        #expect(pricing.rate(for: "anthropic/claude-opus-4.8-fast").output == 50)
+        #expect(pricing.rate(for: "openai/gpt-5.5-pro").input == 30)
+        #expect(pricing.rate(for: "google/gemini-3.1-pro-preview").output == 12)
+        #expect(pricing.rate(for: "deepseek.deepseek-v4-flash").input == 0.0983)
+        #expect(pricing.rate(for: "anthropic.claude-opus-4.6-v1").input == 5)
+        #expect(pricing.rate(for: "~openai/gpt-latest").output == 30)
+        #expect(pricing.rate(for: "~google/gemini-flash-latest").input == 1.5)
+    }
+
+    @Test("Recent Claude Fable and Mythos rates are bundled")
+    func fableAndMythosPricing() {
+        let pricing = ModelPricing.loadDefault(bundle: .main, userFile: nil)
+
+        for model in ["claude-fable-latest", "claude-fable-5", "claude-5-fable", "claude-mythos-5", "claude-mythos-preview"] {
+            let rate = pricing.rate(for: model)
+            #expect(rate.input == 10)
+            #expect(rate.output == 50)
+            #expect(rate.cacheWrite5m == 12.5)
+            #expect(rate.cacheWrite1h == 20)
+            #expect(rate.cacheRead == 1)
+        }
+    }
+
+    @Test("OpenRouter niche model rates are bundled")
+    func openRouterNichePricing() {
+        let pricing = ModelPricing.loadDefault(bundle: .main, userFile: nil)
+
+        let qwen = pricing.rate(for: "qwen/qwen3.7-max")
+        #expect(qwen.input == 1.25)
+        #expect(qwen.output == 3.75)
+        #expect(qwen.cacheWrite5m == 1.5625)
+        #expect(qwen.cacheRead == 0.25)
+
+        let mimo = pricing.rate(for: "xiaomi/mimo-v2.5")
+        #expect(mimo.input == 0.14)
+        #expect(mimo.output == 0.28)
+        #expect(mimo.cacheWrite5m == 0)
+        #expect(mimo.cacheRead == 0.0028)
+    }
+
+    @Test("Direct DeepSeek and OpenRouter DeepSeek can keep different rates")
+    func deepSeekProviderSpecificPricing() {
+        let pricing = ModelPricing.loadDefault(bundle: .main, userFile: nil)
+
+        #expect(pricing.rate(for: "deepseek-v4-flash").input == 0.14)
+        #expect(pricing.rate(for: "deepseek/deepseek-v4-flash").input == 0.0983)
+    }
+
+    @Test("Unknown standard Opus variants do not fall back to fast pricing")
+    func standardOpusFallbackSkipsFastAliases() {
+        let pricing = ModelPricing.loadDefault(bundle: .main, userFile: nil)
+        let rate = pricing.rate(for: "claude-opus-4-99")
+
+        #expect(rate.input == 5)
+        #expect(rate.output == 25)
+    }
+
+    @Test("Unknown GPT variants do not fall back to image pricing")
+    func textGPTFallbackSkipsImageAliases() {
+        let pricing = ModelPricing.loadDefault(bundle: .main, userFile: nil)
+        let rate = pricing.rate(for: "gpt-chat-preview")
+
+        #expect(rate.input == 5)
+        #expect(rate.output == 30)
+    }
+
     @Test("Unknown Sonnet variant falls back to a sonnet rate")
     func fuzzySonnet() {
         let rate = ModelPricing.fallback.rate(for: "claude-3-5-sonnet-20241022")
@@ -227,9 +298,16 @@ struct ModelPricingTests {
         let pricing = ModelPricing.loadDefault(bundle: .main, userFile: nil)
         #expect(pricing.hasExactRate(for: "claude-opus-4-8"))
         #expect(pricing.rate(for: "claude-opus-4-8").fast?.output == 50)
+        #expect(pricing.hasExactRate(for: "claude-fable-5"))
+        #expect(pricing.rate(for: "claude-fable-5").cacheRead == 1)
+        #expect(pricing.hasExactRate(for: "claude-mythos-preview"))
         #expect(pricing.hasExactRate(for: "claude-opus-4-7"))
         #expect(pricing.rate(for: "claude-opus-4-7").output == 25)
         #expect(pricing.rate(for: "claude-opus-4-7").fast?.output == 150)
+        #expect(pricing.hasExactRate(for: "gpt-5.5-pro"))
+        #expect(pricing.rate(for: "gpt-5.5-pro").longContext?.output == 270)
+        #expect(pricing.hasExactRate(for: "chat-latest"))
+        #expect(pricing.hasExactRate(for: "openai/gpt-chat-latest"))
         #expect(pricing.hasExactRate(for: "gpt-5.4"))
         #expect(pricing.rate(for: "gpt-5.4").input == 2.5)
         #expect(pricing.rate(for: "gpt-5.4").cacheRead == 0.25)
@@ -244,6 +322,16 @@ struct ModelPricingTests {
         #expect(pricing.rate(for: "gpt-5.3-codex").cacheRead == 0.175)
         #expect(pricing.rate(for: "gpt-5.3-codex").priority?.cacheRead == 0.35)
         #expect(pricing.rate(for: "gpt-5.3-codex").codexCredits?.output == 350)
+        #expect(pricing.hasExactRate(for: "qwen/qwen3.7-max"))
+        #expect(pricing.hasExactRate(for: "xiaomi/mimo-v2.5"))
+        #expect(pricing.hasExactRate(for: "deepseek-v4-flash"))
+        #expect(pricing.hasExactRate(for: "x-ai/grok-4.3"))
+        #expect(pricing.hasExactRate(for: "meta-llama/llama-4-maverick"))
+        #expect(pricing.rate(for: "gemini-3.5-flash").input == 1.5)
+        #expect(pricing.rate(for: "gemini-3.5-flash").cacheWrite5m == 0.08333333333333333)
+        #expect(pricing.rate(for: "gemini-3.1-pro-preview").longContext?.input == 4)
+        #expect(pricing.rate(for: "gemini-3.1-pro-preview").cacheWrite1h == 4.5)
+        #expect(pricing.rate(for: "gemini-2.5-flash-lite").output == 0.4)
         #expect(pricing.defaultRate.input == 3)
     }
 }

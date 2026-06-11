@@ -291,6 +291,40 @@ struct LeaderboardScoreBuilderTests {
         #expect(favoriteModels.map(\.rank) == [1, 2, 3])
     }
 
+    @Test("Favorite models ignore provider placeholder names")
+    func favoriteModelsIgnoreProviderPlaceholderNames() {
+        let now = dateUTC(2026, 5, 16, 8)
+        let sessions = [
+            session(
+                "opencode-placeholder",
+                provider: .opencode,
+                at: now,
+                usage: TokenUsage(inputTokens: 1_000),
+                modelName: "opencode"
+            ),
+            session(
+                "hermes-placeholder",
+                provider: .hermes,
+                at: now,
+                usage: TokenUsage(inputTokens: 900),
+                modelName: "Hermes"
+            ),
+            session(
+                "real-model",
+                provider: .opencode,
+                at: now,
+                usage: TokenUsage(inputTokens: 50),
+                modelName: "gpt-5.3-codex"
+            ),
+        ]
+
+        let favoriteModels = builder.favoriteModels(sessions: sessions)
+
+        #expect(favoriteModels.map(\.model) == ["gpt-5.3-codex"])
+        #expect(favoriteModels.map(\.tokens) == [50])
+        #expect(favoriteModels.map(\.rank) == [1])
+    }
+
     @Test("Favorite models dedupe Claude cowork turns by billable message hash")
     func favoriteModelsDedupeClaudeBillableMessages() {
         let now = dateUTC(2026, 5, 16, 8)

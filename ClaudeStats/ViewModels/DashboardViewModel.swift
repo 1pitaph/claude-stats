@@ -356,7 +356,7 @@ final class DashboardViewModel {
                     currentStreak: current,
                     longestStreak: longest,
                     peakHour: peakHour(),
-                    favoriteModel: models.first?.key
+                    favoriteModel: models.first { SessionUsageAggregator.isFavoriteModelName($0.key.model) }?.key
                 ),
                 heatmapCells: heatmap,
                 heatmapActiveDays: heatmap.reduce(0) { $0 + ($1.value > 0 ? 1 : 0) },

@@ -12,7 +12,7 @@ struct OpenCodeTranscriptParser: Sendable {
         let messageCount = max(row.messageCount, messages.filter { $0.role == .user || $0.role == .assistant }.count)
         guard usage.total > 0 || messageCount > 0 else { return nil }
 
-        let model = row.model ?? "opencode"
+        let model = resolvedModel(rowModel: row.model, messages: messages) ?? "opencode"
         let cost = row.cost.map { CostEstimate(standardAPI: $0) }
             ?? pricing.costEstimate(model: model, usage: usage)
         let usageModel = ModelUsage(model: model, messageCount: max(1, messageCount), usage: usage, costEstimate: cost)
@@ -148,7 +148,7 @@ struct OpenCodeTranscriptParser: Sendable {
                 role: role,
                 text: text,
                 timestamp: ProviderDateParser.date(fromSQLiteNumber: statement.columnInt64(1)),
-                model: nil
+                model: recursiveString(in: object, keys: Self.modelKeys)
             ))
         }
         return messages
@@ -180,7 +180,7 @@ struct OpenCodeTranscriptParser: Sendable {
                 role: role,
                 text: text,
                 timestamp: ProviderDateParser.date(fromSQLiteNumber: statement.columnInt64(2)),
-                model: nil
+                model: recursiveString(in: object, keys: Self.modelKeys)
             ))
         }
         return messages
@@ -221,6 +221,33 @@ struct OpenCodeTranscriptParser: Sendable {
             }
         }
         return 0
+    }
+
+    private static let modelKeys = ["model", "model_id", "modelId", "model_name", "modelName"]
+
+    private func resolvedModel(rowModel: String?, messages: [SessionTranscriptMessage]) -> String? {
+        if let model = sanitizedModel(rowModel) { return model }
+        return messages.lazy.compactMap { sanitizedModel($0.model) }.first
+    }
+
+    private func sanitizedModel(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty else { return nil }
+        return trimmed.lowercased() == "opencode" ? nil : trimmed
+    }
+
+    private func recursiveString(in value: Any, keys: [String]) -> String? {
+        if let dictionary = value as? [String: Any] {
+            if let direct = ProviderJSON.string(dictionary, keys: keys) {
+                return direct.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            }
+            for key in ["model_info", "modelInfo", "metadata", "session_state", "sessionState", "data"] {
+                if let child = dictionary[key],
+                   let found = recursiveString(in: child, keys: keys) {
+                    return found
+                }
+            }
+        }
+        return nil
     }
 }
 

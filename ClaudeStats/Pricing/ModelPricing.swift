@@ -94,38 +94,144 @@ struct ModelPricing: Sendable, Hashable {
 
     // MARK: Lookup
 
-    /// Exact match if we have one, otherwise a fuzzy fallback by family
-    /// (`opus` / `sonnet` / `haiku` / `gpt` / `gemini`), otherwise the
-    /// configured default.
+    /// Exact match if we have one, otherwise try common provider-prefixed
+    /// aliases before falling back by family (`opus` / `sonnet` / `haiku` /
+    /// `gpt` / `gemini`), otherwise the configured default.
     func rate(for model: String) -> Rates {
-        if let exact = rates[model] { return exact }
-        let lower = model.lowercased()
-        if let prefixed = rates
-            .keys
-            .sorted(by: { $0.count > $1.count })
-            .first(where: {
-                let key = $0.lowercased()
-                guard lower.hasPrefix(key + "-") else { return false }
-                let suffix = lower.dropFirst(key.count + 1)
-                let yearPrefix = suffix.prefix(4)
-                return yearPrefix.count == 4 && yearPrefix.allSatisfy(\.isNumber)
-            }),
-           let r = rates[prefixed] {
-            return r
+        let candidates = Self.lookupCandidates(for: model)
+        for candidate in candidates {
+            if let exact = rates[candidate] { return exact }
         }
-        func first(containing needle: String) -> Rates? {
-            rates.first { $0.key.lowercased().contains(needle) }?.value
+        if let prefixed = dateSuffixedRate(for: candidates) {
+            return prefixed
         }
-        if lower.contains("opus"), let r = first(containing: "opus") { return r }
+
+        let lower = candidates.joined(separator: " ")
+        if lower.contains("claude-5-fable"), let r = rates["claude-fable-5"] { return r }
+        if lower.contains("claude-5-mythos"), let r = rates["claude-mythos-5"] { return r }
+
+        func exactFamily(_ keys: [String]) -> Rates? {
+            keys.first { rates[$0] != nil }.flatMap { rates[$0] }
+        }
+        if lower.contains("qwen"), let r = exactFamily(["qwen3.7-max", "qwen3.7-plus", "qwen3-max"]) { return r }
+        if lower.contains("mimo"), let r = exactFamily(["mimo-v2.5", "mimo-v2.5-pro"]) { return r }
+        if lower.contains("deepseek"), let r = exactFamily(["deepseek-v4-flash", "deepseek-v4-pro"]) { return r }
+        if lower.contains("grok"), let r = exactFamily(["grok-4.3", "grok-build-0.1"]) { return r }
+        if lower.contains("llama"), let r = exactFamily(["llama-4-maverick", "llama-4-scout"]) { return r }
+        if lower.contains("gemini-flash-lite"),
+           let r = exactFamily(["gemini-3.1-flash-lite", "gemini-2.5-flash-lite"]) { return r }
+        if lower.contains("gemini") && lower.contains("flash"),
+           let r = exactFamily(["gemini-3.5-flash", "gemini-3-flash-preview", "gemini-2.5-flash"]) { return r }
+        if lower.contains("gemini") && lower.contains("pro"),
+           let r = exactFamily(["gemini-3.1-pro-preview", "gemini-2.5-pro", "gemini-3-pro"]) { return r }
+
+        func first(containing needle: String,
+                   allowFast: Bool = false,
+                   excluding excludedNeedles: [String] = []) -> Rates? {
+            rates.keys
+                .filter {
+                    let key = $0.lowercased()
+                    guard key.contains(needle) else { return false }
+                    guard !excludedNeedles.contains(where: { key.contains($0) }) else { return false }
+                    return allowFast || !key.contains("-fast")
+                }
+                .sorted(by: Self.preferredFallbackOrder)
+                .first
+                .flatMap { rates[$0] }
+        }
+        let allowFastFallback = lower.contains("fast")
+        if lower.contains("opus"), let r = first(containing: "opus", allowFast: allowFastFallback) { return r }
         if lower.contains("haiku"), let r = first(containing: "haiku") { return r }
         if lower.contains("sonnet"), let r = first(containing: "sonnet") { return r }
         if lower.contains("gpt") || lower.contains("o1") || lower.contains("o3") || lower.contains("o4") || lower.contains("codex"),
-           let r = first(containing: "gpt") { return r }
+           let r = first(containing: "gpt", excluding: lower.contains("image") ? [] : ["gpt-image"]) {
+            return r
+        }
         if lower.contains("gemini"), let r = first(containing: "gemini") { return r }
         return defaultRate
     }
 
-    func hasExactRate(for model: String) -> Bool { rates[model] != nil }
+    func hasExactRate(for model: String) -> Bool {
+        Self.lookupCandidates(for: model).contains { rates[$0] != nil }
+    }
+
+    private func dateSuffixedRate(for candidates: [String]) -> Rates? {
+        if let prefixed = rates
+            .keys
+            .sorted(by: Self.preferredFallbackOrder)
+            .first(where: { key in
+                candidates.contains { candidate in
+                    let lower = candidate.lowercased()
+                    let normalizedKey = key.lowercased()
+                    guard lower.hasPrefix(normalizedKey + "-") else { return false }
+                    let suffix = lower.dropFirst(normalizedKey.count + 1)
+                    let yearPrefix = suffix.prefix(4)
+                    return yearPrefix.count == 4 && yearPrefix.allSatisfy(\.isNumber)
+                }
+            }),
+           let r = rates[prefixed] {
+            return r
+        }
+        return nil
+    }
+
+    private static func preferredFallbackOrder(_ lhs: String, _ rhs: String) -> Bool {
+        lhs.count == rhs.count ? lhs > rhs : lhs.count > rhs.count
+    }
+
+    private static func lookupCandidates(for model: String) -> [String] {
+        var candidates: [String] = []
+        var seen: Set<String> = []
+
+        func add(_ raw: String) {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            for value in [trimmed, trimmed.lowercased()] {
+                guard seen.insert(value).inserted else { continue }
+                candidates.append(value)
+            }
+
+            let underscoreNormalized = trimmed.replacingOccurrences(of: "_", with: "-")
+            if underscoreNormalized != trimmed { add(underscoreNormalized) }
+
+            let dotNormalized = underscoreNormalized.replacingOccurrences(of: ".", with: "-")
+            if dotNormalized != underscoreNormalized { add(dotNormalized) }
+
+            if let range = trimmed.range(of: #"-v\d+$"#, options: .regularExpression) {
+                add(String(trimmed[..<range.lowerBound]))
+            }
+        }
+
+        add(model)
+        if model.hasPrefix("~") {
+            add(String(model.dropFirst()))
+        }
+
+        if let slash = model.lastIndex(of: "/") {
+            add(String(model[model.index(after: slash)...]))
+        }
+
+        let lower = model.lowercased()
+        let dottedProviders = [
+            ("anthropic.", "anthropic"),
+            ("openai.", "openai"),
+            ("google.", "google"),
+            ("x-ai.", "x-ai"),
+            ("qwen.", "qwen"),
+            ("deepseek.", "deepseek"),
+            ("xiaomi.", "xiaomi"),
+            ("meta-llama.", "meta-llama"),
+        ]
+        for (prefix, provider) in dottedProviders {
+            if lower.hasPrefix(prefix) {
+                let bare = String(model.dropFirst(prefix.count))
+                add("\(provider)/\(bare)")
+                add(bare)
+            }
+        }
+
+        return candidates
+    }
 
     /// Estimated USD cost for a chunk of usage attributed to `model`.
     func cost(model: String, usage: TokenUsage) -> Double {
@@ -266,6 +372,11 @@ struct ModelPricing: Sendable, Hashable {
     /// resource is missing.
     static let fallback = ModelPricing(
         rates: [
+            "claude-fable-5": Rates(input: 10,
+                                    output: 50,
+                                    cacheWrite5m: 12.5,
+                                    cacheWrite1h: 20,
+                                    cacheRead: 1),
             "claude-opus-4-8": Rates(input: 5,
                                      output: 25,
                                      cacheWrite5m: 6.25,
