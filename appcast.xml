@@ -6,6 +6,48 @@
     <description>Most recent updates to Claude Stats.</description>
     <language>en</language>
     <item>
+      <title>Version 1.9.4</title>
+      <sparkle:version>94</sparkle:version>
+      <sparkle:shortVersionString>1.9.4</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0.0</sparkle:minimumSystemVersion>
+      <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+      <description><![CDATA[
+<div class="cs-appcast-notes" style="font-family: -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif; color: #1f2937;">
+  <style>
+    .cs-update-size-fallback { margin: 0 0 14px; }
+    .cs-update-size-pills { display: inline-flex; align-items: center; margin-left: 10px; min-width: 0; vertical-align: middle; }
+    .cs-update-size-pill { display: inline-block; padding: 4px 10px; border: 0; border-radius: 999px; background: #eaf1ff; color: #172033; font-size: 12px; font-weight: 700; line-height: 1.2; white-space: nowrap; }
+    .cs-update-size-delta { display: none; }
+    .cs-update-size-delta.sparkle-installed-version { display: inline-block; }
+    .cs-update-size-delta.sparkle-installed-version ~ .cs-update-size-full { display: none; }
+  </style>
+<div style="margin: 0; color: #1f2937; font-size: 13px; line-height: 1.55;">
+  <p style="margin: 0 0 10px; color: #172033; font-size: 15px; font-weight: 700;">更新内容</p>
+  <div style="margin: 0; padding: 0;">
+<h2>本次更新<span class="cs-update-size-pills"><span class="cs-update-size-pill cs-update-size-delta" data-sparkle-version="93">1.9 MB</span><span class="cs-update-size-pill cs-update-size-delta" data-sparkle-version="92">3.8 MB</span><span class="cs-update-size-pill cs-update-size-delta" data-sparkle-version="91">4 MB</span><span class="cs-update-size-pill cs-update-size-full">91.5 MB</span></span></h2>
+<ul>
+<li>新增Claude Fable/Mythos、GPT-5.5 Pro等模型定价</li>
+<li>过滤掉占位符模型名称，优化收藏模型统计</li>
+<li>重构OpenCode转录解析，从消息元数据获取模型名</li>
+<li>修复OpenAI兼容格式的token统计逻辑</li>
+<li>新增了LeaderboardScoreCalculation枚举管理计算版本，为排行榜提交数据添加calculationVersion字段，更新CloudKit映射和同步指纹逻辑，修改合并策略以优先使用更新的计算版本。</li>
+<li>为Daily Report相关字符串添加简体中文翻译"日报"</li>
+<li>将MainPage的dailyReport项改为使用本地化字符串</li>
+<li>修复了Global rankings的错误翻译</li>
+</ul>
+  </div>
+</div>
+</div>
+]]></description>
+      <pubDate>Thu, 11 Jun 2026 07:50:16 GMT</pubDate>
+      <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.9.4/ClaudeStats-1.9.4.dmg" sparkle:edSignature="/bzJANQfltT03C3z7Bi4U5ivxEw0EOEdrM4gy65wtxH+/QchkYvjTJ1RRFHEs5qrrBGO+yx+vq+RLsC+P64NAw==" length="91474240" type="application/octet-stream"/>
+      <sparkle:deltas>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.9.4/ClaudeStats-94-from-93.delta" sparkle:deltaFrom="93" sparkle:edSignature="v00SjdkEnt6mO4mf66gYEM6dIbYrFBWQ5zD3TJWtoOag5hDsfYRNiVPpCHDA2HPVz6sVdljzS4gBFE3tVXPzBQ==" length="1868482" type="application/octet-stream"/>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.9.4/ClaudeStats-94-from-92.delta" sparkle:deltaFrom="92" sparkle:edSignature="5Nf2F0O5Pvn3yRH4qx19B7lv3IpVe/EK1pP83DZMzPUaWFdiXx00TxtqlHevuBVBktLXusapA46h0UxcvjDWBQ==" length="3824346" type="application/octet-stream"/>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.9.4/ClaudeStats-94-from-91.delta" sparkle:deltaFrom="91" sparkle:edSignature="b9BC7DoUqHqrrt+5SwPC79BaLE884/xzO/rLKI0ttM1o+l4tKwV2pP7nrqm28SOZywiybMX0Ff/pI1SiZd5OAA==" length="4035798" type="application/octet-stream"/>
+      </sparkle:deltas>
+    </item>
+    <item>
       <title>Version 1.9.3</title>
       <sparkle:version>93</sparkle:version>
       <sparkle:shortVersionString>1.9.3</sparkle:shortVersionString>
