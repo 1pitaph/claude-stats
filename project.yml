@@ -134,7 +134,6 @@ targets:
           CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
           CODE_SIGN_IDENTITY: "$(SIGN_IDENTITY)"
           DEVELOPMENT_TEAM: "$(APPLE_TEAM_ID)"
-          OTHER_CODE_SIGN_FLAGS: "--timestamp"
 
   ClaudeStatsMemoryCLI:
     type: tool
@@ -174,7 +173,6 @@ targets:
           CODE_SIGN_IDENTITY: "$(SIGN_IDENTITY)"
           DEVELOPMENT_TEAM: "$(APPLE_TEAM_ID)"
           ENABLE_HARDENED_RUNTIME: YES
-          OTHER_CODE_SIGN_FLAGS: "--timestamp"
 
   ClaudeStatsLocalAIHelper:
     type: tool
@@ -233,7 +231,6 @@ targets:
           CODE_SIGN_IDENTITY: "$(SIGN_IDENTITY)"
           DEVELOPMENT_TEAM: "$(APPLE_TEAM_ID)"
           ENABLE_HARDENED_RUNTIME: YES
-          OTHER_CODE_SIGN_FLAGS: "--timestamp"
 
   RockxyBackendEmbed:
     type: framework
@@ -303,7 +300,6 @@ targets:
           CODE_SIGN_IDENTITY: "$(SIGN_IDENTITY)"
           DEVELOPMENT_TEAM: "$(APPLE_TEAM_ID)"
           ENABLE_HARDENED_RUNTIME: YES
-          OTHER_CODE_SIGN_FLAGS: "--timestamp"
 
   WarpEmbed:
     type: framework
@@ -324,7 +320,6 @@ targets:
           CODE_SIGN_IDENTITY: "$(SIGN_IDENTITY)"
           DEVELOPMENT_TEAM: "$(APPLE_TEAM_ID)"
           ENABLE_HARDENED_RUNTIME: YES
-          OTHER_CODE_SIGN_FLAGS: "--timestamp"
 
   AtollEmbed:
     type: framework
@@ -405,7 +400,6 @@ targets:
           CODE_SIGN_IDENTITY: "$(SIGN_IDENTITY)"
           DEVELOPMENT_TEAM: "$(APPLE_TEAM_ID)"
           ENABLE_HARDENED_RUNTIME: YES
-          OTHER_CODE_SIGN_FLAGS: "--timestamp"
 
   ClaudeStats:
     type: application
@@ -616,7 +610,6 @@ targets:
           CODE_SIGN_IDENTITY: "$(SIGN_IDENTITY)"
           CODE_SIGN_STYLE: Manual
           DEVELOPMENT_TEAM: "$(APPLE_TEAM_ID)"
-          OTHER_CODE_SIGN_FLAGS: "--timestamp"
           PROVISIONING_PROFILE: "$(CLAUDE_STATS_PROVISIONING_PROFILE)"
           PROVISIONING_PROFILE_SPECIFIER: "$(CLAUDE_STATS_PROVISIONING_PROFILE_SPECIFIER)"
 
@@ -743,7 +736,6 @@ targets:
           CODE_SIGN_IDENTITY: "$(SIGN_IDENTITY)"
           CODE_SIGN_STYLE: Manual
           DEVELOPMENT_TEAM: "$(APPLE_TEAM_ID)"
-          OTHER_CODE_SIGN_FLAGS: "--timestamp"
           PROVISIONING_PROFILE: "$(CLAUDE_STATS_LITE_PROVISIONING_PROFILE)"
           PROVISIONING_PROFILE_SPECIFIER: "$(CLAUDE_STATS_LITE_PROVISIONING_PROFILE_SPECIFIER)"
 
@@ -789,7 +781,6 @@ targets:
           CODE_SIGN_IDENTITY: "$(SIGN_IDENTITY)"
           DEVELOPMENT_TEAM: "$(APPLE_TEAM_ID)"
           ENABLE_HARDENED_RUNTIME: YES
-          OTHER_CODE_SIGN_FLAGS: "--timestamp"
 
   ClaudeStatsiOS:
     type: application
