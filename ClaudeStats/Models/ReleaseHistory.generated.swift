@@ -3,6 +3,26 @@
 extension ReleaseHistoryCatalog {
     static let generatedEntries: [ReleaseHistoryEntry] = [
         ReleaseHistoryEntry(
+            version: "1.9.6",
+            date: "June 12, 2026",
+            headline: "Remove the `--timestamp` flag from code signing settings across all targets in project.yml. This flag is no longer needed, likely because timestamping is now handled by the signing identity or CI environment.",
+            changes: [
+                "Remove the `--timestamp` flag from code signing settings across all targets in project.yml. This flag is no longer needed, likely because timestamping is now handled by the signing identity or CI environment.",
+            ]
+        ),
+        ReleaseHistoryEntry(
+            version: "1.9.5",
+            date: "June 12, 2026",
+            headline: "Replace the previous baseline period logic (previous matching range) with a 14-day daily average baseline. Introduce `GanttBaselineConfiguration` with `averagePeriod(before:)` and `scale(for:)` methods, and add `scaled(by:)` to `GanttMetricSummary`. Update `GanttTimelineBuilder.baselineComparison` to accept a `baselineScale` parameter and apply it to baseline metrics. Adjust view models and UI text accordingly. Add tests for baseline scaling and enrichment querying the previous fourteen days.",
+            changes: [
+                "Introduce AppNotice and AppNoticeStore for displaying severity-based toasts with auto-dismiss and optional navigation actions.",
+                "Add GitOperationLog for comprehensive logging of Git command failures with configurable retention, sensitive data redaction, and log file management.",
+                "Update GitCommitCommandService to record failures via GitOperationLog with optional logEntryID and logFailures parameter.",
+                "Enhance GitCommitMessageViewModel and GitRepoGraphViewModel to use structured GitOperationFailureNotice for failure tracking.",
+                "Add LogsSettingsView for managing diagnostic logs with path display, size, retention configuration, and Finder reveal actions.",
+            ]
+        ),
+        ReleaseHistoryEntry(
             version: "1.9.4",
             date: "June 11, 2026",
             headline: "新增Claude Fable/Mythos、GPT-5.5 Pro等模型定价",

@@ -1,0 +1,6 @@
+{
+  "headline": "Remove the `--timestamp` flag from code signing settings across all targets in project.yml. This flag is no longer needed, likely because timestamping is now handled by the signing identity or CI environment.",
+  "changes": [
+    "Remove the `--timestamp` flag from code signing settings across all targets in project.yml. This flag is no longer needed, likely because timestamping is now handled by the signing identity or CI environment."
+  ]
+}
