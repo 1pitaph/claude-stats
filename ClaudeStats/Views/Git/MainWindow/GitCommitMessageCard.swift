@@ -11,6 +11,7 @@ struct GitCommitMessageCard: View {
 
     @State private var vm = GitCommitMessageViewModel()
     @State private var pendingCommitResult: GitCommitMessageResult?
+    @State private var isCommitConfirmationPresented = false
 
     init(
         repo: GitRepo,
@@ -36,10 +37,12 @@ struct GitCommitMessageCard: View {
         }
         .onChange(of: target.identity) { _, _ in
             vm.reset()
+            pendingCommitResult = nil
+            isCommitConfirmationPresented = false
         }
         .confirmationDialog(
             "Stage all changes and commit?",
-            isPresented: commitConfirmationBinding,
+            isPresented: $isCommitConfirmationPresented,
             titleVisibility: .visible
         ) {
             Button("Stage All & Commit") {
@@ -143,9 +146,12 @@ struct GitCommitMessageCard: View {
                 .controlSize(.small)
                 .disabled(isLoading || isCommitting || isPushing)
 
+                Spacer(minLength: 8)
+
                 actionPill(result: result)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var isLoading: Bool {
@@ -225,16 +231,6 @@ struct GitCommitMessageCard: View {
         }
     }
 
-    private var commitConfirmationBinding: Binding<Bool> {
-        Binding {
-            pendingCommitResult != nil
-        } set: { isPresented in
-            if !isPresented {
-                pendingCommitResult = nil
-            }
-        }
-    }
-
     @ViewBuilder
     private var commitStatus: some View {
         switch vm.commitState {
@@ -299,6 +295,7 @@ struct GitCommitMessageCard: View {
             push()
         case .idle, .failed:
             pendingCommitResult = result
+            isCommitConfirmationPresented = true
         default:
             break
         }

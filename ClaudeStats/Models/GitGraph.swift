@@ -99,6 +99,57 @@ struct GitWorkingTreeSummary: Sendable, Equatable {
     }
 }
 
+/// Local commits that are not yet represented on the current branch's remote
+/// target. This is a virtual graph row, similar to ``GitWorkingTreeSummary``.
+struct GitOutgoingChangesSummary: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case outgoing
+        case publishBranch
+    }
+
+    let kind: Kind
+    let totalCount: Int
+    let behindCount: Int
+    let upstreamName: String?
+    let headHash: String?
+    let pushTarget: GitPushTarget?
+    let commits: [GraphCommit]
+
+    static let none = GitOutgoingChangesSummary(
+        kind: .outgoing,
+        totalCount: 0,
+        behindCount: 0,
+        upstreamName: nil,
+        headHash: nil,
+        pushTarget: nil,
+        commits: []
+    )
+
+    var isActive: Bool { totalCount > 0 && pushTarget != nil }
+
+    var title: String {
+        switch kind {
+        case .outgoing:
+            return "Outgoing Changes"
+        case .publishBranch:
+            return "Publish Branch"
+        }
+    }
+
+    var countLabel: String {
+        "\(totalCount) commit\(totalCount == 1 ? "" : "s")"
+    }
+
+    var targetLabel: String {
+        switch kind {
+        case .outgoing:
+            return upstreamName ?? "upstream"
+        case .publishBranch:
+            return pushTarget?.branchName ?? "current branch"
+        }
+    }
+}
+
 /// The commit list for one repo, in display order (`--date-order`, newest first).
 struct GitGraph: Sendable {
     let repo: GitRepo
@@ -106,17 +157,20 @@ struct GitGraph: Sendable {
     /// `true` when the log hit the requested limit (more history exists).
     let truncated: Bool
     let workingTree: GitWorkingTreeSummary
+    let outgoingChanges: GitOutgoingChangesSummary
 
     init(
         repo: GitRepo,
         commits: [GraphCommit],
         truncated: Bool,
-        workingTree: GitWorkingTreeSummary = .clean
+        workingTree: GitWorkingTreeSummary = .clean,
+        outgoingChanges: GitOutgoingChangesSummary = .none
     ) {
         self.repo = repo
         self.commits = commits
         self.truncated = truncated
         self.workingTree = workingTree
+        self.outgoingChanges = outgoingChanges
     }
 }
 
@@ -127,6 +181,25 @@ struct GitGraphPage: Sendable {
     let limit: Int
     let hasMore: Bool
     let workingTree: GitWorkingTreeSummary
+    let outgoingChanges: GitOutgoingChangesSummary
+
+    init(
+        repo: GitRepo,
+        commits: [GraphCommit],
+        offset: Int,
+        limit: Int,
+        hasMore: Bool,
+        workingTree: GitWorkingTreeSummary,
+        outgoingChanges: GitOutgoingChangesSummary = .none
+    ) {
+        self.repo = repo
+        self.commits = commits
+        self.offset = offset
+        self.limit = limit
+        self.hasMore = hasMore
+        self.workingTree = workingTree
+        self.outgoingChanges = outgoingChanges
+    }
 }
 
 struct GitGraphMinimapData: Sendable, Hashable {

@@ -336,7 +336,8 @@ struct GitAnalyzer: Sendable {
             repo: repo,
             commits: page.commits,
             truncated: page.hasMore,
-            workingTree: page.workingTree
+            workingTree: page.workingTree,
+            outgoingChanges: page.outgoingChanges
         )
     }
 
@@ -366,8 +367,112 @@ struct GitAnalyzer: Sendable {
             offset: max(offset, 0),
             limit: max(limit, 1),
             hasMore: commits.count >= max(limit, 1),
-            workingTree: workingTreeSummary(for: repo)
+            workingTree: workingTreeSummary(for: repo),
+            outgoingChanges: outgoingChangesSummary(for: repo, refsByHash: refsByHash)
         )
+    }
+
+    func outgoingChangesSummary(for repo: GitRepo, refsByHash: [String: [GitRef]]? = nil) -> GitOutgoingChangesSummary {
+        guard isAvailable else { return .none }
+        let refsByHash = refsByHash ?? self.refsByHash(for: repo)
+        let headHash = runGit(["-C", repo.rootPath, "rev-parse", "--verify", "HEAD"], timeout: 15)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+
+        if let upstreamName = runGit(
+            ["-C", repo.rootPath, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+            timeout: 15
+        )?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+            let counts = aheadBehindCounts(repo: repo, range: "HEAD...@{upstream}")
+            guard counts.ahead > 0 else { return .none }
+            return GitOutgoingChangesSummary(
+                kind: .outgoing,
+                totalCount: counts.ahead,
+                behindCount: counts.behind,
+                upstreamName: upstreamName,
+                headHash: headHash,
+                pushTarget: GitPushTarget(
+                    mode: .upstream,
+                    remoteName: upstreamRemoteName(from: upstreamName),
+                    branchName: nil
+                ),
+                commits: graphCommits(in: repo, range: "@{upstream}..HEAD", limit: min(max(counts.ahead, 1), 50), refsByHash: refsByHash)
+            )
+        }
+
+        guard let branch = runGit(["-C", repo.rootPath, "branch", "--show-current"], timeout: 15)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty,
+              let remoteName = preferredRemoteName(for: repo) else {
+            return .none
+        }
+
+        let localOnlyCount = max(localOnlyCommitCount(for: repo), 0)
+        guard localOnlyCount > 0 || headHash != nil else { return .none }
+        let totalCount = max(localOnlyCount, 1)
+        return GitOutgoingChangesSummary(
+            kind: .publishBranch,
+            totalCount: totalCount,
+            behindCount: 0,
+            upstreamName: nil,
+            headHash: headHash,
+            pushTarget: GitPushTarget(mode: .publishBranch, remoteName: remoteName, branchName: branch),
+            commits: graphCommits(in: repo, range: "HEAD --not --remotes", limit: min(max(totalCount, 1), 50), refsByHash: refsByHash)
+        )
+    }
+
+    private func aheadBehindCounts(repo: GitRepo, range: String) -> (ahead: Int, behind: Int) {
+        guard let output = runGit(["-C", repo.rootPath, "rev-list", "--left-right", "--count", range], timeout: 15) else {
+            return (0, 0)
+        }
+        let values = output
+            .split(whereSeparator: { $0 == " " || $0 == "\t" || $0 == "\n" })
+            .compactMap { Int($0) }
+        guard values.count >= 2 else { return (0, 0) }
+        return (values[0], values[1])
+    }
+
+    private func localOnlyCommitCount(for repo: GitRepo) -> Int {
+        guard let output = runGit(["-C", repo.rootPath, "rev-list", "--count", "HEAD", "--not", "--remotes"], timeout: 15)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return 0
+        }
+        return Int(output) ?? 0
+    }
+
+    private func preferredRemoteName(for repo: GitRepo) -> String? {
+        let remotes = (runGit(["-C", repo.rootPath, "remote"], timeout: 15) ?? "")
+            .split(separator: "\n")
+            .map(String.init)
+            .filter { !$0.isEmpty }
+        if remotes.contains("origin") { return "origin" }
+        return remotes.first
+    }
+
+    private func upstreamRemoteName(from upstream: String) -> String? {
+        guard let slash = upstream.firstIndex(of: "/") else { return nil }
+        let remote = String(upstream[..<slash]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return remote.isEmpty ? nil : remote
+    }
+
+    private func graphCommits(in repo: GitRepo, range: String, limit: Int, refsByHash: [String: [GitRef]]) -> [GraphCommit] {
+        guard limit > 0 else { return [] }
+        let f = Self.fieldSep
+        let format = "format:\(Self.recordSep)%H\(f)%P\(f)%D\(f)%an\(f)%ae\(f)%at\(f)%s"
+        let args = ["-C", repo.rootPath, "log", "--date-order", "-n", "\(limit)", "--pretty=\(format)"] + range.split(separator: " ").map(String.init)
+        guard let output = runGit(args, timeout: 30) else { return [] }
+        return Self.parseGraphLog(output).map { commit in
+            guard let refs = refsByHash[commit.hash], !refs.isEmpty else { return commit }
+            return GraphCommit(
+                hash: commit.hash,
+                parentHashes: commit.parentHashes,
+                refs: refs,
+                author: commit.author,
+                authorEmail: commit.authorEmail,
+                date: commit.date,
+                subject: commit.subject
+            )
+        }
     }
 
     /// Working tree changes that are not represented by a commit. This includes

@@ -130,6 +130,11 @@ struct GitRepoWorkspaceView: View {
                         .font(.sora(10).monospacedDigit())
                         .foregroundStyle(Color.stxMuted)
                 }
+                if graph.outgoingChanges.isActive {
+                    Text("\(graph.outgoingChanges.totalCount) outgoing")
+                        .font(.sora(10).monospacedDigit())
+                        .foregroundStyle(Color.stxMuted)
+                }
                 if graph.truncated {
                     Button {
                         vm.loadMore()
@@ -149,8 +154,9 @@ struct GitRepoWorkspaceView: View {
 
     @ViewBuilder
     private var graphContent: some View {
-        if let graph = vm.graph, let layout = vm.layout, graph.workingTree.isDirty || !layout.rows.isEmpty {
+        if let graph = vm.graph, let layout = vm.layout, graph.workingTree.isDirty || graph.outgoingChanges.isActive || !layout.rows.isEmpty {
             let hasWorkingTree = graph.workingTree.isDirty
+            let hasOutgoing = graph.outgoingChanges.isActive
             if let minimapData = vm.minimapData, !minimapData.buckets.isEmpty {
                 HoverableSplitView(
                     axis: .horizontal,
@@ -179,11 +185,11 @@ struct GitRepoWorkspaceView: View {
                     }
                     .frame(minHeight: Self.historyMinHeight, maxHeight: .infinity)
                 } secondary: {
-                    graphRows(graph: graph, layout: layout, hasWorkingTree: hasWorkingTree)
+                    graphRows(graph: graph, layout: layout, hasWorkingTree: hasWorkingTree, hasOutgoing: hasOutgoing)
                         .frame(minHeight: 0, maxHeight: .infinity)
                 }
             } else {
-                graphRows(graph: graph, layout: layout, hasWorkingTree: hasWorkingTree)
+                graphRows(graph: graph, layout: layout, hasWorkingTree: hasWorkingTree, hasOutgoing: hasOutgoing)
             }
         } else if vm.isGraphLoading {
             ProgressView()
@@ -195,7 +201,7 @@ struct GitRepoWorkspaceView: View {
         }
     }
 
-    private func graphRows(graph: GitGraph, layout: GraphLayout, hasWorkingTree: Bool) -> some View {
+    private func graphRows(graph: GitGraph, layout: GraphLayout, hasWorkingTree: Bool, hasOutgoing: Bool) -> some View {
         AppScrollView {
             LazyVStack(spacing: 0) {
                 if hasWorkingTree {
@@ -212,6 +218,21 @@ struct GitRepoWorkspaceView: View {
                         vm.selectWorkingTree()
                     }
                 }
+                if hasOutgoing {
+                    GitOutgoingChangesRowView(
+                        summary: graph.outgoingChanges,
+                        rowHeight: Self.workingTreeRowHeight,
+                        geometry: rowGeometry,
+                        nodeRadius: Self.nodeRadius,
+                        railWidth: railWidth,
+                        railColorIndex: layout.rows.first?.colorIndex ?? 0,
+                        connectsFromTop: hasWorkingTree,
+                        isSelected: inspectorMode == .outgoing
+                    ) {
+                        inspectorMode = .outgoing
+                        vm.selectOutgoingChanges()
+                    }
+                }
                 ForEach(layout.rows) { row in
                     GitGraphRowView(
                         row: row,
@@ -220,7 +241,7 @@ struct GitRepoWorkspaceView: View {
                         nodeRadius: Self.nodeRadius,
                         railWidth: railWidth,
                         isSelected: inspectorMode == .commit && vm.selectedHash == row.commit.hash,
-                        connectsFromTop: hasWorkingTree && row.id == layout.rows.first?.id
+                        connectsFromTop: (hasWorkingTree || hasOutgoing) && row.id == layout.rows.first?.id
                     ) {
                         inspectorMode = .commit
                         vm.selectCommit(row.commit.hash)
@@ -243,7 +264,6 @@ private struct GitCommitInspector: View {
 
     @Binding var mode: GitInspectorMode
     @State private var diffRequest: GitFileDiffRequest?
-    @State private var keepPostCommitPushCard = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -252,6 +272,8 @@ private struct GitCommitInspector: View {
             switch mode {
             case .commit:
                 commitBody
+            case .outgoing:
+                outgoingBody
             case .workingTree:
                 workingTreeBody
             case .repo:
@@ -263,8 +285,12 @@ private struct GitCommitInspector: View {
         .sheet(item: $diffRequest) { request in
             GitFileDiffViewer(request: request)
         }
-        .onChange(of: repo.id) { _, _ in
-            keepPostCommitPushCard = false
+        .onChange(of: repo.id) { _, _ in mode = .repo }
+        .onChange(of: vm.graph?.outgoingChanges.isActive == true) { _, isActive in
+            if !isActive, mode == .outgoing { mode = .repo }
+        }
+        .onChange(of: vm.graph?.workingTree.isDirty == true) { _, isDirty in
+            if !isDirty, mode == .workingTree { mode = .repo }
         }
         .task(id: "\(repo.id)|\(mode.rawValue)|\(vm.statsScope.rawValue)|\(vm.statsRefreshGeneration)") {
             guard mode == .repo else { return }
@@ -282,16 +308,19 @@ private struct GitCommitInspector: View {
                 fadeWidth: 36
             )
             Picker("", selection: $mode) {
-                ForEach(GitInspectorMode.modes(hasWorkingTree: vm.graph?.workingTree.isDirty == true)) { mode in
+                ForEach(GitInspectorMode.modes(
+                    hasWorkingTree: vm.graph?.workingTree.isDirty == true,
+                    hasOutgoing: vm.graph?.outgoingChanges.isActive == true
+                )) { mode in
                     Text(mode.label).tag(mode)
                 }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
             .controlSize(.mini)
-            .frame(width: vm.graph?.workingTree.isDirty == true ? 176 : 112)
+            .frame(width: inspectorModePickerWidth)
             .help("Switch inspector mode")
-            if vm.isDetailLoading || vm.isStatsLoading {
+            if vm.isDetailLoading || vm.isStatsLoading || vm.isOutgoingPushRunning {
                 ProgressView()
                     .controlSize(.mini)
             }
@@ -300,9 +329,22 @@ private struct GitCommitInspector: View {
         .padding(.vertical, 12)
     }
 
+    private var inspectorModePickerWidth: CGFloat {
+        let count = GitInspectorMode.modes(
+            hasWorkingTree: vm.graph?.workingTree.isDirty == true,
+            hasOutgoing: vm.graph?.outgoingChanges.isActive == true
+        ).count
+        return CGFloat(count) * 64
+    }
+
     private var inspectorTitle: String {
         switch mode {
         case .commit: return "COMMIT INSPECTOR"
+        case .outgoing:
+            if vm.graph?.outgoingChanges.kind == .publishBranch {
+                return "PUBLISH BRANCH"
+            }
+            return "OUTGOING CHANGES"
         case .workingTree: return "WORKING TREE"
         case .repo: return "REPO INSPECTOR"
         }
@@ -429,37 +471,33 @@ private struct GitCommitInspector: View {
 
     @ViewBuilder
     private var workingTreeBody: some View {
-        if let summary = vm.graph?.workingTree, summary.isDirty || keepPostCommitPushCard {
+        if let summary = vm.graph?.workingTree, summary.isDirty {
             GeometryReader { proxy in
                 let viewportWidth = max(0, proxy.size.width)
 
                 AppScrollView {
                     VStack(alignment: .leading, spacing: 14) {
-                        if summary.isDirty {
-                            workingTreeSummary(summary)
-                        } else {
-                            postCommitPushSummary
-                        }
+                        workingTreeSummary(summary)
                         GitCommitMessageCard(
                             repo: repo,
                             target: .workingTree,
                             onLocalCommitSucceeded: { outcome in
-                                if outcome.pushTarget == nil {
-                                    await vm.reloadAfterRepositoryMutation(repo: repo)
-                                    env.gitActivity.bumpReload()
+                                await vm.reloadAfterRepositoryMutation(repo: repo)
+                                env.gitActivity.bumpReload()
+                                if outcome.pushTarget != nil, vm.graph?.outgoingChanges.isActive == true {
+                                    mode = .outgoing
+                                    vm.selectOutgoingChanges()
                                 } else {
-                                    keepPostCommitPushCard = true
+                                    mode = .repo
                                 }
                             },
                             onPushSucceeded: {
-                                keepPostCommitPushCard = false
                                 await vm.reloadAfterRepositoryMutation(repo: repo)
                                 env.gitActivity.bumpReload()
+                                mode = .repo
                             }
                         )
-                        if summary.isDirty {
-                            workingTreeFiles(summary)
-                        }
+                        workingTreeFiles(summary)
                     }
                     .padding(14)
                     .frame(width: viewportWidth, alignment: .topLeading)
@@ -470,25 +508,6 @@ private struct GitCommitInspector: View {
             GitWorkspaceInlineEmptyState("No working tree changes.")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-    }
-
-    private var postCommitPushSummary: some View {
-        HStack(spacing: 9) {
-            Image(systemName: AppIcon.Status.success)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(GitPalette.head)
-                .frame(width: 28, height: 28)
-                .background(Color.stxAccent.opacity(0.10), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Local commit ready to push")
-                    .font(.sora(13, weight: .semibold))
-                Text("Push the commit to the remote to sync changes.")
-                    .font(.sora(10))
-                    .foregroundStyle(Color.stxMuted)
-            }
-        }
-        .padding(12)
-        .gitWorkspaceCard()
     }
 
     private func workingTreeSummary(_ summary: GitWorkingTreeSummary) -> some View {
@@ -530,6 +549,131 @@ private struct GitCommitInspector: View {
     }
 
     @ViewBuilder
+    private var outgoingBody: some View {
+        if let summary = vm.graph?.outgoingChanges, summary.isActive {
+            GeometryReader { proxy in
+                let viewportWidth = max(0, proxy.size.width)
+
+                AppScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        outgoingSummary(summary)
+                        outgoingAction(summary)
+                        if !summary.commits.isEmpty {
+                            outgoingCommits(summary)
+                        }
+                    }
+                    .padding(14)
+                    .frame(width: viewportWidth, alignment: .topLeading)
+                }
+                .frame(width: viewportWidth, height: proxy.size.height, alignment: .topLeading)
+            }
+        } else {
+            GitWorkspaceInlineEmptyState("No outgoing changes.")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private func outgoingSummary(_ summary: GitOutgoingChangesSummary) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 9) {
+                Image(systemName: summary.kind == .publishBranch ? AppIcon.Action.exportFile : AppIcon.Action.uploadTray)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(GitPalette.head)
+                    .frame(width: 28, height: 28)
+                    .background(Color.stxAccent.opacity(0.10), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(summary.title)
+                        .font(.sora(13, weight: .semibold))
+                    Text(outgoingSummarySubtitle(summary))
+                        .font(.sora(10))
+                        .foregroundStyle(Color.stxMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            HStack(spacing: 6) {
+                WorkingTreeCountPill(label: "outgoing", count: summary.totalCount)
+                if summary.behindCount > 0 {
+                    WorkingTreeCountPill(label: "incoming", count: summary.behindCount)
+                }
+            }
+        }
+        .padding(12)
+        .gitWorkspaceCard()
+    }
+
+    private func outgoingSummarySubtitle(_ summary: GitOutgoingChangesSummary) -> String {
+        switch summary.kind {
+        case .outgoing:
+            return "Local commits not yet on \(summary.targetLabel)."
+        case .publishBranch:
+            return "Publish \(summary.targetLabel) and set its upstream."
+        }
+    }
+
+    private func outgoingAction(_ summary: GitOutgoingChangesSummary) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            GitOutgoingActionPill(
+                label: summary.pushTarget?.buttonLabel ?? "Push",
+                systemImage: summary.kind == .publishBranch ? AppIcon.Action.exportFile : AppIcon.Action.uploadTray,
+                isRunning: vm.isOutgoingPushRunning,
+                isDisabled: summary.pushTarget == nil || vm.isOutgoingPushRunning
+            ) {
+                Task {
+                    guard await vm.pushOutgoingChanges(repo: repo) else { return }
+                    env.gitActivity.bumpReload()
+                    mode = .repo
+                }
+            }
+
+            if let error = vm.outgoingPushError {
+                Label(error, systemImage: AppIcon.Status.warning)
+                    .font(.sora(10))
+                    .foregroundStyle(Color.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(12)
+        .gitWorkspaceCard()
+    }
+
+    private func outgoingCommits(_ summary: GitOutgoingChangesSummary) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("COMMITS")
+                .font(.sora(10, weight: .semibold))
+                .tracking(0.8)
+                .foregroundStyle(Color.stxMuted)
+            ForEach(summary.commits.prefix(12), id: \.hash) { commit in
+                outgoingCommitRow(commit)
+            }
+        }
+        .padding(12)
+        .gitWorkspaceCard()
+    }
+
+    private func outgoingCommitRow(_ commit: GraphCommit) -> some View {
+        HStack(spacing: 8) {
+            GitAvatar(name: commit.author, email: commit.authorEmail)
+                .frame(width: 22, height: 22)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(TitleSanitizer.sanitize(commit.subject) ?? commit.subject)
+                    .font(.sora(10, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                HStack(spacing: 6) {
+                    Text(commit.shortHash)
+                        .font(.sora(9).monospacedDigit())
+                        .foregroundStyle(Color.stxAccent)
+                    Text(Format.shortDate(commit.date))
+                        .font(.sora(9).monospacedDigit())
+                        .foregroundStyle(Color.stxMuted)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    @ViewBuilder
     private var repoBody: some View {
         if let stats = vm.repoBaseStats {
             AppScrollView {
@@ -564,6 +708,7 @@ private struct GitCommitInspector: View {
 
 private enum GitInspectorMode: String, CaseIterable, Identifiable {
     case commit
+    case outgoing
     case workingTree
     case repo
 
@@ -572,13 +717,52 @@ private enum GitInspectorMode: String, CaseIterable, Identifiable {
     var label: String {
         switch self {
         case .commit: return "Commit"
+        case .outgoing: return "Sync"
         case .workingTree: return "Worktree"
         case .repo: return "Repo"
         }
     }
 
-    static func modes(hasWorkingTree: Bool) -> [GitInspectorMode] {
-        hasWorkingTree ? [.commit, .workingTree, .repo] : [.commit, .repo]
+    static func modes(hasWorkingTree: Bool, hasOutgoing: Bool) -> [GitInspectorMode] {
+        var modes: [GitInspectorMode] = [.commit]
+        if hasOutgoing { modes.append(.outgoing) }
+        if hasWorkingTree { modes.append(.workingTree) }
+        modes.append(.repo)
+        return modes
+    }
+}
+
+private struct GitOutgoingActionPill: View {
+    let label: String
+    let systemImage: String
+    let isRunning: Bool
+    let isDisabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                if isRunning {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .scaleEffect(0.7)
+                } else {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                Text(label)
+                    .font(.sora(10, weight: .semibold))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(isDisabled ? AppSurface.pillForeground.opacity(0.55) : Color.stxAccent)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(AppSurface.pillFill, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .help(label)
+        .accessibilityLabel(label)
     }
 }
 

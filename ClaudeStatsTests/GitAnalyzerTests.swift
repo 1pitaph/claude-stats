@@ -591,6 +591,69 @@ struct GitAnalyzerTests {
         #expect(refs[hash]?.contains(GitRef(kind: .tag, name: "v-annotated")) == true)
     }
 
+    @Test("graph page reports outgoing commits ahead of upstream", .enabled(if: GitAnalyzer().isAvailable))
+    func graphPageReportsOutgoingCommitsAheadOfUpstream() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("git-outgoing-\(UUID().uuidString)")
+        let remote = FileManager.default.temporaryDirectory.appendingPathComponent("git-outgoing-remote-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: remote, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: dir)
+            try? FileManager.default.removeItem(at: remote)
+        }
+
+        try run(["init", "--bare"], in: remote)
+        try run(["init", "-q", "-b", "main"], in: dir)
+        try run(["config", "user.email", "me@example.com"], in: dir)
+        try run(["config", "user.name", "Me"], in: dir)
+        try run(["config", "commit.gpgsign", "false"], in: dir)
+        try run(["remote", "add", "origin", remote.path], in: dir)
+        try "one\n".write(to: dir.appendingPathComponent("readme.md"), atomically: true, encoding: .utf8)
+        try run(["add", "readme.md"], in: dir)
+        try run(["commit", "-q", "-m", "Initial"], in: dir)
+        try run(["push", "-u", "origin", "main"], in: dir)
+        try "two\n".write(to: dir.appendingPathComponent("readme.md"), atomically: true, encoding: .utf8)
+        try run(["commit", "-am", "Local change"], in: dir)
+
+        let page = try #require(GitAnalyzer().graphPage(for: GitRepo(rootPath: dir.path), offset: 0, limit: 10))
+
+        #expect(page.outgoingChanges.kind == .outgoing)
+        #expect(page.outgoingChanges.totalCount == 1)
+        #expect(page.outgoingChanges.targetLabel == "origin/main")
+        #expect(page.outgoingChanges.pushTarget?.buttonLabel == "Push origin")
+        #expect(page.outgoingChanges.commits.first?.subject == "Local change")
+    }
+
+    @Test("graph page reports publish branch when branch has no upstream", .enabled(if: GitAnalyzer().isAvailable))
+    func graphPageReportsPublishBranchWithoutUpstream() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("git-publish-\(UUID().uuidString)")
+        let remote = FileManager.default.temporaryDirectory.appendingPathComponent("git-publish-remote-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: remote, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: dir)
+            try? FileManager.default.removeItem(at: remote)
+        }
+
+        try run(["init", "--bare"], in: remote)
+        try run(["init", "-q", "-b", "feature/local"], in: dir)
+        try run(["config", "user.email", "me@example.com"], in: dir)
+        try run(["config", "user.name", "Me"], in: dir)
+        try run(["config", "commit.gpgsign", "false"], in: dir)
+        try run(["remote", "add", "origin", remote.path], in: dir)
+        try "one\n".write(to: dir.appendingPathComponent("readme.md"), atomically: true, encoding: .utf8)
+        try run(["add", "readme.md"], in: dir)
+        try run(["commit", "-q", "-m", "Feature start"], in: dir)
+
+        let page = try #require(GitAnalyzer().graphPage(for: GitRepo(rootPath: dir.path), offset: 0, limit: 10))
+
+        #expect(page.outgoingChanges.kind == .publishBranch)
+        #expect(page.outgoingChanges.totalCount == 1)
+        #expect(page.outgoingChanges.targetLabel == "feature/local")
+        #expect(page.outgoingChanges.pushTarget?.buttonLabel == "Publish Branch")
+        #expect(page.outgoingChanges.commits.first?.subject == "Feature start")
+    }
+
     // MARK: helpers
 
     @discardableResult

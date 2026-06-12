@@ -15,6 +15,8 @@ final class GitRepoGraphViewModel {
     private(set) var codeOwnershipState: GitCodeOwnershipLoadState = .idle
     private(set) var minimapData: GitGraphMinimapData?
     private(set) var isMinimapLoading = false
+    private(set) var isOutgoingPushRunning = false
+    private(set) var outgoingPushError: String?
     private(set) var currentRepoID: String?
     private(set) var loadedLimit = 0
     private(set) var statsRefreshGeneration: UInt64 = 0
@@ -46,6 +48,7 @@ final class GitRepoGraphViewModel {
     @ObservationIgnored private var repoBaseStatsRepoID: String?
     @ObservationIgnored private var repoBaseStatsScope: GitStatsScope?
     @ObservationIgnored private var repoBaseStatsGeneration: UInt64 = 0
+    @ObservationIgnored private let commitCommandService = GitCommitCommandService()
 
     init() {
         isPreview = false
@@ -144,7 +147,8 @@ final class GitRepoGraphViewModel {
             repo: page.repo,
             commits: commits,
             truncated: page.hasMore,
-            workingTree: page.workingTree
+            workingTree: page.workingTree,
+            outgoingChanges: page.outgoingChanges
         )
         layout = GraphLayout.build(commits)
         loadedLimit = requestedOffset + page.commits.count
@@ -262,6 +266,13 @@ final class GitRepoGraphViewModel {
         commitDetail = nil
     }
 
+    func selectOutgoingChanges() {
+        invalidateDetailRequest()
+        selectedHash = nil
+        updateMinimapSelection()
+        commitDetail = nil
+    }
+
     func loadMore() {
         limit = max(limit, loadedLimit) + pageSize
     }
@@ -318,6 +329,27 @@ final class GitRepoGraphViewModel {
         await repositoryDidChange(repo: repo)
     }
 
+    func pushOutgoingChanges(repo: GitRepo) async -> Bool {
+        guard let target = graph?.outgoingChanges.pushTarget else {
+            outgoingPushError = "No remote push target is configured for the current branch."
+            return false
+        }
+        isOutgoingPushRunning = true
+        outgoingPushError = nil
+        defer { isOutgoingPushRunning = false }
+
+        do {
+            _ = try await commitCommandService.pushCommittedChanges(repo: repo, target: target)
+            await repositoryDidChange(repo: repo)
+            return true
+        } catch is CancellationError {
+            return false
+        } catch {
+            outgoingPushError = error.localizedDescription
+            return false
+        }
+    }
+
     private func reset(for repo: GitRepo) {
         invalidateGraphRequest()
         invalidateDetailRequest()
@@ -335,6 +367,7 @@ final class GitRepoGraphViewModel {
         repoBaseStatsGeneration = 0
         codeOwnershipState = .idle
         minimapData = nil
+        outgoingPushError = nil
         selectedHash = nil
         loadedLimit = 0
         limit = pageSize

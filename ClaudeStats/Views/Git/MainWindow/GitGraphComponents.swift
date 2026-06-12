@@ -197,6 +197,78 @@ struct GitWorkingTreeRowView: View {
     }
 }
 
+struct GitOutgoingChangesRowView: View {
+    let summary: GitOutgoingChangesSummary
+    let rowHeight: CGFloat
+    let geometry: GitGraphRowGeometry
+    let nodeRadius: CGFloat
+    let railWidth: CGFloat
+    let railColorIndex: Int
+    let connectsFromTop: Bool
+    let isSelected: Bool
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    private var subtitle: String {
+        switch summary.kind {
+        case .outgoing:
+            if summary.behindCount > 0 {
+                return "\(summary.countLabel) outgoing, \(summary.behindCount) incoming"
+            }
+            return "\(summary.countLabel) ready for \(summary.targetLabel)"
+        case .publishBranch:
+            return "\(summary.countLabel) ready to publish"
+        }
+    }
+
+    var body: some View {
+        Button(action: action) {
+            ZStack(alignment: .leading) {
+                GitOutgoingChangesRailView(
+                    geometry: geometry,
+                    nodeRadius: nodeRadius,
+                    railColorIndex: railColorIndex,
+                    connectsFromTop: connectsFromTop
+                )
+                .frame(width: railWidth)
+
+                HStack(spacing: 0) {
+                    Color.clear
+                        .frame(width: geometry.workingTreeContentLeading)
+                    HStack(spacing: 8) {
+                        GitOutgoingChangesIcon(kind: summary.kind)
+                            .frame(width: 20, height: 20)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(summary.title)
+                                .font(.sora(13, weight: .semibold))
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                            Text(subtitle)
+                                .font(.sora(9))
+                                .foregroundStyle(Color.stxMuted)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+
+                        Spacer(minLength: 8)
+                    }
+                }
+                .padding(.trailing, 14)
+            }
+            .frame(height: rowHeight)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background((hovering || isSelected) ? Color.primary.opacity(0.05) : Color.clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .accessibilityLabel(Text(summary.title))
+    }
+}
+
 private struct GitWorkingTreeRailView: View {
     let geometry: GitGraphRowGeometry
     let nodeRadius: CGFloat
@@ -230,6 +302,52 @@ private struct GitWorkingTreeRailView: View {
     }
 }
 
+private struct GitOutgoingChangesRailView: View {
+    let geometry: GitGraphRowGeometry
+    let nodeRadius: CGFloat
+    let railColorIndex: Int
+    let connectsFromTop: Bool
+
+    private func color(_ idx: Int) -> Color { Color.stxRamp[idx % Color.stxRamp.count] }
+
+    var body: some View {
+        Canvas { ctx, size in
+            let midY = size.height / 2
+            let railColor = color(railColorIndex)
+
+            if connectsFromTop {
+                var top = Path()
+                top.move(to: CGPoint(x: geometry.laneX(0), y: 0))
+                top.addLine(to: CGPoint(x: geometry.laneX(0), y: midY - nodeRadius - 2))
+                ctx.stroke(
+                    top,
+                    with: .color(railColor),
+                    style: StrokeStyle(lineWidth: 1.6, lineCap: .round, dash: [2, 4])
+                )
+            }
+
+            var bottom = Path()
+            bottom.move(to: CGPoint(x: geometry.laneX(0), y: midY + nodeRadius + 2))
+            bottom.addLine(to: CGPoint(x: geometry.laneX(0), y: size.height))
+            ctx.stroke(
+                bottom,
+                with: .color(railColor),
+                style: StrokeStyle(lineWidth: 1.6, lineCap: .round, dash: [2, 4])
+            )
+
+            let c = CGPoint(x: geometry.laneX(0), y: midY)
+            let ring = Path(ellipseIn: CGRect(
+                x: c.x - nodeRadius - 2,
+                y: c.y - nodeRadius - 2,
+                width: (nodeRadius + 2) * 2,
+                height: (nodeRadius + 2) * 2
+            ))
+            ctx.fill(ring, with: .color(Color.stxBackground))
+            ctx.stroke(ring, with: .color(GitPalette.head), lineWidth: 1.8)
+        }
+    }
+}
+
 private struct GitWorkingTreeIcon: View {
     var body: some View {
         RoundedRectangle(cornerRadius: 4, style: .continuous)
@@ -240,6 +358,25 @@ private struct GitWorkingTreeIcon: View {
             .background(
                 RoundedRectangle(cornerRadius: 4, style: .continuous)
                     .fill(Color.primary.opacity(0.025))
+            )
+    }
+}
+
+private struct GitOutgoingChangesIcon: View {
+    let kind: GitOutgoingChangesSummary.Kind
+
+    var body: some View {
+        Image(systemName: kind == .publishBranch ? AppIcon.Action.exportFile : AppIcon.Action.uploadTray)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(GitPalette.head)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(Color.stxAccent.opacity(0.12))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .strokeBorder(GitPalette.head.opacity(0.35), lineWidth: 1)
             )
     }
 }

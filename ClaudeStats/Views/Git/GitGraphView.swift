@@ -87,7 +87,13 @@ struct GitGraphView: View {
             let page = await GitRepositoryService.shared.graphPage(for: r, offset: 0, limit: n)
             guard !Task.isCancelled, repo.id == r.id, limit == n else { return }
             let g = page.map {
-                GitGraph(repo: $0.repo, commits: $0.commits, truncated: $0.hasMore, workingTree: $0.workingTree)
+                GitGraph(
+                    repo: $0.repo,
+                    commits: $0.commits,
+                    truncated: $0.hasMore,
+                    workingTree: $0.workingTree,
+                    outgoingChanges: $0.outgoingChanges
+                )
             }
             graph = g
             layout = g.map { GraphLayout.build($0.commits) }
@@ -119,6 +125,11 @@ struct GitGraphView: View {
                         .font(.sora(9).monospacedDigit())
                         .foregroundStyle(Color.stxMuted)
                 }
+                if g.outgoingChanges.isActive {
+                    Text("\(g.outgoingChanges.totalCount) outgoing")
+                        .font(.sora(9).monospacedDigit())
+                        .foregroundStyle(Color.stxMuted)
+                }
                 if g.truncated {
                     Button("More") { limit += 200 }
                         .buttonStyle(.plain)
@@ -135,8 +146,9 @@ struct GitGraphView: View {
 
     @ViewBuilder
     private var content: some View {
-        if let graph, let layout, graph.workingTree.isDirty || !layout.rows.isEmpty {
+        if let graph, let layout, graph.workingTree.isDirty || graph.outgoingChanges.isActive || !layout.rows.isEmpty {
             let hasWorkingTree = graph.workingTree.isDirty
+            let hasOutgoing = graph.outgoingChanges.isActive
             AppScrollView {
                 LazyVStack(spacing: 0) {
                     if hasWorkingTree {
@@ -154,6 +166,22 @@ struct GitGraphView: View {
                             }
                         }
                     }
+                    if hasOutgoing {
+                        GitOutgoingChangesRowView(
+                            summary: graph.outgoingChanges,
+                            rowHeight: Self.workingTreeRowHeight,
+                            geometry: rowGeometry,
+                            nodeRadius: Self.nodeRadius,
+                            railWidth: railWidth,
+                            railColorIndex: layout.rows.first?.colorIndex ?? 0,
+                            connectsFromTop: hasWorkingTree,
+                            isSelected: false
+                        ) {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                expandedHash = nil
+                            }
+                        }
+                    }
                     ForEach(layout.rows) { row in
                         VStack(spacing: 0) {
                             GitGraphRowView(row: row,
@@ -162,7 +190,7 @@ struct GitGraphView: View {
                                             nodeRadius: Self.nodeRadius,
                                             railWidth: railWidth,
                                             isSelected: expandedHash == row.id,
-                                            connectsFromTop: hasWorkingTree && row.id == layout.rows.first?.id) {
+                                            connectsFromTop: (hasWorkingTree || hasOutgoing) && row.id == layout.rows.first?.id) {
                                 toggle(row.commit.hash)
                             }
                             if expandedHash == row.id {
