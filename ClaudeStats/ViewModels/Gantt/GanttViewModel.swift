@@ -124,7 +124,8 @@ final class GanttViewModel {
         }
 
         let requestedPeriod = period
-        let requestedBaselinePeriod = baselinePeriod(before: requestedPeriod)
+        let requestedBaselinePeriod = GanttBaselineConfiguration.averagePeriod(before: requestedPeriod, calendar: calendar)
+        let requestedBaselineScale = GanttBaselineConfiguration.scale(for: requestedPeriod, calendar: calendar)
         let requestedMode = activityMode
         let focusIntervalLoader = self.focusIntervalLoader
         let focusBundleIDs = codingSurfaceBundleIDs.union(cliHostBundleIDs)
@@ -159,6 +160,7 @@ final class GanttViewModel {
                 sessions: sessions,
                 period: requestedPeriod,
                 baselinePeriod: requestedBaselinePeriod,
+                baselineScale: requestedBaselineScale,
                 activityMode: requestedMode,
                 focusBundleIDs: focusBundleIDs,
                 currentFocusAppIntervals: payload.currentFocusAppIntervals
@@ -181,6 +183,7 @@ final class GanttViewModel {
         sessions: [Session],
         period: GanttPeriod,
         baselinePeriod: GanttPeriod,
+        baselineScale: Double,
         activityMode: GanttActivityMode,
         focusBundleIDs: Set<String>,
         currentFocusAppIntervals: [AppFocusInterval]
@@ -193,6 +196,7 @@ final class GanttViewModel {
                 sessions: sessions,
                 period: period,
                 baselinePeriod: baselinePeriod,
+                baselineScale: baselineScale,
                 activityMode: activityMode,
                 focusBundleIDs: focusBundleIDs,
                 currentFocusAppIntervals: currentFocusAppIntervals,
@@ -264,6 +268,7 @@ final class GanttViewModel {
         sessions: [Session],
         period: GanttPeriod,
         baselinePeriod: GanttPeriod,
+        baselineScale: Double,
         activityMode: GanttActivityMode,
         focusBundleIDs: Set<String>,
         currentFocusAppIntervals: [AppFocusInterval],
@@ -307,7 +312,11 @@ final class GanttViewModel {
         )
         let built = await (current: current, baseline: baseline)
         return built.current.withBaselineComparison(
-            GanttTimelineBuilder.baselineComparison(current: built.current, baseline: built.baseline)
+            GanttTimelineBuilder.baselineComparison(
+                current: built.current,
+                baseline: built.baseline,
+                baselineScale: baselineScale
+            )
         )
     }
 
@@ -334,11 +343,6 @@ final class GanttViewModel {
         } onCancel: {
             task.cancel()
         }
-    }
-
-    private func baselinePeriod(before period: GanttPeriod) -> GanttPeriod {
-        let baselineDate = range.stepping(period.domain.start, by: -1, calendar: calendar)
-        return range.period(containing: baselineDate, now: period.domain.start, calendar: calendar)
     }
 
     func refreshPermissionState() {

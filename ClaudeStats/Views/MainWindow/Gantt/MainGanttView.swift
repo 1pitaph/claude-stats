@@ -524,7 +524,7 @@ private struct GanttBaselinePanel: View {
             Text("BASELINE")
                 .font(.sora(13, weight: .semibold))
                 .tracking(1.0)
-            Text("Compared with the previous matching range.")
+            Text("Compared with the previous 14-day daily average.")
                 .font(.sora(10))
                 .foregroundStyle(Color.stxMuted)
         }

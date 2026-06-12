@@ -80,7 +80,8 @@ final class GanttProjectDetailViewModel {
 
         let requestedPeriod = GanttPeriod.recentSevenDays()
         period = requestedPeriod
-        let requestedBaselinePeriod = baselinePeriod(before: requestedPeriod)
+        let requestedBaselinePeriod = GanttBaselineConfiguration.averagePeriod(before: requestedPeriod)
+        let requestedBaselineScale = GanttBaselineConfiguration.scale(for: requestedPeriod)
         let requestedMode = activityMode
         let focusIntervalLoader = self.focusIntervalLoader
         let focusBundleIDs = codingSurfaceBundleIDs.union(cliHostBundleIDs)
@@ -116,6 +117,7 @@ final class GanttProjectDetailViewModel {
                 sessions: projectSessions,
                 period: requestedPeriod,
                 baselinePeriod: requestedBaselinePeriod,
+                baselineScale: requestedBaselineScale,
                 activityMode: requestedMode,
                 focusBundleIDs: focusBundleIDs,
                 currentFocusAppIntervals: payload.currentFocusAppIntervals
@@ -138,6 +140,7 @@ final class GanttProjectDetailViewModel {
         sessions: [Session],
         period: GanttPeriod,
         baselinePeriod: GanttPeriod,
+        baselineScale: Double,
         activityMode: GanttActivityMode,
         focusBundleIDs: Set<String>,
         currentFocusAppIntervals: [AppFocusInterval]
@@ -150,6 +153,7 @@ final class GanttProjectDetailViewModel {
                 sessions: sessions,
                 period: period,
                 baselinePeriod: baselinePeriod,
+                baselineScale: baselineScale,
                 activityMode: activityMode,
                 focusBundleIDs: focusBundleIDs,
                 currentFocusAppIntervals: currentFocusAppIntervals,
@@ -221,6 +225,7 @@ final class GanttProjectDetailViewModel {
         sessions: [Session],
         period: GanttPeriod,
         baselinePeriod: GanttPeriod,
+        baselineScale: Double,
         activityMode: GanttActivityMode,
         focusBundleIDs: Set<String>,
         currentFocusAppIntervals: [AppFocusInterval],
@@ -264,7 +269,11 @@ final class GanttProjectDetailViewModel {
         )
         let built = await (current: current, baseline: baseline)
         return built.current.withBaselineComparison(
-            GanttTimelineBuilder.baselineComparison(current: built.current, baseline: built.baseline)
+            GanttTimelineBuilder.baselineComparison(
+                current: built.current,
+                baseline: built.baseline,
+                baselineScale: baselineScale
+            )
         )
     }
 
@@ -295,13 +304,6 @@ final class GanttProjectDetailViewModel {
 
     nonisolated private static func sessions(_ sessions: [Session], matching projectID: String) -> [Session] {
         sessions.filter { GanttTimelineBuilder.projectIdentity(for: $0).id == projectID }
-    }
-
-    private func baselinePeriod(before period: GanttPeriod, calendar: Calendar = .current) -> GanttPeriod {
-        let duration = period.domain.duration
-        let start = period.domain.start.addingTimeInterval(-duration)
-        let domain = DateInterval(start: start, duration: duration)
-        return GanttPeriod(range: period.range, domain: domain, dataRange: domain)
     }
 
     func refreshPermissionState() {

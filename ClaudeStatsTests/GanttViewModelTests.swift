@@ -53,6 +53,32 @@ struct GanttViewModelTests {
         #expect(!viewModel.isEnriching)
     }
 
+    @Test("AI active baseline enrichment queries the previous fourteen days")
+    func aiActiveBaselineEnrichmentQueriesPreviousFourteenDays() async {
+        let gitLoader = DelayedGanttGitMetricsLoader(delay: .milliseconds(1), metrics: .zero)
+        let viewModel = GanttViewModel(gitMetricsLoader: gitLoader)
+        viewModel.selectedDate = pastDay()
+        let currentPeriod = viewModel.period
+        let interval = interval(in: currentPeriod, startOffset: 3_600, duration: 3_600)
+
+        await viewModel.reload(
+            sessions: [session(intervals: [interval])],
+            codingSurfaceBundleIDs: [],
+            cliHostBundleIDs: []
+        )
+
+        let enriched = await eventually {
+            viewModel.snapshot.baselineComparison != nil
+        }
+        #expect(enriched)
+
+        let calls = await gitLoader.calls
+        #expect(calls.count == 2)
+        #expect(calls.first == currentPeriod.dataRange)
+        let expectedBaseline = GanttBaselineConfiguration.averagePeriod(before: currentPeriod)
+        #expect(calls.last == expectedBaseline.dataRange)
+    }
+
     @Test("Assisted focus does not wait for baseline focus query before publishing current snapshot")
     func assistedFocusPublishesBeforeBaselineFocusQuery() async {
         let focusRecorder = FocusCallRecorder()

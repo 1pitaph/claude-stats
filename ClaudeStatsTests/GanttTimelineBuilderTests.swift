@@ -462,6 +462,65 @@ struct GanttTimelineBuilderTests {
         #expect(comparison.retrySignalDelta == 2)
     }
 
+    @Test("Baseline comparison can scale a fourteen-day baseline to a daily average")
+    func baselineComparisonScalesFourteenDayAverage() {
+        let current = GanttTimelineBuilder.build(
+            sessions: [
+                session(
+                    "current",
+                    projectDirectoryName: "-Users-dev-app",
+                    cwd: "/Users/dev/app",
+                    intervals: [iv(1, 3)],
+                    models: [
+                        ModelUsage(
+                            model: "claude-sonnet",
+                            messageCount: 2,
+                            usage: TokenUsage(inputTokens: 100, outputTokens: 40),
+                            estimatedCost: 1.40
+                        ),
+                    ],
+                    messageCount: 2
+                ),
+            ],
+            period: period(),
+            activityMode: .aiActive,
+            externalMetrics: GanttExternalMetrics(commitCount: 10, failureSignals: 0, retrySignals: 0)
+        )
+        let baseline = GanttTimelineBuilder.build(
+            sessions: [
+                session(
+                    "baseline",
+                    projectDirectoryName: "-Users-dev-app",
+                    cwd: "/Users/dev/app",
+                    intervals: [iv(-336, -322)],
+                    models: [
+                        ModelUsage(
+                            model: "claude-sonnet",
+                            messageCount: 14,
+                            usage: TokenUsage(inputTokens: 200, outputTokens: 80),
+                            estimatedCost: 2.80
+                        ),
+                    ],
+                    messageCount: 14
+                ),
+            ],
+            period: period(start: -336, end: 0),
+            activityMode: .aiActive,
+            externalMetrics: GanttExternalMetrics(commitCount: 28, failureSignals: 0, retrySignals: 0)
+        )
+
+        let comparison = GanttTimelineBuilder.baselineComparison(
+            current: current,
+            baseline: baseline,
+            baselineScale: 1.0 / Double(GanttBaselineConfiguration.averageDayCount)
+        )
+
+        #expect(abs(comparison.activeDurationDelta - 3_600) < 0.001)
+        #expect(comparison.tokensDelta == 120)
+        #expect(abs(comparison.costDelta - 1.20) < 0.001)
+        #expect(comparison.commitDelta == 8)
+    }
+
     @Test("External commit markers are preserved for timeline rendering")
     func externalCommitMarkersArePreserved() {
         let marker = GanttCommitMarker(

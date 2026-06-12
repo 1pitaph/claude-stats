@@ -208,11 +208,12 @@ enum GanttTimelineBuilder {
 
     static func baselineComparison(
         current: GanttTimelineSnapshot,
-        baseline: GanttTimelineSnapshot
+        baseline: GanttTimelineSnapshot,
+        baselineScale: Double = 1
     ) -> GanttBaselineComparison {
         GanttBaselineComparison(
             current: current.metrics,
-            baseline: baseline.metrics,
+            baseline: baseline.metrics.scaled(by: baselineScale),
             baselineDomain: baseline.domain
         )
     }

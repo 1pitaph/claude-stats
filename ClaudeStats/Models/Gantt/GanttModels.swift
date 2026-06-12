@@ -102,6 +102,24 @@ struct GanttPeriod: Equatable, Sendable {
     }
 }
 
+enum GanttBaselineConfiguration {
+    static let averageDayCount = 14
+
+    static func averagePeriod(before period: GanttPeriod, calendar: Calendar = .current) -> GanttPeriod {
+        let end = period.domain.start
+        let start = calendar.date(byAdding: .day, value: -averageDayCount, to: end)
+            ?? end.addingTimeInterval(-TimeInterval(averageDayCount) * 86_400)
+        let domain = DateInterval(start: start, end: end)
+        return GanttPeriod(range: period.range, domain: domain, dataRange: domain)
+    }
+
+    static func scale(for period: GanttPeriod, calendar: Calendar = .current) -> Double {
+        let dayCount = calendar.dateComponents([.day], from: period.domain.start, to: period.domain.end).day
+        let normalizedDayCount = max(1, dayCount ?? Int((period.domain.duration / 86_400).rounded()))
+        return Double(normalizedDayCount) / Double(averageDayCount)
+    }
+}
+
 struct GanttTimelineSnapshot: Equatable, Sendable {
     let range: GanttRange
     let activityMode: GanttActivityMode
@@ -355,6 +373,22 @@ struct GanttMetricSummary: Equatable, Sendable {
         retrySignals: 0,
         contextSwitches: 0
     )
+
+    func scaled(by scale: Double) -> GanttMetricSummary {
+        guard scale.isFinite, scale > 0 else { return .zero }
+        return GanttMetricSummary(
+            activeDuration: activeDuration * scale,
+            tokens: Int((Double(tokens) * scale).rounded()),
+            cost: cost * scale,
+            messageCount: Int((Double(messageCount) * scale).rounded()),
+            sessionCount: Int((Double(sessionCount) * scale).rounded()),
+            segmentCount: Int((Double(segmentCount) * scale).rounded()),
+            commitCount: Int((Double(commitCount) * scale).rounded()),
+            failureSignals: Int((Double(failureSignals) * scale).rounded()),
+            retrySignals: Int((Double(retrySignals) * scale).rounded()),
+            contextSwitches: Int((Double(contextSwitches) * scale).rounded())
+        )
+    }
 }
 
 struct GanttCommitMarker: Equatable, Identifiable, Sendable {
