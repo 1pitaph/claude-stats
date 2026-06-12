@@ -6,6 +6,41 @@
     <description>Most recent updates to Claude Stats Lite.</description>
     <language>en</language>
     <item>
+      <title>Version 1.9.6</title>
+      <sparkle:version>96</sparkle:version>
+      <sparkle:shortVersionString>1.9.6</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0.0</sparkle:minimumSystemVersion>
+      <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+      <description><![CDATA[
+<div class="cs-appcast-notes" style="font-family: -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif; color: #1f2937;">
+  <style>
+    .cs-update-size-fallback { margin: 0 0 14px; }
+    .cs-update-size-pills { display: inline-flex; align-items: center; margin-left: 10px; min-width: 0; vertical-align: middle; }
+    .cs-update-size-pill { display: inline-block; padding: 4px 10px; border: 0; border-radius: 999px; background: #eaf1ff; color: #172033; font-size: 12px; font-weight: 700; line-height: 1.2; white-space: nowrap; }
+    .cs-update-size-delta { display: none; }
+    .cs-update-size-delta.sparkle-installed-version { display: inline-block; }
+    .cs-update-size-delta.sparkle-installed-version ~ .cs-update-size-full { display: none; }
+  </style>
+<div style="margin: 0; color: #1f2937; font-size: 13px; line-height: 1.55;">
+  <p style="margin: 0 0 10px; color: #172033; font-size: 15px; font-weight: 700;">更新内容</p>
+  <div style="margin: 0; padding: 0;">
+<h2>本次更新<span class="cs-update-size-pills"><span class="cs-update-size-pill cs-update-size-delta" data-sparkle-version="94">2.7 MB</span><span class="cs-update-size-pill cs-update-size-delta" data-sparkle-version="93">2.8 MB</span><span class="cs-update-size-pill cs-update-size-delta" data-sparkle-version="92">3.3 MB</span><span class="cs-update-size-pill cs-update-size-full">62 MB</span></span></h2>
+<ul>
+<li>Remove the `--timestamp` flag from code signing settings across all targets in project.yml. This flag is no longer needed, likely because timestamping is now handled by the signing identity or CI environment.</li>
+</ul>
+  </div>
+</div>
+</div>
+]]></description>
+      <pubDate>Fri, 12 Jun 2026 10:57:08 GMT</pubDate>
+      <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.9.6/ClaudeStatsLite-1.9.6.dmg" sparkle:edSignature="UPlU8eI60uqINFg7ZnMHpm6qGghkTWVQCR89vLbtx4niBCNwSdJ6UHK+VKz3OJ+GUG8fZzfYqoLynMMQOeZuAQ==" length="61965787" type="application/octet-stream"/>
+      <sparkle:deltas>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.9.6/ClaudeStatsLite-96-from-94.delta" sparkle:deltaFrom="94" sparkle:edSignature="zKBfCheep4fbyIqg0QxV68GjpWmi5K5Pdy3B5AsbaOD73eLMiHG+FfP2mflUx5vvl7QwooPymY+bnik1URoLDQ==" length="2746922" type="application/octet-stream"/>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.9.6/ClaudeStatsLite-96-from-93.delta" sparkle:deltaFrom="93" sparkle:edSignature="l0BAD5PsG+b2Z4Uf2PYrGRhlp5hwMgKwpt/iRRbX+g+gAhxBtVnJ7ZI+DkZOs5SUUaBwaa7oxTr5kALtGz3XAQ==" length="2792594" type="application/octet-stream"/>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.9.6/ClaudeStatsLite-96-from-92.delta" sparkle:deltaFrom="92" sparkle:edSignature="huyI3if22dUsxCPEV3+P0Osup5rHaU2rr/W/b8d5gvqgY7M5/L0qoC1cN2h4+jixJND+j1Lc3SdKp5caKnmYDQ==" length="3292462" type="application/octet-stream"/>
+      </sparkle:deltas>
+    </item>
+    <item>
       <title>Version 1.9.4</title>
       <sparkle:version>94</sparkle:version>
       <sparkle:shortVersionString>1.9.4</sparkle:shortVersionString>
