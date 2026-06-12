@@ -84,6 +84,7 @@ struct SettingsDetailView: View {
         case .tracking: TrackingSettingsView(onSelectSection: onSelectSection)
         case .dictionary: DictionarySettingsView()
         case .llm: AppLLMSettingsView()
+        case .logs: LogsSettingsView()
         case .localAI:
             #if CLAUDE_STATS_LITE
             EmptyView()

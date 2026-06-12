@@ -542,6 +542,41 @@ struct GitCommitMessageTests {
         #expect(testMirror.path == "/tmp/claude-stats/logs/git-commit-message")
     }
 
+    @Test("Git operation log writes command failures with a short user summary")
+    func gitOperationLogWritesCommandFailures() throws {
+        let root = try TempDir.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let result = GitCommandResult(
+            arguments: ["-C", "/tmp/example", "commit", "-F", "-"],
+            stdout: "[FAILED] eslint --cache --fix\n",
+            stderr: "Authorization: bearer secret-token\npre-commit hook failed\n",
+            exitCode: 1,
+            timedOut: false,
+            cancelled: false
+        )
+        let date = Date(timeIntervalSince1970: 1_801_234_567.89)
+
+        let entry = GitOperationLog.recordCommandFailure(
+            commandName: "git commit",
+            result: result,
+            directories: [root],
+            date: date
+        )
+        let jsonURL = GitOperationLog.currentLogURL(directory: root, date: date)
+        let readableURL = GitOperationLog.currentReadableLogURL(directory: root, date: date)
+        let json = try String(contentsOf: jsonURL, encoding: .utf8)
+        let readable = try String(contentsOf: readableURL, encoding: .utf8)
+
+        #expect(entry.summary == "Commit failed: pre-commit checks failed. View Logs for details.")
+        #expect(json.contains(#""event": "git.command.failed""#))
+        #expect(json.contains(#""command": "git commit""#))
+        #expect(json.contains("[FAILED] eslint"))
+        #expect(json.contains("[redacted line]"))
+        #expect(!json.contains("secret-token"))
+        #expect(readable.contains("ERROR git.command.failed"))
+        #expect(readable.contains("pre-commit hook failed"))
+    }
+
     @Test("Commit message result copy text uses Markdown body bullets")
     func commitMessageResultCopyText() {
         let result = GitCommitMessageResult(

@@ -6,6 +6,7 @@ import Observation
 final class GitCommitMessageViewModel {
     private(set) var state: GitCommitMessageLoadState = .idle
     private(set) var commitState: GitCommitActionState = .idle
+    private(set) var lastActionFailure: GitOperationFailureNotice?
 
     @ObservationIgnored private let service: GitCommitMessageService
     @ObservationIgnored private let commitService: GitCommitCommandService
@@ -21,11 +22,13 @@ final class GitCommitMessageViewModel {
     func reset() {
         state = .idle
         commitState = .idle
+        lastActionFailure = nil
     }
 
     func fail(_ message: String) {
         state = .failed(message)
         commitState = .idle
+        lastActionFailure = nil
     }
 
     func loadCached(
@@ -86,9 +89,15 @@ final class GitCommitMessageViewModel {
     ) async -> GitWorkingTreeCommitResult? {
         guard target == .workingTree else {
             commitState = .failed("Only working tree changes can be committed from this panel.")
+            lastActionFailure = GitOperationFailureNotice(
+                title: "Commit failed",
+                message: "Only working tree changes can be committed from this panel.",
+                logEntryID: nil
+            )
             return nil
         }
         if case .committing = commitState { return nil }
+        lastActionFailure = nil
         commitState = .committing
         do {
             let outcome = try await commitService.commitAllWorkingTreeChanges(repo: repo, result: result)
@@ -102,7 +111,13 @@ final class GitCommitMessageViewModel {
             commitState = .idle
             return nil
         } catch {
-            commitState = .failed(error.localizedDescription)
+            let failure = GitOperationLog.failureNotice(
+                from: error,
+                title: "Commit failed",
+                fallbackMessage: "Commit failed. View Logs for details."
+            )
+            lastActionFailure = failure
+            commitState = .failed(failure.message)
             return nil
         }
     }
@@ -116,6 +131,7 @@ final class GitCommitMessageViewModel {
             return false
         }
 
+        lastActionFailure = nil
         commitState = .pushing(pendingPush)
         do {
             _ = try await commitService.pushCommittedChanges(repo: repo, target: pendingPush.target)
@@ -125,7 +141,13 @@ final class GitCommitMessageViewModel {
             commitState = .readyToPush(pendingPush)
             return false
         } catch {
-            commitState = .pushFailed(error.localizedDescription, pendingPush: pendingPush)
+            let failure = GitOperationLog.failureNotice(
+                from: error,
+                title: "Push failed",
+                fallbackMessage: "Push failed. View Logs for details."
+            )
+            lastActionFailure = failure
+            commitState = .pushFailed(failure.message, pendingPush: pendingPush)
             return false
         }
     }

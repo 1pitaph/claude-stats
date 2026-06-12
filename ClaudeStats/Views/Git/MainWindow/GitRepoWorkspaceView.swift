@@ -620,7 +620,12 @@ private struct GitCommitInspector: View {
                 isDisabled: summary.pushTarget == nil || vm.isOutgoingPushRunning
             ) {
                 Task {
-                    guard await vm.pushOutgoingChanges(repo: repo) else { return }
+                    guard await vm.pushOutgoingChanges(repo: repo) else {
+                        if let failure = vm.outgoingPushFailureNotice {
+                            env.notices.showGitFailure(failure)
+                        }
+                        return
+                    }
                     env.gitActivity.bumpReload()
                     mode = .repo
                 }
@@ -630,6 +635,7 @@ private struct GitCommitInspector: View {
                 Label(error, systemImage: AppIcon.Status.warning)
                     .font(.sora(10))
                     .foregroundStyle(Color.red)
+                    .lineLimit(3)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }

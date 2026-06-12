@@ -12,6 +12,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
     case tracking
     case dictionary
     case llm
+    case logs
     case localAI
     case leaderboards
     case github
@@ -52,6 +53,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
         case .tracking:  L10n.string("settings.section.tracking", defaultValue: "Tracking")
         case .dictionary: "Dictionary"
         case .llm: "LLM"
+        case .logs: "Logs"
         case .localAI: "Local AI"
         case .leaderboards: L10n.string("settings.section.leaderboards", defaultValue: "Leaderboards")
         case .github:    "GitHub"
@@ -73,6 +75,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
         case .tracking:  AppIcon.Settings.tracking
         case .dictionary: AppIcon.Resource.dictionary
         case .llm: AppIcon.Settings.llm
+        case .logs: AppIcon.Settings.logs
         case .localAI: AppIcon.Workspace.memory
         case .leaderboards: AppIcon.Workspace.leaderboards
         case .github:    AppIcon.Git.code

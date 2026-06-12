@@ -43,8 +43,8 @@ enum GitCommitCommandError: Error, LocalizedError, Sendable {
     case conflictedWorkingTree
     case mergeInProgress
     case rebaseInProgress
-    case gitTimedOut(String)
-    case gitFailed(String)
+    case gitTimedOut(String, logEntryID: String?)
+    case gitFailed(summary: String, logEntryID: String?)
     case missingHead
     case missingPushTarget
 
@@ -62,14 +62,23 @@ enum GitCommitCommandError: Error, LocalizedError, Sendable {
             return "A merge is in progress. Finish it in your git client or terminal before committing from this panel."
         case .rebaseInProgress:
             return "A rebase is in progress. Finish it in your git client or terminal before committing from this panel."
-        case .gitTimedOut(let command):
+        case .gitTimedOut(let command, _):
             return "\(command) timed out."
-        case .gitFailed(let message):
-            return message
+        case .gitFailed(let summary, _):
+            return summary
         case .missingHead:
             return "The commit was created, but git did not return the new HEAD."
         case .missingPushTarget:
             return "No remote push target is configured for the current branch."
+        }
+    }
+
+    var logEntryID: String? {
+        switch self {
+        case .gitTimedOut(_, let logEntryID), .gitFailed(_, let logEntryID):
+            return logEntryID
+        default:
+            return nil
         }
     }
 }
@@ -178,7 +187,8 @@ private func runCommit(repo: GitRepo, message: String, runner: GitCommandRunner)
         ["-C", repo.rootPath, "log", "-1", "--pretty=format:%s"],
         runner: runner,
         timeout: 15,
-        commandName: "git log"
+        commandName: "git log",
+        logFailures: false
     ))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     return GitWorkingTreeCommitResult(hash: hash, subject: subject, pushTarget: resolvePushTarget(repo: repo, runner: runner))
 }
@@ -202,7 +212,8 @@ private func resolvePushTarget(repo: GitRepo, runner: GitCommandRunner) -> GitPu
         ["-C", repo.rootPath, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
         runner: runner,
         timeout: 15,
-        commandName: "git rev-parse"
+        commandName: "git rev-parse",
+        logFailures: false
     ).trimmingCharacters(in: .whitespacesAndNewlines),
        !upstream.isEmpty {
         return GitPushTarget(
@@ -216,14 +227,21 @@ private func resolvePushTarget(repo: GitRepo, runner: GitCommandRunner) -> GitPu
         ["-C", repo.rootPath, "branch", "--show-current"],
         runner: runner,
         timeout: 15,
-        commandName: "git branch"
+        commandName: "git branch",
+        logFailures: false
     ).trimmingCharacters(in: .whitespacesAndNewlines),
           !branch.isEmpty
     else {
         return nil
     }
 
-    let remotes = ((try? runGitText(["-C", repo.rootPath, "remote"], runner: runner, timeout: 15, commandName: "git remote")) ?? "")
+    let remotes = ((try? runGitText(
+        ["-C", repo.rootPath, "remote"],
+        runner: runner,
+        timeout: 15,
+        commandName: "git remote",
+        logFailures: false
+    )) ?? "")
         .split(separator: "\n")
         .map(String.init)
         .filter { !$0.isEmpty }
@@ -242,9 +260,17 @@ private func runGit(
     runner: GitCommandRunner,
     timeout: TimeInterval,
     commandName: String,
-    standardInput: String? = nil
+    standardInput: String? = nil,
+    logFailures: Bool = true
 ) throws {
-    _ = try runGitText(arguments, runner: runner, timeout: timeout, commandName: commandName, standardInput: standardInput)
+    _ = try runGitText(
+        arguments,
+        runner: runner,
+        timeout: timeout,
+        commandName: commandName,
+        standardInput: standardInput,
+        logFailures: logFailures
+    )
 }
 
 private func runGitText(
@@ -252,13 +278,26 @@ private func runGitText(
     runner: GitCommandRunner,
     timeout: TimeInterval,
     commandName: String,
-    standardInput: String? = nil
+    standardInput: String? = nil,
+    logFailures: Bool = true
 ) throws -> String {
     let result = runner.run(arguments, timeout: timeout, standardInput: standardInput)
     guard result.succeeded else {
         if result.cancelled { throw CancellationError() }
-        if result.timedOut { throw GitCommitCommandError.gitTimedOut(commandName) }
-        throw GitCommitCommandError.gitFailed(gitFailureMessage(result, fallback: "\(commandName) failed."))
+        if logFailures {
+            let entry = GitOperationLog.recordCommandFailure(commandName: commandName, result: result)
+            if result.timedOut {
+                throw GitCommitCommandError.gitTimedOut(commandName, logEntryID: entry.id)
+            }
+            throw GitCommitCommandError.gitFailed(summary: entry.summary, logEntryID: entry.id)
+        }
+        if result.timedOut {
+            throw GitCommitCommandError.gitTimedOut(commandName, logEntryID: nil)
+        }
+        throw GitCommitCommandError.gitFailed(
+            summary: gitFailureMessage(result, fallback: "\(commandName) failed."),
+            logEntryID: nil
+        )
     }
     return result.stdout
 }

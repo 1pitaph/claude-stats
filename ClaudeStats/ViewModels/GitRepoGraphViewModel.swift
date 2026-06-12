@@ -17,6 +17,7 @@ final class GitRepoGraphViewModel {
     private(set) var isMinimapLoading = false
     private(set) var isOutgoingPushRunning = false
     private(set) var outgoingPushError: String?
+    private(set) var outgoingPushFailureNotice: GitOperationFailureNotice?
     private(set) var currentRepoID: String?
     private(set) var loadedLimit = 0
     private(set) var statsRefreshGeneration: UInt64 = 0
@@ -332,10 +333,16 @@ final class GitRepoGraphViewModel {
     func pushOutgoingChanges(repo: GitRepo) async -> Bool {
         guard let target = graph?.outgoingChanges.pushTarget else {
             outgoingPushError = "No remote push target is configured for the current branch."
+            outgoingPushFailureNotice = GitOperationFailureNotice(
+                title: "Push failed",
+                message: "No remote push target is configured for the current branch.",
+                logEntryID: nil
+            )
             return false
         }
         isOutgoingPushRunning = true
         outgoingPushError = nil
+        outgoingPushFailureNotice = nil
         defer { isOutgoingPushRunning = false }
 
         do {
@@ -345,7 +352,13 @@ final class GitRepoGraphViewModel {
         } catch is CancellationError {
             return false
         } catch {
-            outgoingPushError = error.localizedDescription
+            let failure = GitOperationLog.failureNotice(
+                from: error,
+                title: "Push failed",
+                fallbackMessage: "Push failed. View Logs for details."
+            )
+            outgoingPushFailureNotice = failure
+            outgoingPushError = failure.message
             return false
         }
     }
@@ -368,6 +381,7 @@ final class GitRepoGraphViewModel {
         codeOwnershipState = .idle
         minimapData = nil
         outgoingPushError = nil
+        outgoingPushFailureNotice = nil
         selectedHash = nil
         loadedLimit = 0
         limit = pageSize

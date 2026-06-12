@@ -180,6 +180,7 @@ enum AppIcon {
         static let iCloudSync = "icloud"
         static let systemSettings = "gear"
         static let llm = "brain.head.profile"
+        static let logs = "list.bullet.rectangle"
         static let menuBar = "menubar.rectangle"
         static let notchIsland = "capsule.portrait.tophalf.filled"
         static let platforms = "square.stack.3d.up"

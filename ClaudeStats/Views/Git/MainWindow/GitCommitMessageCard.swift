@@ -254,11 +254,13 @@ struct GitCommitMessageCard: View {
             Label(message, systemImage: AppIcon.Status.warning)
                 .font(.sora(10))
                 .foregroundStyle(Color.red)
+                .lineLimit(3)
                 .fixedSize(horizontal: false, vertical: true)
         case .pushFailed(let message, _):
             Label(message, systemImage: AppIcon.Status.warning)
                 .font(.sora(10))
                 .foregroundStyle(Color.red)
+                .lineLimit(3)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -284,7 +286,10 @@ struct GitCommitMessageCard: View {
 
     private func commit(_ result: GitCommitMessageResult) {
         Task {
-            guard let outcome = await vm.commitAllWorkingTreeChanges(repo: repo, target: target, result: result) else { return }
+            guard let outcome = await vm.commitAllWorkingTreeChanges(repo: repo, target: target, result: result) else {
+                showLastActionFailure()
+                return
+            }
             await onLocalCommitSucceeded?(outcome)
         }
     }
@@ -303,9 +308,17 @@ struct GitCommitMessageCard: View {
 
     private func push() {
         Task {
-            guard await vm.pushCommittedChanges(repo: repo) else { return }
+            guard await vm.pushCommittedChanges(repo: repo) else {
+                showLastActionFailure()
+                return
+            }
             await onPushSucceeded?()
         }
+    }
+
+    private func showLastActionFailure() {
+        guard let failure = vm.lastActionFailure else { return }
+        env.notices.showGitFailure(failure)
     }
 
     private func loadCached() async {

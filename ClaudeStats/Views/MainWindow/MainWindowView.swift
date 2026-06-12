@@ -347,7 +347,19 @@ struct MainWindowView: View {
                     .padding(.top, 11)
                     .transition(.opacity)
             }
+
+            if let notice = env.notices.current {
+                AppNoticeToast(notice: notice) {
+                    handleNoticeTap(notice)
+                }
+                .padding(.top, 18)
+                .padding(.trailing, 22)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .zIndex(30)
+            }
         }
+        .animation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.86), value: env.notices.current?.id)
         .ignoresSafeArea()
         .background(WindowAccessor { window in
             trafficLights.attach(to: window)
@@ -513,6 +525,16 @@ struct MainWindowView: View {
 
     private func selectSettingsSection(_ section: SettingsSection) {
         settingsSectionRaw = section.rawValue
+    }
+
+    private func handleNoticeTap(_ notice: AppNotice) {
+        env.notices.dismiss(id: notice.id)
+        switch notice.action {
+        case .openSettings(let section):
+            openSettings(section: section)
+        case .none:
+            break
+        }
     }
 
     #if CLAUDE_STATS_LITE
@@ -831,6 +853,73 @@ struct MainWindowView: View {
         memorySectionRaw = env.memory.section.rawValue
     }
     #endif
+}
+
+private struct AppNoticeToast: View {
+    let notice: AppNotice
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .frame(width: 18, height: 18)
+                    .padding(.top, 1)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(notice.title)
+                        .font(.sora(12, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Text(notice.message)
+                        .font(.sora(10))
+                        .foregroundStyle(Color.stxMuted)
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let actionTitle = notice.actionTitle {
+                        Text(actionTitle)
+                            .font(.sora(10, weight: .semibold))
+                            .foregroundStyle(tint)
+                            .padding(.top, 1)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(width: 320, alignment: .leading)
+            .background(AppSurface.panelFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color.stxStroke.opacity(0.85), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.12), radius: 18, x: 0, y: 10)
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help(notice.actionTitle ?? notice.title)
+        .accessibilityLabel("\(notice.title). \(notice.message)")
+    }
+
+    private var icon: String {
+        switch notice.severity {
+        case .info: AppIcon.Status.info
+        case .success: AppIcon.Status.success
+        case .warning: AppIcon.Status.warning
+        case .error: AppIcon.Status.error
+        }
+    }
+
+    private var tint: Color {
+        switch notice.severity {
+        case .info: Color.stxMuted
+        case .success: Color.stxAccent
+        case .warning: Color.orange
+        case .error: Color.red
+        }
+    }
 }
 
 #if DEBUG

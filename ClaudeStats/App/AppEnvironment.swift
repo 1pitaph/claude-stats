@@ -22,6 +22,7 @@ final class AppEnvironment {
     #endif
     let transcriptAnalysis: TranscriptAnalysisStore
     let updater = UpdaterController()
+    let notices = AppNoticeStore()
     let floatingStatsPanel = FloatingStatsPanelController()
     let cursorCommandOverlay = CursorCommandOverlayController()
     var cloudStatsSyncState = CloudStatsSnapshotSyncState()
