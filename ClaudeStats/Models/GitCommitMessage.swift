@@ -387,6 +387,22 @@ enum GitCommitMessageLoadState: Sendable, Hashable {
     case failed(String)
 }
 
+enum GitCommitActionState: Sendable, Hashable {
+    case idle
+    case committing
+    case committed(shortHash: String)
+    case readyToPush(GitPendingPushAction)
+    case pushing(GitPendingPushAction)
+    case pushed(shortHash: String)
+    case failed(String)
+    case pushFailed(String, pendingPush: GitPendingPushAction)
+}
+
+struct GitPendingPushAction: Sendable, Hashable {
+    let shortHash: String
+    let target: GitPushTarget
+}
+
 enum GitCommitMessageTokenEstimator {
     static func estimate(_ text: String) -> Int {
         max(1, Int((Double(text.count) / 4.0).rounded(.up)))

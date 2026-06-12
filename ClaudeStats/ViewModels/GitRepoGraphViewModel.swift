@@ -314,6 +314,10 @@ final class GitRepoGraphViewModel {
         selectCommit(hash)
     }
 
+    func reloadAfterRepositoryMutation(repo: GitRepo) async {
+        await repositoryDidChange(repo: repo)
+    }
+
     private func reset(for repo: GitRepo) {
         invalidateGraphRequest()
         invalidateDetailRequest()

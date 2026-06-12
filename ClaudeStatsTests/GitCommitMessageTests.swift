@@ -353,6 +353,105 @@ struct GitCommitMessageTests {
         }
     }
 
+    @Test("Commit command stages all working tree changes and commits generated message")
+    func commitCommandStagesAllWorkingTreeChanges() async throws {
+        let repoURL = try TempDir.make()
+        defer { try? FileManager.default.removeItem(at: repoURL) }
+        let runner = GitCommandRunner()
+
+        try runGit(runner, ["-C", repoURL.path, "init"])
+        try runGit(runner, ["-C", repoURL.path, "config", "user.email", "test@example.com"])
+        try runGit(runner, ["-C", repoURL.path, "config", "user.name", "Test User"])
+        try "one\n".write(to: repoURL.appendingPathComponent("hello.txt"), atomically: true, encoding: .utf8)
+        try runGit(runner, ["-C", repoURL.path, "add", "hello.txt"])
+        try runGit(runner, ["-C", repoURL.path, "commit", "-m", "Initial"])
+        try "two\n".write(to: repoURL.appendingPathComponent("hello.txt"), atomically: true, encoding: .utf8)
+        try "new\n".write(to: repoURL.appendingPathComponent("new.txt"), atomically: true, encoding: .utf8)
+
+        let repo = GitRepo(rootPath: repoURL.path)
+        let snapshot = try await GitCommitMessageSnapshotBuilder(runner: runner).snapshot(for: .workingTree, repo: repo)
+        let result = commitMessageResult(
+            diffHash: snapshot.diffHash,
+            title: "feat: update hello",
+            body: "Updates hello text and adds new file."
+        )
+
+        let outcome = try await GitCommitCommandService(runner: runner).commitAllWorkingTreeChanges(repo: repo, result: result)
+        let status = try runGitOutput(runner, ["-C", repoURL.path, "status", "--porcelain=v1"])
+        let log = try runGitOutput(runner, ["-C", repoURL.path, "log", "-1", "--pretty=format:%s%x1f%b"])
+
+        #expect(outcome.subject == "feat: update hello")
+        #expect(outcome.pushTarget == nil)
+        #expect(status.isEmpty)
+        #expect(log.contains("feat: update hello"))
+        #expect(log.contains("Updates hello text and adds new file."))
+    }
+
+    @Test("Commit command prepares Push origin and pushes committed changes")
+    func commitCommandPushesToUpstreamRemote() async throws {
+        let repoURL = try TempDir.make()
+        defer { try? FileManager.default.removeItem(at: repoURL) }
+        let remoteURL = try TempDir.make()
+        defer { try? FileManager.default.removeItem(at: remoteURL) }
+        let runner = GitCommandRunner()
+
+        try runGit(runner, ["-C", remoteURL.path, "init", "--bare"])
+        try runGit(runner, ["-C", repoURL.path, "init"])
+        try runGit(runner, ["-C", repoURL.path, "config", "user.email", "test@example.com"])
+        try runGit(runner, ["-C", repoURL.path, "config", "user.name", "Test User"])
+        try runGit(runner, ["-C", repoURL.path, "remote", "add", "origin", remoteURL.path])
+        try "one\n".write(to: repoURL.appendingPathComponent("hello.txt"), atomically: true, encoding: .utf8)
+        try runGit(runner, ["-C", repoURL.path, "add", "hello.txt"])
+        try runGit(runner, ["-C", repoURL.path, "commit", "-m", "Initial"])
+        try runGit(runner, ["-C", repoURL.path, "branch", "-M", "main"])
+        try runGit(runner, ["-C", repoURL.path, "push", "-u", "origin", "main"])
+        try "two\n".write(to: repoURL.appendingPathComponent("hello.txt"), atomically: true, encoding: .utf8)
+
+        let repo = GitRepo(rootPath: repoURL.path)
+        let snapshot = try await GitCommitMessageSnapshotBuilder(runner: runner).snapshot(for: .workingTree, repo: repo)
+        let result = commitMessageResult(diffHash: snapshot.diffHash, title: "fix: update hello", body: "Updates hello.")
+
+        let service = GitCommitCommandService(runner: runner)
+        let outcome = try await service.commitAllWorkingTreeChanges(repo: repo, result: result)
+        let pushTarget = try #require(outcome.pushTarget)
+        let pushResult = try await service.pushCommittedChanges(repo: repo, target: pushTarget)
+        let remoteLog = try runGitOutput(runner, ["-C", remoteURL.path, "log", "-1", "--pretty=format:%s", "main"])
+
+        #expect(pushTarget.buttonLabel == "Push origin")
+        #expect(pushResult.target == pushTarget)
+        #expect(remoteLog == "fix: update hello")
+    }
+
+    @Test("Commit command rejects stale generated messages")
+    func commitCommandRejectsStaleGeneratedMessage() async throws {
+        let repoURL = try TempDir.make()
+        defer { try? FileManager.default.removeItem(at: repoURL) }
+        let runner = GitCommandRunner()
+
+        try runGit(runner, ["-C", repoURL.path, "init"])
+        try runGit(runner, ["-C", repoURL.path, "config", "user.email", "test@example.com"])
+        try runGit(runner, ["-C", repoURL.path, "config", "user.name", "Test User"])
+        try "one\n".write(to: repoURL.appendingPathComponent("hello.txt"), atomically: true, encoding: .utf8)
+        try runGit(runner, ["-C", repoURL.path, "add", "hello.txt"])
+        try runGit(runner, ["-C", repoURL.path, "commit", "-m", "Initial"])
+        try "two\n".write(to: repoURL.appendingPathComponent("hello.txt"), atomically: true, encoding: .utf8)
+
+        let repo = GitRepo(rootPath: repoURL.path)
+        let snapshot = try await GitCommitMessageSnapshotBuilder(runner: runner).snapshot(for: .workingTree, repo: repo)
+        let result = commitMessageResult(diffHash: snapshot.diffHash)
+        try "three\n".write(to: repoURL.appendingPathComponent("hello.txt"), atomically: true, encoding: .utf8)
+
+        do {
+            _ = try await GitCommitCommandService(runner: runner).commitAllWorkingTreeChanges(repo: repo, result: result)
+            Issue.record("Expected stale diff protection to reject the commit")
+        } catch GitCommitCommandError.staleDiff {
+            let status = try runGitOutput(runner, ["-C", repoURL.path, "status", "--porcelain=v1"])
+            #expect(status.contains("hello.txt"))
+        } catch {
+            Issue.record("Expected staleDiff, got \(error)")
+        }
+    }
+
     @Test("Git commit message diagnostics log lines are redacted flat JSONL")
     func gitCommitMessageDiagnosticsLogLinesAreRedactedFlatJSONL() throws {
         let data = GitCommitMessageDiagnosticsLog.recordData(
@@ -549,10 +648,34 @@ struct GitCommitMessageTests {
     }
 
     private func runGit(_ runner: GitCommandRunner, _ arguments: [String]) throws {
+        _ = try runGitOutput(runner, arguments)
+    }
+
+    private func runGitOutput(_ runner: GitCommandRunner, _ arguments: [String]) throws -> String {
         let result = runner.run(arguments, timeout: 15)
         if !result.succeeded {
             throw GitTestError.gitFailed(result.stderr)
         }
+        return result.stdout
+    }
+
+    private func commitMessageResult(
+        diffHash: String,
+        title: String = "feat: update hello",
+        body: String = "Updates hello text."
+    ) -> GitCommitMessageResult {
+        GitCommitMessageResult(
+            commitTitle: title,
+            commitBody: body,
+            algorithm: .singleShot,
+            modelName: "test-model",
+            usage: .zero,
+            isCached: false,
+            generatedAt: Date(timeIntervalSince1970: 0),
+            language: "English",
+            diffHash: diffHash,
+            targetTitle: "Working Tree"
+        )
     }
 
     private func testEndpoint(model: String) -> AppLLMGenerationEndpoint {

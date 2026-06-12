@@ -24,7 +24,11 @@ struct GitCommandRunner: Sendable {
         FileManager.default.isExecutableFile(atPath: executablePath)
     }
 
-    func run(_ arguments: [String], timeout: TimeInterval = Self.defaultTimeout) -> GitCommandResult {
+    func run(
+        _ arguments: [String],
+        timeout: TimeInterval = Self.defaultTimeout,
+        standardInput: String? = nil
+    ) -> GitCommandResult {
         guard !Task.isCancelled else {
             return GitCommandResult(arguments: arguments, stdout: "", stderr: "", exitCode: -1, timedOut: false, cancelled: true)
         }
@@ -38,6 +42,7 @@ struct GitCommandRunner: Sendable {
 
         let stdout = Pipe()
         let stderr = Pipe()
+        let stdin = standardInput.map { _ in Pipe() }
         let stdoutBuffer = GitCommandOutputBuffer()
         let stderrBuffer = GitCommandOutputBuffer()
         stdout.fileHandleForReading.readabilityHandler = { handle in
@@ -50,6 +55,9 @@ struct GitCommandRunner: Sendable {
         }
         process.standardOutput = stdout
         process.standardError = stderr
+        if let stdin {
+            process.standardInput = stdin
+        }
 
         var environment = ProcessInfo.processInfo.environment
         environment["GIT_PAGER"] = "cat"
@@ -65,10 +73,17 @@ struct GitCommandRunner: Sendable {
 
         do {
             try process.run()
+            if let standardInput, let stdin {
+                stdin.fileHandleForWriting.write(Data(standardInput.utf8))
+                try? stdin.fileHandleForWriting.close()
+            }
         } catch {
             process.terminationHandler = nil
             stdout.fileHandleForReading.readabilityHandler = nil
             stderr.fileHandleForReading.readabilityHandler = nil
+            if let stdin {
+                try? stdin.fileHandleForWriting.close()
+            }
             return GitCommandResult(
                 arguments: arguments,
                 stdout: "",

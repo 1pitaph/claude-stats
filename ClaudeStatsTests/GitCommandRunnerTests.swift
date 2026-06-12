@@ -14,6 +14,16 @@ struct GitCommandRunnerTests {
         #expect(result.stdout == "0")
     }
 
+    @Test("Runner writes supplied standard input")
+    func runnerWritesStandardInput() {
+        let runner = GitCommandRunner(executablePath: "/bin/sh")
+
+        let result = runner.run(["-c", "cat"], standardInput: "hello\nstdin\n")
+
+        #expect(result.succeeded)
+        #expect(result.stdout == "hello\nstdin\n")
+    }
+
     @Test("Runner returns a bounded timeout result")
     func timeoutTerminatesProcess() {
         let runner = GitCommandRunner(executablePath: "/bin/sh")

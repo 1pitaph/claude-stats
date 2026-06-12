@@ -236,11 +236,14 @@ struct GitRepoWorkspaceView: View {
 }
 
 private struct GitCommitInspector: View {
+    @Environment(AppEnvironment.self) private var env
+
     let repo: GitRepo
     @Bindable var vm: GitRepoGraphViewModel
 
     @Binding var mode: GitInspectorMode
     @State private var diffRequest: GitFileDiffRequest?
+    @State private var keepPostCommitPushCard = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -259,6 +262,9 @@ private struct GitCommitInspector: View {
         .background(AppSurface.panelFill)
         .sheet(item: $diffRequest) { request in
             GitFileDiffViewer(request: request)
+        }
+        .onChange(of: repo.id) { _, _ in
+            keepPostCommitPushCard = false
         }
         .task(id: "\(repo.id)|\(mode.rawValue)|\(vm.statsScope.rawValue)|\(vm.statsRefreshGeneration)") {
             guard mode == .repo else { return }
@@ -423,15 +429,37 @@ private struct GitCommitInspector: View {
 
     @ViewBuilder
     private var workingTreeBody: some View {
-        if let summary = vm.graph?.workingTree, summary.isDirty {
+        if let summary = vm.graph?.workingTree, summary.isDirty || keepPostCommitPushCard {
             GeometryReader { proxy in
                 let viewportWidth = max(0, proxy.size.width)
 
                 AppScrollView {
                     VStack(alignment: .leading, spacing: 14) {
-                        workingTreeSummary(summary)
-                        GitCommitMessageCard(repo: repo, target: .workingTree)
-                        workingTreeFiles(summary)
+                        if summary.isDirty {
+                            workingTreeSummary(summary)
+                        } else {
+                            postCommitPushSummary
+                        }
+                        GitCommitMessageCard(
+                            repo: repo,
+                            target: .workingTree,
+                            onLocalCommitSucceeded: { outcome in
+                                if outcome.pushTarget == nil {
+                                    await vm.reloadAfterRepositoryMutation(repo: repo)
+                                    env.gitActivity.bumpReload()
+                                } else {
+                                    keepPostCommitPushCard = true
+                                }
+                            },
+                            onPushSucceeded: {
+                                keepPostCommitPushCard = false
+                                await vm.reloadAfterRepositoryMutation(repo: repo)
+                                env.gitActivity.bumpReload()
+                            }
+                        )
+                        if summary.isDirty {
+                            workingTreeFiles(summary)
+                        }
                     }
                     .padding(14)
                     .frame(width: viewportWidth, alignment: .topLeading)
@@ -442,6 +470,25 @@ private struct GitCommitInspector: View {
             GitWorkspaceInlineEmptyState("No working tree changes.")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    private var postCommitPushSummary: some View {
+        HStack(spacing: 9) {
+            Image(systemName: AppIcon.Status.success)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(GitPalette.head)
+                .frame(width: 28, height: 28)
+                .background(Color.stxAccent.opacity(0.10), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Local commit ready to push")
+                    .font(.sora(13, weight: .semibold))
+                Text("Push the commit to the remote to sync changes.")
+                    .font(.sora(10))
+                    .foregroundStyle(Color.stxMuted)
+            }
+        }
+        .padding(12)
+        .gitWorkspaceCard()
     }
 
     private func workingTreeSummary(_ summary: GitWorkingTreeSummary) -> some View {

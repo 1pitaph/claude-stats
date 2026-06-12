@@ -6,8 +6,23 @@ struct GitCommitMessageCard: View {
 
     let repo: GitRepo
     let target: GitCommitMessageTarget
+    let onLocalCommitSucceeded: (@MainActor (GitWorkingTreeCommitResult) async -> Void)?
+    let onPushSucceeded: (@MainActor () async -> Void)?
 
     @State private var vm = GitCommitMessageViewModel()
+    @State private var pendingCommitResult: GitCommitMessageResult?
+
+    init(
+        repo: GitRepo,
+        target: GitCommitMessageTarget,
+        onLocalCommitSucceeded: (@MainActor (GitWorkingTreeCommitResult) async -> Void)? = nil,
+        onPushSucceeded: (@MainActor () async -> Void)? = nil
+    ) {
+        self.repo = repo
+        self.target = target
+        self.onLocalCommitSucceeded = onLocalCommitSucceeded
+        self.onPushSucceeded = onPushSucceeded
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -21,6 +36,22 @@ struct GitCommitMessageCard: View {
         }
         .onChange(of: target.identity) { _, _ in
             vm.reset()
+        }
+        .confirmationDialog(
+            "Stage all changes and commit?",
+            isPresented: commitConfirmationBinding,
+            titleVisibility: .visible
+        ) {
+            Button("Stage All & Commit") {
+                guard let result = pendingCommitResult else { return }
+                pendingCommitResult = nil
+                commit(result)
+            }
+            Button("Cancel", role: .cancel) {
+                pendingCommitResult = nil
+            }
+        } message: {
+            Text("This will stage every current working tree change in this repository and commit with the generated message.")
         }
     }
 
@@ -79,6 +110,7 @@ struct GitCommitMessageCard: View {
                 metadata(result)
                 GitCommitMessageContent(result: result)
                 controls(result: result)
+                commitStatus
             }
         }
     }
@@ -100,7 +132,7 @@ struct GitCommitMessageCard: View {
                 Label(result == nil ? "Generate" : "Regenerate", systemImage: AppIcon.Feature.ai)
             }
             .controlSize(.small)
-            .disabled(isLoading)
+            .disabled(isLoading || isCommitting || isPushing)
 
             if result != nil {
                 Button {
@@ -109,15 +141,130 @@ struct GitCommitMessageCard: View {
                     Label("Refresh", systemImage: AppIcon.Action.refresh)
                 }
                 .controlSize(.small)
-                .disabled(isLoading)
-            }
+                .disabled(isLoading || isCommitting || isPushing)
 
+                actionPill(result: result)
+            }
         }
     }
 
     private var isLoading: Bool {
         if case .loading = vm.state { return true }
         return false
+    }
+
+    private var isCommitting: Bool {
+        if case .committing = vm.commitState { return true }
+        return false
+    }
+
+    private var isPushing: Bool {
+        if case .pushing = vm.commitState { return true }
+        return false
+    }
+
+    @ViewBuilder
+    private func actionPill(result: GitCommitMessageResult?) -> some View {
+        if target == .workingTree, let result {
+            GitCommitMessageActionPill(
+                label: actionPillLabel,
+                systemImage: actionPillIcon,
+                tint: actionPillTint,
+                isDisabled: isLoading || isCommitting || isPushing || isActionPillTerminal
+            ) {
+                handleActionPill(result: result)
+            }
+        }
+    }
+
+    private var actionPillLabel: String {
+        switch vm.commitState {
+        case .idle, .failed:
+            return "Commit"
+        case .committing:
+            return "Committing"
+        case .committed:
+            return "Committed"
+        case .readyToPush(let pending), .pushFailed(_, let pending):
+            return pending.target.buttonLabel
+        case .pushing(let pending):
+            return pending.target.mode == .publishBranch ? "Publishing" : "Pushing"
+        case .pushed:
+            return "Pushed"
+        }
+    }
+
+    private var actionPillIcon: String {
+        switch vm.commitState {
+        case .readyToPush, .pushing, .pushFailed:
+            return AppIcon.Action.uploadTray
+        case .committed, .pushed:
+            return AppIcon.Status.success
+        default:
+            return AppIcon.Action.confirm
+        }
+    }
+
+    private var actionPillTint: Color {
+        switch vm.commitState {
+        case .committed, .pushed:
+            return Color.stxAccent
+        case .pushFailed:
+            return Color.red
+        default:
+            return Color.stxAccent
+        }
+    }
+
+    private var isActionPillTerminal: Bool {
+        switch vm.commitState {
+        case .committed, .pushed:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private var commitConfirmationBinding: Binding<Bool> {
+        Binding {
+            pendingCommitResult != nil
+        } set: { isPresented in
+            if !isPresented {
+                pendingCommitResult = nil
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var commitStatus: some View {
+        switch vm.commitState {
+        case .idle, .committing:
+            EmptyView()
+        case .committed(let shortHash):
+            Label("Committed \(shortHash).", systemImage: AppIcon.Status.success)
+                .font(.sora(10))
+                .foregroundStyle(Color.stxAccent)
+        case .readyToPush(let pending):
+            Label("Committed \(pending.shortHash) locally.", systemImage: AppIcon.Status.success)
+                .font(.sora(10))
+                .foregroundStyle(Color.stxAccent)
+        case .pushing:
+            EmptyView()
+        case .pushed(let shortHash):
+            Label("Pushed \(shortHash).", systemImage: AppIcon.Status.success)
+                .font(.sora(10))
+                .foregroundStyle(Color.stxAccent)
+        case .failed(let message):
+            Label(message, systemImage: AppIcon.Status.warning)
+                .font(.sora(10))
+                .foregroundStyle(Color.red)
+                .fixedSize(horizontal: false, vertical: true)
+        case .pushFailed(let message, _):
+            Label(message, systemImage: AppIcon.Status.warning)
+                .font(.sora(10))
+                .foregroundStyle(Color.red)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private func generate(forceRefresh: Bool) {
@@ -136,6 +283,31 @@ struct GitCommitMessageCard: View {
             } catch {
                 vm.fail(error.localizedDescription)
             }
+        }
+    }
+
+    private func commit(_ result: GitCommitMessageResult) {
+        Task {
+            guard let outcome = await vm.commitAllWorkingTreeChanges(repo: repo, target: target, result: result) else { return }
+            await onLocalCommitSucceeded?(outcome)
+        }
+    }
+
+    private func handleActionPill(result: GitCommitMessageResult) {
+        switch vm.commitState {
+        case .readyToPush, .pushFailed:
+            push()
+        case .idle, .failed:
+            pendingCommitResult = result
+        default:
+            break
+        }
+    }
+
+    private func push() {
+        Task {
+            guard await vm.pushCommittedChanges(repo: repo) else { return }
+            await onPushSucceeded?()
         }
     }
 
@@ -206,6 +378,34 @@ private struct GitCommitMessageCopyButton: View {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .stroke(Color.stxStroke.opacity(0.55), lineWidth: 1)
         )
+        .help(label)
+        .accessibilityLabel(label)
+    }
+}
+
+private struct GitCommitMessageActionPill: View {
+    let label: String
+    let systemImage: String
+    let tint: Color
+    let isDisabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 9, weight: .semibold))
+                Text(label)
+                    .font(.sora(9, weight: .semibold))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(isDisabled ? AppSurface.pillForeground.opacity(0.55) : tint)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(AppSurface.pillFill, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
         .help(label)
         .accessibilityLabel(label)
     }
