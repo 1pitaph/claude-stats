@@ -70,7 +70,14 @@ enum OpenAIFloatingStatusAdapter {
         if day.partialOutageSeconds > 0 || day.degradedPerformanceSeconds > 0 {
             return .partialOutage
         }
-        return .operational
+        switch day.chartSeverity {
+        case .fullOutage:
+            return .majorOutage
+        case .partialOutage, .degradedPerformance, .underMaintenance:
+            return .partialOutage
+        case .operational, .unknown, nil:
+            return .operational
+        }
     }
 
     private static func helpText(for day: OpenAIStatusUptimeDay) -> String {
@@ -86,6 +93,9 @@ enum OpenAIFloatingStatusAdapter {
         }
         if day.fullOutageSeconds > 0 {
             parts.append("full outage \(Format.duration(TimeInterval(day.fullOutageSeconds)))")
+        }
+        if parts.isEmpty, !day.displaySeverity.isOperational {
+            parts.append(day.displaySeverity.displayName)
         }
         if let event = day.relatedEvents.first {
             parts.append(event.name)

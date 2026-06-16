@@ -17,30 +17,40 @@ enum OpenAIStatusUptimeHTMLParser {
         let impacts: [ComponentImpact] = try decodeArray(named: "component_impacts", from: normalized)
         let uptimes: [ComponentUptime] = try decodeArray(named: "component_uptimes", from: normalized)
         let incidentLinks: [IncidentLink] = (try? decodeArray(named: "incident_links", from: normalized)) ?? []
+        let chartSeverities = extractUptimeChartSeverities(from: normalized)
         let incidentLinksByID = Dictionary(uniqueKeysWithValues: incidentLinks.map { ($0.id, $0) })
         let uptimesByComponentID = Dictionary(grouping: uptimes.filter { !$0.componentID.isUndefinedValue }, by: \.componentID)
         let uptimesByGroupID = Dictionary(uniqueKeysWithValues: uptimes
             .filter { !$0.statusPageComponentGroupID.isUndefinedValue }
             .map { ($0.statusPageComponentGroupID, $0) })
+        let chartSeveritiesByGroupID: [String: [OpenAIStatusSeverity?]] = Dictionary(
+            uniqueKeysWithValues: zip(groupDefinitions.map(\.id), chartSeverities)
+        )
 
-        let histories = Dictionary(uniqueKeysWithValues: groupDefinitions.map { definition in
+        let historyPairs: [(String, OpenAIStatusUptimeHistory)] = groupDefinitions.compactMap { definition in
             let groupImpacts = impacts.filter { definition.componentIDs.contains($0.componentID) }
             let groupUptime = uptimesByGroupID[definition.id]
+            let componentUptimes = definition.componentIDs.flatMap { uptimesByComponentID[$0] ?? [] }
+            let groupChartSeverities = chartSeveritiesByGroupID[definition.id]
+            guard groupUptime != nil || !componentUptimes.isEmpty || groupChartSeverities != nil else {
+                return nil
+            }
             let sourceStart = groupUptime?.dataAvailableSinceDate
-                ?? definition.componentIDs
-                    .flatMap { uptimesByComponentID[$0] ?? [] }
+                ?? componentUptimes
                     .compactMap(\.dataAvailableSinceDate)
                     .min()
             let history = history(
                 for: definition,
                 impacts: groupImpacts,
                 incidentLinksByID: incidentLinksByID,
+                chartSeverities: groupChartSeverities ?? [],
                 startDate: sourceStart.map(dayStart),
                 sourceUptimePercent: groupUptime?.uptimePercent,
                 fetchedAt: fetchedAt
             )
             return (definition.id, history)
-        })
+        }
+        let histories = Dictionary(uniqueKeysWithValues: historyPairs)
 
         return OpenAIStatusUptimeSnapshot(
             histories: histories,
@@ -53,16 +63,25 @@ enum OpenAIStatusUptimeHTMLParser {
         for definition: OpenAIStatusGroupDefinition,
         impacts: [ComponentImpact],
         incidentLinksByID: [String: IncidentLink],
+        chartSeverities: [OpenAIStatusSeverity?],
         startDate: Date?,
         sourceUptimePercent: Double?,
         fetchedAt: Date
     ) -> OpenAIStatusUptimeHistory {
-        OpenAIStatusUptimeHistory(
+        let dates = windowDates(endingAt: fetchedAt)
+        let alignedChartSeverities = alignChartSeverities(chartSeverities, count: dates.count)
+        return OpenAIStatusUptimeHistory(
             groupID: definition.id,
             groupName: definition.name,
             startDate: startDate,
-            days: windowDates(endingAt: fetchedAt).map { date in
-                day(date, impacts: impacts, incidentLinksByID: incidentLinksByID, fetchedAt: fetchedAt)
+            days: zip(dates, alignedChartSeverities).map { date, chartSeverity in
+                day(
+                    date,
+                    impacts: impacts,
+                    incidentLinksByID: incidentLinksByID,
+                    chartSeverity: chartSeverity,
+                    fetchedAt: fetchedAt
+                )
             },
             sourceUptimePercent: sourceUptimePercent
         )
@@ -72,6 +91,7 @@ enum OpenAIStatusUptimeHTMLParser {
         _ date: Date,
         impacts: [ComponentImpact],
         incidentLinksByID: [String: IncidentLink],
+        chartSeverity: OpenAIStatusSeverity?,
         fetchedAt: Date
     ) -> OpenAIStatusUptimeDay {
         let dayEnd = calendar.date(byAdding: .day, value: 1, to: date) ?? date.addingTimeInterval(TimeInterval(OpenAIStatusUptimeWindow.secondsPerDay))
@@ -112,13 +132,51 @@ enum OpenAIStatusUptimeHTMLParser {
             return OpenAIStatusUptimeEvent(name: "Incident \(id)", code: id, permalink: nil)
         }
 
+        let displaySeverity = [impactSeverity(
+            degradedSeconds: degradedSeconds,
+            partialSeconds: partialSeconds,
+            fullSeconds: fullSeconds
+        ), chartSeverity].compactMap { $0 }.max() ?? .operational
+
         return OpenAIStatusUptimeDay(
             date: date,
             degradedPerformanceSeconds: min(OpenAIStatusUptimeWindow.secondsPerDay, degradedSeconds),
             partialOutageSeconds: min(OpenAIStatusUptimeWindow.secondsPerDay, partialSeconds),
             fullOutageSeconds: min(OpenAIStatusUptimeWindow.secondsPerDay, fullSeconds),
-            relatedEvents: events
+            relatedEvents: events,
+            chartSeverity: chartSeverity,
+            barFillHex: barFillHex(for: displaySeverity)
         )
+    }
+
+    private static func impactSeverity(
+        degradedSeconds: Int,
+        partialSeconds: Int,
+        fullSeconds: Int
+    ) -> OpenAIStatusSeverity? {
+        if fullSeconds > 0 {
+            return .fullOutage
+        }
+        if partialSeconds > 0 {
+            return .partialOutage
+        }
+        if degradedSeconds > 0 {
+            return .degradedPerformance
+        }
+        return nil
+    }
+
+    private static func barFillHex(for severity: OpenAIStatusSeverity) -> String? {
+        switch severity {
+        case .operational, .unknown:
+            return nil
+        case .underMaintenance:
+            return "#4a90e2"
+        case .degradedPerformance, .partialOutage:
+            return "#f8b500"
+        case .fullOutage:
+            return "#e83015"
+        }
     }
 
     private static func extractGroupDefinitions(from text: String) -> [OpenAIStatusGroupDefinition] {
@@ -140,6 +198,72 @@ enum OpenAIStatusUptimeHTMLParser {
         }
 
         return definitions
+    }
+
+    private static func extractUptimeChartSeverities(from text: String) -> [[OpenAIStatusSeverity?]] {
+        var charts: [[OpenAIStatusSeverity?]] = []
+        var searchStart = text.startIndex
+
+        while let chartRange = text.range(of: "UptimeChart", range: searchStart..<text.endIndex),
+              let svgStart = text[..<chartRange.lowerBound].range(of: "<svg", options: .backwards)?.lowerBound,
+              let svgEnd = text.range(of: "</svg>", range: chartRange.upperBound..<text.endIndex) {
+            let svg = String(text[svgStart..<svgEnd.upperBound])
+            let severities = extractPillSeverities(from: svg)
+            if !severities.isEmpty {
+                charts.append(severities)
+            }
+            searchStart = svgEnd.upperBound
+        }
+
+        return charts
+    }
+
+    private static func extractPillSeverities(from svg: String) -> [OpenAIStatusSeverity?] {
+        var severities: [OpenAIStatusSeverity?] = []
+        var searchStart = svg.startIndex
+
+        while let classRange = svg.range(of: #"class=""#, range: searchStart..<svg.endIndex),
+              let classEnd = svg[classRange.upperBound...].firstIndex(of: "\"") {
+            let classValue = String(svg[classRange.upperBound..<classEnd])
+            if classValue.contains("pill") {
+                severities.append(chartSeverity(from: classValue))
+            }
+            searchStart = svg.index(after: classEnd)
+        }
+
+        return severities
+    }
+
+    private static func chartSeverity(from classValue: String) -> OpenAIStatusSeverity? {
+        if classValue.contains("pillFullOutage") || classValue.contains("pillMajorOutage") {
+            return .fullOutage
+        }
+        if classValue.contains("pillPartialOutage") {
+            return .partialOutage
+        }
+        if classValue.contains("pillDegradedPerformance") {
+            return .degradedPerformance
+        }
+        if classValue.contains("pillUnderMaintenance") || classValue.contains("pillMaintenance") {
+            return .underMaintenance
+        }
+        if classValue.contains("pillOperational") {
+            return .operational
+        }
+        return nil
+    }
+
+    private static func alignChartSeverities(
+        _ severities: [OpenAIStatusSeverity?],
+        count: Int
+    ) -> [OpenAIStatusSeverity?] {
+        guard !severities.isEmpty else {
+            return Array(repeating: nil, count: count)
+        }
+        if severities.count >= count {
+            return Array(severities.suffix(count))
+        }
+        return Array(repeating: nil, count: count - severities.count) + severities
     }
 
     private static func decodeArray<T: Decodable>(named name: String, from text: String) throws -> [T] {

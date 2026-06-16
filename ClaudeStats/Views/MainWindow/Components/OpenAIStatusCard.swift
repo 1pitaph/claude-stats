@@ -261,6 +261,9 @@ private struct OpenAIStatusUptimeChart: View, Equatable {
                                      defaultValue: "full outage %@",
                                      Format.duration(TimeInterval(day.fullOutageSeconds))))
         }
+        if parts.isEmpty, !day.displaySeverity.isOperational {
+            parts.append(day.displaySeverity.displayName)
+        }
         return "\(date): \(parts.joined(separator: ", "))"
     }
 }
@@ -291,6 +294,9 @@ private extension OpenAIStatusUptimeDay {
     func chartColor(startDate: Date?) -> Color {
         if let startDate, date < startDate {
             return OpenAIStatusUptimeChartPalette.noData
+        }
+        if let hex = barFillHex, let color = Color(statusHex: hex) {
+            return color
         }
         if fullOutageSeconds > 0 {
             return OpenAIStatusUptimeChartPalette.majorOutage
@@ -330,6 +336,18 @@ private extension Color {
             light: (light.0 / 255, light.1 / 255, light.2 / 255),
             dark: (dark.0 / 255, dark.1 / 255, dark.2 / 255)
         )
+    }
+
+    init?(statusHex: String) {
+        let trimmed = statusHex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+        guard trimmed.count == 6,
+              let value = Int(trimmed, radix: 16) else {
+            return nil
+        }
+        let red = Double((value >> 16) & 0xff) / 255
+        let green = Double((value >> 8) & 0xff) / 255
+        let blue = Double(value & 0xff) / 255
+        self.init(red: red, green: green, blue: blue)
     }
 }
 

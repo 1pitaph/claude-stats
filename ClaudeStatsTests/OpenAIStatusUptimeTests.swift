@@ -41,6 +41,22 @@ struct OpenAIStatusUptimeTests {
         #expect(didThrowExpectedError)
     }
 
+    @Test("Uses uptime SVG classes when historical impact data is absent")
+    func parsesRenderedUptimeChartStates() throws {
+        let fetchedAt = Self.dateTime("2026-05-17T12:00:00Z")
+        let snapshot = try OpenAIStatusUptimeHTMLParser.parse(Self.statusPageHTMLWithRenderedCharts, fetchedAt: fetchedAt)
+        let codex = try #require(snapshot.histories[OpenAIStatusGroupCatalog.codexID])
+
+        #expect(codex.sourceUptimePercent == 99.96)
+        #expect(codex.days.count == OpenAIStatusUptimeWindow.dayCount)
+        #expect(codex.days[87].chartSeverity == .operational)
+        #expect(codex.days[88].chartSeverity == .degradedPerformance)
+        #expect(codex.days[88].hasOutage)
+        #expect(codex.days[88].degradedPerformanceSeconds == 0)
+        #expect(codex.days[88].barFillHex == "#f8b500")
+        #expect(codex.days[89].chartSeverity == .partialOutage)
+    }
+
     @Test("Uptime percent computes when source value is absent")
     func uptimePercentComputesWithoutSource() throws {
         let history = OpenAIStatusUptimeHistory(
@@ -84,6 +100,35 @@ struct OpenAIStatusUptimeTests {
       </script>
     </html>
     """
+
+    private static let statusPageHTMLWithRenderedCharts = """
+    <html>
+      <section>
+        {"group":{"components":[{"component_id":"\(OpenAIStatusGroupCatalog.conversationsID)","data_available_since":"2021-03-02T02:07:24Z","hidden":false,"name":"Conversations"}],"id":"\(OpenAIStatusGroupCatalog.chatGPTID)","name":"ChatGPT"}}
+        \(uptimeSVG(classes: ["pillOperational", "pillOperational", "pillDegradedPerformance"]))
+      </section>
+      <section>
+        {"group":{"components":[{"component_id":"\(OpenAIStatusGroupCatalog.codexWebID)","data_available_since":"2025-05-16T15:26:46Z","hidden":false,"name":"Codex Web"},{"component_id":"\(OpenAIStatusGroupCatalog.codexAPIID)","data_available_since":"2026-03-26T22:18:01Z","hidden":false,"name":"Codex API"}],"id":"\(OpenAIStatusGroupCatalog.codexID)","name":"Codex"}}
+        \(uptimeSVG(classes: ["pillOperational", "pillDegradedPerformance", "pillPartialOutage"]))
+      </section>
+      <script>
+        "component_impacts":[],
+        "component_uptimes":[
+          {"component_id":"$undefined","data_available_since":"2021-03-02T02:07:24Z","status_page_component_group_id":"\(OpenAIStatusGroupCatalog.chatGPTID)","uptime":"99.83"},
+          {"component_id":"$undefined","data_available_since":"2025-05-16T15:26:46Z","status_page_component_group_id":"\(OpenAIStatusGroupCatalog.codexID)","uptime":"99.96"}
+        ],
+        "incident_links":[]
+      </script>
+    </html>
+    """
+
+    private static func uptimeSVG(classes: [String]) -> String {
+        let rects = classes.enumerated().map { index, className in
+            #"<rect x="\#(index * 7)" y="0" width="5" height="16" class="transition UptimeChart-module-scss-module__test__\#(className)"></rect>"#
+        }
+        .joined()
+        return #"<svg width="100%" height="16">\#(rects)</svg>"#
+    }
 
     private static func dateByAdding(_ days: Int, to rawDate: String) -> Date {
         calendar.date(byAdding: .day, value: days, to: date(rawDate)) ?? date(rawDate)

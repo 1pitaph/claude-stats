@@ -151,7 +151,8 @@ enum StatsStatusSnapshotBuilder {
                     fullOutageSeconds: day.fullOutageSeconds,
                     relatedEvents: day.relatedEvents.map { event in
                         StatsStatusUptimeEvent(name: event.name, code: event.code, permalink: event.permalink)
-                    }
+                    },
+                    barFillHex: day.barFillHex
                 )
             },
             sourceUptimePercent: history.sourceUptimePercent
