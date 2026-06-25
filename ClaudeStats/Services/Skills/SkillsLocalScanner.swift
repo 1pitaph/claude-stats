@@ -135,6 +135,7 @@ struct SkillsLocalScanner: SkillsLocalScanning, Sendable {
         let augment = SkillProviderDefinition(id: "augment", displayName: "Augment", symbol: "wand.and.stars")
         let pi = SkillProviderDefinition(id: "pi", displayName: "Pi", symbol: "pi")
         let hermes = SkillProviderDefinition(id: "hermes", displayName: "Hermes", symbol: "paperplane")
+        let zcode = SkillProviderDefinition(id: "zcode", displayName: "ZCode", symbol: "z.square")
         let openClaw = SkillProviderDefinition(id: "openclaw", displayName: "OpenClaw", symbol: "hand.raised")
 
         append(codex, .global, home(".codex/skills"))
@@ -156,6 +157,7 @@ struct SkillsLocalScanner: SkillsLocalScanning, Sendable {
         append(augment, .global, home(".augment/skills"))
         append(pi, .global, home(".pi/skills"))
         append(hermes, .global, home(".hermes/skills"))
+        append(zcode, .global, home(".zcode/skills"))
         append(openClaw, .global, home(".openclaw/skills"))
 
         let projectPaths = Set(

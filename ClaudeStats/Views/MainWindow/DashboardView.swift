@@ -151,7 +151,7 @@ struct DashboardView: View {
             statusProviderRaw = StatusProvider.claude.rawValue
         case .codex:
             statusProviderRaw = StatusProvider.codex.rawValue
-        case .gemini, .opencode, .kiro, .hermes:
+        case .gemini, .opencode, .kiro, .hermes, .zcode:
             if StatusProvider(rawValue: statusProviderRaw) == nil {
                 statusProviderRaw = defaultStatusProvider.rawValue
             }

@@ -99,7 +99,7 @@ private struct LoadingLine: View {
 #if DEBUG
 #Preview("Switcher") {
     let env = AppEnvironment.preview()
-    env.preferences.enabledProviders = [.claude, .codex, .gemini, .opencode, .kiro, .hermes]
+    env.preferences.enabledProviders = [.claude, .codex, .gemini, .opencode, .kiro, .hermes, .zcode]
     return VStack(spacing: 0) {
         ProviderSwitcherBar().environment(env)
         StxRule()

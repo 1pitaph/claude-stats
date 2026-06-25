@@ -7,7 +7,7 @@ struct ProviderKindTests {
 
     @Test("Canonical order and full set")
     func allCases() {
-        #expect(ProviderKind.allCases == [.claude, .codex, .gemini, .opencode, .kiro, .hermes])
+        #expect(ProviderKind.allCases == [.claude, .codex, .gemini, .opencode, .kiro, .hermes, .zcode])
     }
 
     @Test("Every case has a non-empty asset name, short name, and display name")

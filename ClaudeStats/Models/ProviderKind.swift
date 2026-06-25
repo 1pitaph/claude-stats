@@ -12,6 +12,7 @@ enum ProviderKind: String, CaseIterable, Codable, Sendable, Identifiable, Hashab
     case opencode
     case kiro
     case hermes
+    case zcode
 
     var id: String { rawValue }
 
@@ -24,6 +25,7 @@ enum ProviderKind: String, CaseIterable, Codable, Sendable, Identifiable, Hashab
         case .opencode: "OpenCode"
         case .kiro: "Kiro"
         case .hermes: "Hermes"
+        case .zcode: "ZCode"
         }
     }
 
@@ -36,6 +38,7 @@ enum ProviderKind: String, CaseIterable, Codable, Sendable, Identifiable, Hashab
         case .opencode: "OpenCode"
         case .kiro: "Kiro"
         case .hermes: "Hermes"
+        case .zcode: "ZCode"
         }
     }
 
@@ -49,6 +52,7 @@ enum ProviderKind: String, CaseIterable, Codable, Sendable, Identifiable, Hashab
         case .opencode: "opencode-logo"
         case .kiro: "kiro-logo"
         case .hermes: "hermes-logo"
+        case .zcode: "zcode-logo"
         }
     }
 
@@ -62,6 +66,7 @@ enum ProviderKind: String, CaseIterable, Codable, Sendable, Identifiable, Hashab
         case .opencode: "opencode"
         case .kiro: "kiro"
         case .hermes: "hermes"
+        case .zcode: "zcode"
         }
     }
 
@@ -74,6 +79,7 @@ enum ProviderKind: String, CaseIterable, Codable, Sendable, Identifiable, Hashab
         case .opencode: "terminal"
         case .kiro: "shippingbox"
         case .hermes: "bolt.horizontal"
+        case .zcode: "z.square"
         }
     }
 
@@ -85,6 +91,7 @@ enum ProviderKind: String, CaseIterable, Codable, Sendable, Identifiable, Hashab
         case .opencode: Color(red: 0.05, green: 0.62, blue: 0.46)
         case .kiro: Color(red: 0.48, green: 0.34, blue: 0.95)
         case .hermes: Color(red: 0.18, green: 0.45, blue: 0.98)
+        case .zcode: Color(red: 0.36, green: 0.70, blue: 0.92)
         }
     }
 }
