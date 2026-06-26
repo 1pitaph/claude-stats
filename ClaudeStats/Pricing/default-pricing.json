@@ -96,6 +96,18 @@
     "llama-4-maverick": { "input": 0.15, "output": 0.6, "cacheWrite5m": 0.0, "cacheWrite1h": 0.0, "cacheRead": 0.0 },
     "llama-4-scout": { "input": 0.1, "output": 0.3, "cacheWrite5m": 0.0, "cacheWrite1h": 0.0, "cacheRead": 0.0 },
     "meta-llama/llama-4-maverick": { "input": 0.15, "output": 0.6, "cacheWrite5m": 0.0, "cacheWrite1h": 0.0, "cacheRead": 0.0 },
-    "meta-llama/llama-4-scout": { "input": 0.1, "output": 0.3, "cacheWrite5m": 0.0, "cacheWrite1h": 0.0, "cacheRead": 0.0 }
+    "meta-llama/llama-4-scout": { "input": 0.1, "output": 0.3, "cacheWrite5m": 0.0, "cacheWrite1h": 0.0, "cacheRead": 0.0 },
+
+    "glm-5.2": { "input": 0.6, "output": 2.2, "cacheWrite5m": 0.0, "cacheWrite1h": 0.0, "cacheRead": 0.11 },
+    "glm-5-2": { "input": 0.6, "output": 2.2, "cacheWrite5m": 0.0, "cacheWrite1h": 0.0, "cacheRead": 0.11 },
+    "GLM-5.2": { "input": 0.6, "output": 2.2, "cacheWrite5m": 0.0, "cacheWrite1h": 0.0, "cacheRead": 0.11 },
+    "glm-5.1": { "input": 0.5, "output": 1.8, "cacheWrite5m": 0.0, "cacheWrite1h": 0.0, "cacheRead": 0.1 },
+    "glm-5": { "input": 0.5, "output": 1.8, "cacheWrite5m": 0.0, "cacheWrite1h": 0.0, "cacheRead": 0.1 },
+    "glm-4.6": { "input": 0.6, "output": 2.2, "cacheWrite5m": 0.0, "cacheWrite1h": 0.0, "cacheRead": 0.11 },
+    "glm-4.5": { "input": 0.4, "output": 1.6, "cacheWrite5m": 0.0, "cacheWrite1h": 0.0, "cacheRead": 0.08 },
+    "glm-4.5-air": { "input": 0.14, "output": 0.86, "cacheWrite5m": 0.0, "cacheWrite1h": 0.0, "cacheRead": 0.03 },
+    "glm-4-plus": { "input": 1.4, "output": 1.4, "cacheWrite5m": 0.0, "cacheWrite1h": 0.0, "cacheRead": 0.0 },
+    "doubao-pro": { "input": 0.4, "output": 0.8, "cacheWrite5m": 0.0, "cacheWrite1h": 0.0, "cacheRead": 0.0 },
+    "doubao-lite": { "input": 0.05, "output": 0.1, "cacheWrite5m": 0.0, "cacheWrite1h": 0.0, "cacheRead": 0.0 }
   }
 }

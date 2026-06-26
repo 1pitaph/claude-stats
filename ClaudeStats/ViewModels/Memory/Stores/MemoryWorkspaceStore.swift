@@ -474,6 +474,8 @@ private extension MemoryWorkspaceStore {
             messages = KiroTranscriptParser(pricing: .fallback).messages(for: session)
         case .hermes:
             messages = HermesTranscriptParser(pricing: .fallback).messages(for: session)
+        case .zcode:
+            messages = ZCodeTranscriptParser(paths: .default, pricing: .fallback).messages(for: session)
         case .gemini:
             messages = []
         }

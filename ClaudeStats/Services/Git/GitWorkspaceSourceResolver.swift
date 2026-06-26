@@ -6,6 +6,7 @@ enum GitWorkspaceSourceID: String, CaseIterable, Codable, Sendable, Identifiable
     case opencode
     case kiro
     case hermes
+    case zcode
     case cursor
     case windsurf
     case trae
@@ -71,6 +72,13 @@ enum GitWorkspaceSourceCatalog {
             detail: "Repos from Hermes session working directories.",
             assetName: "hermes-logo",
             kind: .sessionProvider(.hermes)
+        ),
+        GitWorkspaceSourceDescriptor(
+            id: .zcode,
+            displayName: "ZCode",
+            detail: "Repos from ZCode CLI session working directories.",
+            assetName: "zcode-logo",
+            kind: .sessionProvider(.zcode)
         ),
     ]
 

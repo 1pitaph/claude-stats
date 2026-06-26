@@ -14,7 +14,8 @@ struct ProviderRegistry: Sendable {
          codexPaths: CodexPaths = .default,
          openCodePaths: OpenCodePaths = .default,
          kiroPaths: KiroPaths = .default,
-         hermesPaths: HermesPaths = .default) {
+         hermesPaths: HermesPaths = .default,
+         zcodePaths: ZCodePaths = .default) {
         providers = [
             ClaudeProvider(paths: claudePaths, pricing: pricing),
             CodexProvider(paths: codexPaths, pricing: pricing),
@@ -22,6 +23,7 @@ struct ProviderRegistry: Sendable {
             OpenCodeProvider(paths: openCodePaths, pricing: pricing),
             KiroProvider(paths: kiroPaths, pricing: pricing),
             HermesProvider(paths: hermesPaths, pricing: pricing),
+            ZCodeProvider(paths: zcodePaths, pricing: pricing),
         ]
     }
 
