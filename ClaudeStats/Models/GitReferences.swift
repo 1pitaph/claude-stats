@@ -33,6 +33,7 @@ struct GitReference: Sendable, Hashable, Identifiable, Equatable {
     let upstreamShortName: String?
     let upstreamFullName: String?
     let aheadBehind: GitReferenceAheadBehind?
+    let sortTimestamp: Int?
 
     var id: String { fullName }
     var targetHash: String { peeledHash?.nilIfBlank ?? objectHash }
@@ -191,8 +192,6 @@ enum GitReferenceTreeBuilder {
     static let defaultExpandedIDs: Set<String> = [
         localSectionID,
         remoteSectionID,
-        reflogSectionID,
-        tagSectionID,
     ]
 
     static func rows(
@@ -359,45 +358,61 @@ enum GitReferenceTreeBuilder {
             expandedIDs: expandedIDs
         ))
         guard expandedIDs.contains(tagSectionID) else { return }
-        var emittedFolders = Set<String>()
-        for tag in snapshot.tags.sorted(by: referenceSort) {
-            let components = tag.shortName.split(separator: "/").map(String.init)
-            guard components.count > 1 else {
-                rows.append(referenceRow(reference: tag, depth: 1, selection: selection))
-                continue
-            }
+        let tree = TagTreeNode(tags: snapshot.tags)
+        appendTagTreeItems(
+            node: tree,
+            path: [],
+            depth: 1,
+            selection: selection,
+            expandedIDs: expandedIDs,
+            rows: &rows
+        )
+    }
 
-            var visibleParent = true
-            var prefix: [String] = []
-            for (index, component) in components.dropLast().enumerated() {
-                prefix.append(component)
-                let folderID = tagFolderID(prefix.joined(separator: "/"))
-                if visibleParent, emittedFolders.insert(folderID).inserted {
-                    rows.append(GitReferenceTreeRow(
-                        id: folderID,
-                        kind: .folder,
-                        title: component,
-                        subtitle: nil,
-                        detail: nil,
-                        systemImage: AppIcon.Resource.folder,
-                        depth: index + 1,
-                        referenceFullName: nil,
-                        reflogSelector: nil,
-                        targetHash: nil,
-                        isExpandable: true,
-                        isExpanded: expandedIDs.contains(folderID),
-                        isSelected: false,
-                        isCurrent: false,
-                        remoteName: nil
-                    ))
-                }
-                visibleParent = visibleParent && expandedIDs.contains(folderID)
-            }
-            if visibleParent {
+    private static func appendTagTreeItems(
+        node: TagTreeNode,
+        path: [String],
+        depth: Int,
+        selection: GitReferenceSelection,
+        expandedIDs: Set<String>,
+        rows: inout [GitReferenceTreeRow]
+    ) {
+        for item in node.sortedItems {
+            switch item {
+            case .folder(let name, let child):
+                let folderPath = (path + [name]).joined(separator: "/")
+                let folderID = tagFolderID(folderPath)
+                rows.append(GitReferenceTreeRow(
+                    id: folderID,
+                    kind: .folder,
+                    title: name,
+                    subtitle: nil,
+                    detail: nil,
+                    systemImage: AppIcon.Resource.folder,
+                    depth: depth,
+                    referenceFullName: nil,
+                    reflogSelector: nil,
+                    targetHash: nil,
+                    isExpandable: true,
+                    isExpanded: expandedIDs.contains(folderID),
+                    isSelected: false,
+                    isCurrent: false,
+                    remoteName: nil
+                ))
+                guard expandedIDs.contains(folderID) else { continue }
+                appendTagTreeItems(
+                    node: child,
+                    path: path + [name],
+                    depth: depth + 1,
+                    selection: selection,
+                    expandedIDs: expandedIDs,
+                    rows: &rows
+                )
+            case .tag(let tag):
                 rows.append(referenceRow(
                     reference: tag,
-                    titleOverride: components.last,
-                    depth: components.count,
+                    titleOverride: path.isEmpty ? nil : tag.shortName.split(separator: "/").last.map(String.init),
+                    depth: depth,
                     selection: selection
                 ))
             }
@@ -499,6 +514,91 @@ enum GitReferenceTreeBuilder {
     private static func referenceSort(_ lhs: GitReference, _ rhs: GitReference) -> Bool {
         if lhs.isCurrent != rhs.isCurrent { return lhs.isCurrent }
         return lhs.shortName.localizedStandardCompare(rhs.shortName) == .orderedAscending
+    }
+}
+
+private struct TagTreeNode: Sendable, Hashable {
+    private var folders: [String: TagTreeNode] = [:]
+    private var tags: [GitReference] = []
+    private(set) var latestTimestamp: Int?
+
+    init() {}
+
+    init(tags: [GitReference]) {
+        for tag in tags {
+            insert(tag)
+        }
+    }
+
+    var sortedItems: [TagTreeItem] {
+        let folderItems = folders.map { TagTreeItem.folder(name: $0.key, node: $0.value) }
+        let tagItems = tags.map(TagTreeItem.tag)
+        return (folderItems + tagItems).sorted(by: tagTreeItemSort)
+    }
+
+    mutating func insert(_ tag: GitReference) {
+        latestTimestamp = maxTimestamp(latestTimestamp, tag.sortTimestamp)
+        insert(tag, components: tag.shortName.split(separator: "/").map(String.init))
+    }
+
+    private mutating func insert(_ tag: GitReference, components: [String]) {
+        guard components.count > 1, let first = components.first else {
+            tags.append(tag)
+            return
+        }
+        var child = folders[first] ?? TagTreeNode()
+        child.latestTimestamp = maxTimestamp(child.latestTimestamp, tag.sortTimestamp)
+        child.insert(tag, components: Array(components.dropFirst()))
+        folders[first] = child
+    }
+}
+
+private enum TagTreeItem: Sendable, Hashable {
+    case folder(name: String, node: TagTreeNode)
+    case tag(GitReference)
+
+    var title: String {
+        switch self {
+        case .folder(let name, _):
+            return name
+        case .tag(let reference):
+            return reference.shortName
+        }
+    }
+
+    var sortTimestamp: Int? {
+        switch self {
+        case .folder(_, let node):
+            return node.latestTimestamp
+        case .tag(let reference):
+            return reference.sortTimestamp
+        }
+    }
+}
+
+private func tagTreeItemSort(_ lhs: TagTreeItem, _ rhs: TagTreeItem) -> Bool {
+    switch (lhs.sortTimestamp, rhs.sortTimestamp) {
+    case let (left?, right?) where left != right:
+        return left > right
+    case (_?, nil):
+        return true
+    case (nil, _?):
+        return false
+    default:
+        return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
+    }
+}
+
+private func maxTimestamp(_ lhs: Int?, _ rhs: Int?) -> Int? {
+    switch (lhs, rhs) {
+    case let (left?, right?):
+        return max(left, right)
+    case let (left?, nil):
+        return left
+    case let (nil, right?):
+        return right
+    case (nil, nil):
+        return nil
     }
 }
 

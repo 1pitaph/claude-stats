@@ -19,6 +19,7 @@ struct GitReferenceTreeBuilderTests {
         let tag = reference(kind: .tag, fullName: "refs/tags/list/github49", shortName: "list/github49")
         let snapshot = snapshot(tags: [tag])
         var expanded = GitReferenceTreeBuilder.defaultExpandedIDs
+        expanded.insert(GitReferenceTreeBuilder.tagSectionID)
         expanded.insert(GitReferenceTreeBuilder.tagFolderID("list"))
 
         let rows = GitReferenceTreeBuilder.rows(snapshot: snapshot, selection: .reference(tag.fullName), expandedIDs: expanded)
@@ -33,6 +34,48 @@ struct GitReferenceTreeBuilderTests {
         #expect(tagRow.title == "github49")
         #expect(tagRow.depth == 2)
         #expect(tagRow.isSelected)
+    }
+
+    @Test("reflogs and tags are collapsed by default")
+    func reflogsAndTagsCollapsedByDefault() throws {
+        let reflog = GitReflogEntry(
+            id: "HEAD@{0}",
+            selector: "HEAD@{0}",
+            shortSelector: "HEAD@{0}",
+            targetHash: "abcdef123456",
+            message: "commit: Initial",
+            dateLabel: nil
+        )
+        let tag = reference(kind: .tag, fullName: "refs/tags/v1", shortName: "v1")
+        let rows = GitReferenceTreeBuilder.rows(
+            snapshot: snapshot(tags: [tag], reflogs: [reflog]),
+            selection: .none,
+            expandedIDs: GitReferenceTreeBuilder.defaultExpandedIDs
+        )
+
+        let reflogSection = try #require(rows.first { $0.id == GitReferenceTreeBuilder.reflogSectionID })
+        let tagSection = try #require(rows.first { $0.id == GitReferenceTreeBuilder.tagSectionID })
+        #expect(!reflogSection.isExpanded)
+        #expect(!tagSection.isExpanded)
+        #expect(rows.contains { $0.reflogSelector == reflog.id } == false)
+        #expect(rows.contains { $0.referenceFullName == tag.fullName } == false)
+    }
+
+    @Test("tags sort newest first inside expanded folders")
+    func tagsSortNewestFirst() throws {
+        let older = reference(kind: .tag, fullName: "refs/tags/list/github40", shortName: "list/github40", sortTimestamp: 40)
+        let newer = reference(kind: .tag, fullName: "refs/tags/list/github49", shortName: "list/github49", sortTimestamp: 49)
+        let snapshot = snapshot(tags: [older, newer])
+        var expanded = GitReferenceTreeBuilder.defaultExpandedIDs
+        expanded.insert(GitReferenceTreeBuilder.tagSectionID)
+        expanded.insert(GitReferenceTreeBuilder.tagFolderID("list"))
+
+        let rows = GitReferenceTreeBuilder.rows(snapshot: snapshot, selection: .none, expandedIDs: expanded)
+        let tagTitles = rows
+            .filter { $0.referenceFullName?.hasPrefix("refs/tags/list/") == true }
+            .map(\.title)
+
+        #expect(tagTitles == ["github49", "github40"])
     }
 
     @Test("collapsed sections hide child rows")
@@ -69,16 +112,19 @@ struct GitReferenceTreeBuilderTests {
 
     @Test("large tag list keeps stable row identity")
     func largeTagListStableIDs() {
-        let tags = (0..<120).map { index in
-            reference(
+        let tags = Array(0..<120).map { value -> GitReference in
+            let suffix = String(value)
+            return reference(
                 kind: .tag,
-                fullName: "refs/tags/list/github\(index)",
-                shortName: "list/github\(index)",
-                hash: "hash\(index)"
+                fullName: "refs/tags/list/github\(suffix)",
+                shortName: "list/github\(suffix)",
+                hash: "hash\(suffix)",
+                sortTimestamp: value
             )
         }
         let snapshot = snapshot(tags: tags)
         var expanded = GitReferenceTreeBuilder.defaultExpandedIDs
+        expanded.insert(GitReferenceTreeBuilder.tagSectionID)
         expanded.insert(GitReferenceTreeBuilder.tagFolderID("list"))
 
         let first = GitReferenceTreeBuilder.rows(snapshot: snapshot, selection: .none, expandedIDs: expanded).map(\.id)
@@ -116,7 +162,8 @@ private func reference(
     shortName: String,
     hash: String = "abcdef123456",
     peeledHash: String? = nil,
-    isCurrent: Bool = false
+    isCurrent: Bool = false,
+    sortTimestamp: Int? = nil
 ) -> GitReference {
     GitReference(
         kind: kind,
@@ -127,6 +174,7 @@ private func reference(
         isCurrent: isCurrent,
         upstreamShortName: nil,
         upstreamFullName: nil,
-        aheadBehind: nil
+        aheadBehind: nil,
+        sortTimestamp: sortTimestamp
     )
 }

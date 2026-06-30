@@ -10,11 +10,11 @@ struct GitReferenceServiceTests {
     func parseReferences() throws {
         let f = Self.fs
         let output = [
-            ["refs/heads/main", "main", "h-main", "", "origin/main", "refs/remotes/origin/main"].joined(separator: f),
-            ["refs/heads/feature/topic", "feature/topic", "h-feature", "", "", ""].joined(separator: f),
-            ["refs/remotes/origin/HEAD", "origin/HEAD", "h-main", "", "", ""].joined(separator: f),
-            ["refs/remotes/origin/feature/topic", "origin/feature/topic", "h-feature", "", "", ""].joined(separator: f),
-            ["refs/tags/list/github49", "list/github49", "tag-object", "peeled-commit", "", ""].joined(separator: f),
+            ["refs/heads/main", "main", "h-main", "", "origin/main", "refs/remotes/origin/main", ""].joined(separator: f),
+            ["refs/heads/feature/topic", "feature/topic", "h-feature", "", "", "", ""].joined(separator: f),
+            ["refs/remotes/origin/HEAD", "origin/HEAD", "h-main", "", "", "", ""].joined(separator: f),
+            ["refs/remotes/origin/feature/topic", "origin/feature/topic", "h-feature", "", "", "", ""].joined(separator: f),
+            ["refs/tags/list/github49", "list/github49", "tag-object", "peeled-commit", "", "", "1780000000"].joined(separator: f),
         ].joined(separator: "\n")
 
         let refs = GitReferenceService.parseReferences(output, currentBranchName: "main") { branch, upstream in
@@ -36,6 +36,7 @@ struct GitReferenceServiceTests {
         let tag = try #require(refs.first { $0.fullName == "refs/tags/list/github49" })
         #expect(tag.kind == .tag)
         #expect(tag.targetHash == "peeled-commit")
+        #expect(tag.sortTimestamp == 1_780_000_000)
     }
 
     @Test("remote parser merges fetch and push URLs")
@@ -116,6 +117,26 @@ struct GitReferenceServiceTests {
         #expect(snapshot.currentBranchName == nil)
         #expect(snapshot.headHash == hash)
     }
+
+    @Test("snapshot sorts tags newest first", .enabled(if: GitReferenceService().isAvailable))
+    func snapshotSortsTagsNewestFirst() throws {
+        let dir = try temporaryRepo(prefix: "git-refs-tag-order")
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        try configureRepo(dir)
+        try write("old\n", to: "file.txt", in: dir)
+        try runGit(["add", "file.txt"], in: dir)
+        try runGit(["commit", "-q", "-m", "Old"], in: dir, environment: gitDateEnvironment(1_700_000_000))
+        try runGit(["tag", "list/github40"], in: dir)
+
+        try write("new\n", to: "file.txt", in: dir)
+        try runGit(["commit", "-q", "-am", "New"], in: dir, environment: gitDateEnvironment(1_800_000_000))
+        try runGit(["tag", "list/github49"], in: dir)
+
+        let snapshot = GitReferenceService().snapshot(for: GitRepo(rootPath: dir.path), reflogLimit: 10)
+
+        #expect(Array(snapshot.tags.map(\.shortName).prefix(2)) == ["list/github49", "list/github40"])
+    }
 }
 
 private func temporaryRepo(prefix: String) throws -> URL {
@@ -136,10 +157,11 @@ private func write(_ text: String, to path: String, in dir: URL) throws {
 }
 
 @discardableResult
-private func runGit(_ args: [String], in dir: URL) throws -> String {
+private func runGit(_ args: [String], in dir: URL, environment: [String: String] = [:]) throws -> String {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: GitAnalyzer.gitPath)
     process.arguments = ["-C", dir.path] + args
+    process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, new in new }
     let out = Pipe()
     let err = Pipe()
     process.standardOutput = out
@@ -153,6 +175,14 @@ private func runGit(_ args: [String], in dir: URL) throws -> String {
         throw GitReferenceTestError.gitFailed(args.joined(separator: " "), message)
     }
     return String(data: stdout, encoding: .utf8) ?? ""
+}
+
+private func gitDateEnvironment(_ timestamp: Int) -> [String: String] {
+    let value = "@\(timestamp)"
+    return [
+        "GIT_AUTHOR_DATE": value,
+        "GIT_COMMITTER_DATE": value,
+    ]
 }
 
 private func combined(_ lhs: Data, _ rhs: Data) -> Data {

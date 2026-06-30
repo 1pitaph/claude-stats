@@ -33,7 +33,7 @@ struct GitReferenceService: Sendable {
             localBranches: localBranches.sorted(by: Self.referenceSort),
             remoteGroups: remoteGroups,
             remotes: remotes,
-            tags: tags.sorted(by: Self.referenceSort),
+            tags: tags.sorted(by: Self.tagSort),
             reflogs: reflogResult.entries,
             headHash: headHash,
             currentBranchName: currentBranchName,
@@ -46,7 +46,7 @@ struct GitReferenceService: Sendable {
     func references(for repo: GitRepo, currentBranchName: String? = nil) -> [GitReference] {
         guard runner.isAvailable else { return [] }
         let f = Self.fieldSep
-        let format = "%(refname)\(f)%(refname:short)\(f)%(objectname)\(f)%(*objectname)\(f)%(upstream:short)\(f)%(upstream)"
+        let format = "%(refname)\(f)%(refname:short)\(f)%(objectname)\(f)%(*objectname)\(f)%(upstream:short)\(f)%(upstream)\(f)%(creatordate:unix)"
         let output = runText([
             "-C", repo.rootPath,
             "for-each-ref",
@@ -99,6 +99,7 @@ struct GitReferenceService: Sendable {
                 let peeledHash = fields[3].trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank
                 let upstreamShortName = fields.count > 4 ? fields[4].trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank : nil
                 let upstreamFullName = fields.count > 5 ? fields[5].trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank : nil
+                let sortTimestamp = fields.count > 6 ? Int(fields[6].trimmingCharacters(in: .whitespacesAndNewlines)) : nil
                 guard !fullName.isEmpty, !shortName.isEmpty, !objectHash.isEmpty else { return nil }
                 guard let kind = kind(for: fullName) else { return nil }
                 if kind == .remoteBranch, shortName.hasSuffix("/HEAD") { return nil }
@@ -113,7 +114,8 @@ struct GitReferenceService: Sendable {
                     isCurrent: isCurrent,
                     upstreamShortName: upstreamShortName,
                     upstreamFullName: upstreamFullName,
-                    aheadBehind: counts ?? nil
+                    aheadBehind: counts ?? nil,
+                    sortTimestamp: sortTimestamp
                 )
             }
     }
@@ -213,6 +215,19 @@ struct GitReferenceService: Sendable {
     private static func referenceSort(_ lhs: GitReference, _ rhs: GitReference) -> Bool {
         if lhs.isCurrent != rhs.isCurrent { return lhs.isCurrent }
         return lhs.shortName.localizedStandardCompare(rhs.shortName) == .orderedAscending
+    }
+
+    private static func tagSort(_ lhs: GitReference, _ rhs: GitReference) -> Bool {
+        switch (lhs.sortTimestamp, rhs.sortTimestamp) {
+        case let (left?, right?) where left != right:
+            return left > right
+        case (_?, nil):
+            return true
+        case (nil, _?):
+            return false
+        default:
+            return lhs.shortName.localizedStandardCompare(rhs.shortName) == .orderedAscending
+        }
     }
 }
 
