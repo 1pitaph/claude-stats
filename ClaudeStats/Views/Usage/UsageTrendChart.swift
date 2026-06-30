@@ -220,6 +220,72 @@ struct UsageTrendChartSnapshot {
         default: 0
         }
     }
+
+    fileprivate func nearestHoverDate(to date: Date) -> Date? {
+        var nearest: Date?
+        var smallestDistance = TimeInterval.greatestFiniteMagnitude
+        var visited: Set<Date> = []
+
+        for point in points where visited.insert(point.date).inserted {
+            let distance = abs(point.date.timeIntervalSince(date))
+            if distance < smallestDistance {
+                nearest = point.date
+                smallestDistance = distance
+            }
+        }
+
+        return nearest
+    }
+
+    fileprivate func hoverSelection(for date: Date?) -> UsageTrendHoverSelection? {
+        guard let date else { return nil }
+        let rows = points
+            .filter { $0.date == date }
+            .sorted { hoverSortIndex(for: $0.series) < hoverSortIndex(for: $1.series) }
+            .map { point in
+                UsageTrendHoverRow(
+                    id: point.id,
+                    label: hoverLabel(for: point.series),
+                    value: hoverDisplayValue(for: point),
+                    plottedValue: point.value,
+                    color: hoverColor(for: point.series)
+                )
+            }
+
+        guard !rows.isEmpty else { return nil }
+        return UsageTrendHoverSelection(
+            date: date,
+            title: hoverTitle(for: date),
+            rows: rows
+        )
+    }
+
+    private func hoverSortIndex(for series: String) -> Int {
+        if stackByType {
+            return Self.tokenTypeKeys.firstIndex { $0.label == series } ?? Int.max
+        }
+        return modelColorIndexByID[series] ?? Int.max
+    }
+
+    private func hoverLabel(for series: String) -> String {
+        legendEntries.first { $0.id == series }?.label ?? series
+    }
+
+    private func hoverColor(for series: String) -> Color {
+        legendEntries.first { $0.id == series }?.color ?? Color.stxAccent
+    }
+
+    private func hoverDisplayValue(for point: UsageTrendChartPoint) -> Int {
+        let value = useLog ? expm1(point.value) : point.value
+        return max(0, Int(value.rounded()))
+    }
+
+    private func hoverTitle(for date: Date) -> String {
+        if isHourly {
+            return date.formatted(.dateTime.hour())
+        }
+        return date.formatted(.dateTime.month(.abbreviated).day())
+    }
 }
 
 struct UsageTrendChartPoint: Identifiable {
@@ -236,6 +302,24 @@ struct UsageTrendLegendEntry: Identifiable {
     let color: Color
 }
 
+fileprivate struct UsageTrendHoverSelection {
+    let date: Date
+    let title: String
+    let rows: [UsageTrendHoverRow]
+
+    var totalTokens: Int {
+        rows.reduce(0) { $0 + $1.value }
+    }
+}
+
+fileprivate struct UsageTrendHoverRow: Identifiable {
+    let id: String
+    let label: String
+    let value: Int
+    let plottedValue: Double
+    let color: Color
+}
+
 struct UsageTrendChartView<Legend: View>: View {
     let snapshot: UsageTrendChartSnapshot
     let chartHeight: CGFloat
@@ -246,6 +330,9 @@ struct UsageTrendChartView<Legend: View>: View {
 
     @State private var displayedSnapshot: UsageTrendChartSnapshot?
     @State private var chartStageNonce = 0
+    @State private var hoverDate: Date?
+
+    private var hoverTooltipMaxWidth: CGFloat { 220 }
 
     init(
         snapshot: UsageTrendChartSnapshot,
@@ -277,6 +364,7 @@ struct UsageTrendChartView<Legend: View>: View {
             installSnapshotWithoutAnimation(snapshot)
         }
         .onChange(of: snapshot.updateID) { _, _ in
+            hoverDate = nil
             stageSnapshotChange()
         }
     }
@@ -301,34 +389,99 @@ struct UsageTrendChartView<Legend: View>: View {
 
     @ViewBuilder
     private func chart(_ displayed: UsageTrendChartSnapshot) -> some View {
-        let base = Chart(displayed.points) { point in
-            switch displayed.style {
-            case .line:
-                if displayed.stackByType {
-                    AreaMark(
-                        x: .value("Time", point.date, unit: displayed.isHourly ? .hour : .day),
+        let hoverSelection = displayed.hoverSelection(for: hoverDate)
+        let xUnit: Calendar.Component = displayed.isHourly ? .hour : .day
+        let base = Chart {
+            ForEach(displayed.points) { point in
+                switch displayed.style {
+                case .line:
+                    if displayed.stackByType {
+                        AreaMark(
+                            x: .value("Time", point.date, unit: displayed.isHourly ? .hour : .day),
+                            y: .value("Tokens", point.value)
+                        )
+                        .foregroundStyle(by: .value("Type", point.series))
+                        .interpolationMethod(.catmullRom)
+                    } else {
+                        LineMark(
+                            x: .value("Time", point.date, unit: displayed.isHourly ? .hour : .day),
+                            y: .value("Tokens", point.value)
+                        )
+                        .foregroundStyle(by: .value("Model", point.series))
+                        .interpolationMethod(.catmullRom)
+                        .lineStyle(StrokeStyle(lineWidth: 2))
+                    }
+                case .bar:
+                    BarMark(
+                        x: .value("Day", point.date, unit: .day),
                         y: .value("Tokens", point.value)
                     )
-                    .foregroundStyle(by: .value("Type", point.series))
-                    .interpolationMethod(.catmullRom)
-                } else {
-                    LineMark(
-                        x: .value("Time", point.date, unit: displayed.isHourly ? .hour : .day),
-                        y: .value("Tokens", point.value)
-                    )
-                    .foregroundStyle(by: .value("Model", point.series))
-                    .interpolationMethod(.catmullRom)
-                    .lineStyle(StrokeStyle(lineWidth: 2))
+                    .foregroundStyle(by: .value(displayed.stackByType ? "Type" : "Model", point.series))
+                    .cornerRadius(barCornerRadius)
                 }
-            case .bar:
-                BarMark(
-                    x: .value("Day", point.date, unit: .day),
-                    y: .value("Tokens", point.value)
-                )
-                .foregroundStyle(by: .value(displayed.stackByType ? "Type" : "Model", point.series))
-                .cornerRadius(barCornerRadius)
+            }
+
+            if let hoverSelection {
+                RuleMark(x: .value("Selected Time", hoverSelection.date, unit: xUnit))
+                    .foregroundStyle(Color.primary.opacity(0.22))
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+
+                if displayed.style == .line && !displayed.stackByType {
+                    ForEach(hoverSelection.rows) { row in
+                        PointMark(
+                            x: .value("Selected Time", hoverSelection.date, unit: xUnit),
+                            y: .value("Tokens", row.plottedValue)
+                        )
+                        .foregroundStyle(row.color)
+                        .symbolSize(42)
+                    }
+                }
             }
         }
+        .chartOverlay { proxy in
+            GeometryReader { geometry in
+                ZStack(alignment: .topLeading) {
+                    Rectangle()
+                        .fill(.clear)
+                        .contentShape(Rectangle())
+                        .onContinuousHover(coordinateSpace: .local) { phase in
+                            switch phase {
+                            case .active(let location):
+                                updateHover(at: location, proxy: proxy, geometry: geometry, displayed: displayed)
+                            case .ended:
+                                setHoverDate(nil)
+                            }
+                        }
+                        .gesture(
+                            DragGesture(minimumDistance: 0)
+                                .onChanged { value in
+                                    updateHover(at: value.location, proxy: proxy, geometry: geometry, displayed: displayed)
+                                }
+                        )
+
+                    if let hoverSelection,
+                       let plotFrame = proxy.plotFrame,
+                       let selectedX = proxy.position(forX: hoverSelection.date) {
+                        let frame = geometry[plotFrame]
+                        let centerX = frame.minX + selectedX
+                        let tooltipWidth = min(hoverTooltipMaxWidth, max(160, geometry.size.width - 12))
+
+                        UsageTrendHoverTooltip(selection: hoverSelection)
+                            .frame(width: tooltipWidth)
+                            .offset(
+                                x: clamped(centerX - tooltipWidth / 2,
+                                           lowerBound: 0,
+                                           upperBound: geometry.size.width - tooltipWidth),
+                                y: frame.minY + 8
+                            )
+                            .allowsHitTesting(false)
+                            .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
+                    }
+                }
+                .accessibilityHidden(true)
+            }
+        }
+        .animation(.easeOut(duration: 0.12), value: hoverDate)
         .chartYAxis {
             AxisMarks { value in
                 AxisGridLine().foregroundStyle(Color.stxStroke)
@@ -382,6 +535,44 @@ struct UsageTrendChartView<Legend: View>: View {
         }
     }
 
+    @MainActor
+    private func updateHover(
+        at location: CGPoint,
+        proxy: ChartProxy,
+        geometry: GeometryProxy,
+        displayed: UsageTrendChartSnapshot
+    ) {
+        guard let plotFrame = proxy.plotFrame else {
+            setHoverDate(nil)
+            return
+        }
+
+        let frame = geometry[plotFrame]
+        guard frame.contains(location) else {
+            setHoverDate(nil)
+            return
+        }
+
+        let plotX = location.x - frame.minX
+        guard let rawDate = proxy.value(atX: plotX, as: Date.self),
+              let nearestDate = displayed.nearestHoverDate(to: rawDate) else {
+            setHoverDate(nil)
+            return
+        }
+
+        setHoverDate(nearestDate)
+    }
+
+    @MainActor
+    private func setHoverDate(_ date: Date?) {
+        guard hoverDate != date else { return }
+        hoverDate = date
+    }
+
+    private func clamped(_ value: CGFloat, lowerBound: CGFloat, upperBound: CGFloat) -> CGFloat {
+        min(max(value, lowerBound), max(lowerBound, upperBound))
+    }
+
     private var stageTransition: AnyTransition {
         .opacity.combined(with: .scale(scale: 0.985, anchor: .center))
     }
@@ -421,5 +612,67 @@ struct UsageTrendChartView<Legend: View>: View {
         withTransaction(transaction) {
             displayedSnapshot = snapshot
         }
+    }
+}
+
+fileprivate struct UsageTrendHoverTooltip: View {
+    let selection: UsageTrendHoverSelection
+
+    private var visibleRows: ArraySlice<UsageTrendHoverRow> {
+        selection.rows.prefix(6)
+    }
+
+    private var hiddenRowCount: Int {
+        max(0, selection.rows.count - visibleRows.count)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(selection.title)
+                    .font(.sora(10, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Text(Format.tokens(selection.totalTokens))
+                    .font(.sora(10, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(visibleRows) { row in
+                    HStack(spacing: 6) {
+                        RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                            .fill(row.color)
+                            .frame(width: 7, height: 7)
+                        Text(row.label)
+                            .font(.sora(9))
+                            .foregroundStyle(.white.opacity(0.82))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer(minLength: 8)
+                        Text(Format.tokens(row.value))
+                            .font(.sora(9).monospacedDigit())
+                            .foregroundStyle(.white.opacity(0.92))
+                            .lineLimit(1)
+                    }
+                }
+
+                if hiddenRowCount > 0 {
+                    Text("+\(hiddenRowCount)")
+                        .font(.sora(9, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.62))
+                }
+            }
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 8)
+        .background(Color.black.opacity(0.88), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.18), radius: 8, x: 0, y: 3)
     }
 }

@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>mem0 模块实现逻辑蓝图</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --c-bg: #f8fafc;
+      --c-canvas: #ffffff;
+      --c-border: #cbd5e1;
+      --c-border-strong: #0f172a;
+      --c-text-main: #0f172a;
+      --c-text-sub: #64748b;
+      --c-text-muted: #94a3b8;
+      --c-fill-muted: #f1f5f9;
+      --c-accent-pending: #dc2626;
+      --font-ui: 'Inter', 'Noto Sans SC', sans-serif;
+      --font-mono: 'JetBrains Mono', 'Noto Sans SC', monospace;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 40px 24px;
+      background: var(--c-bg);
+      color: var(--c-text-main);
+      font-family: var(--font-ui);
+      letter-spacing: 0;
+    }
+    .diagram-container {
+      width: min(1320px, 100%);
+      margin: 0 auto;
+    }
+    .diagram-canvas {
+      position: relative;
+      background: var(--c-canvas);
+      border: 1px solid var(--c-border);
+      padding: 32px;
+    }
+    .flow-defs {
+      position: absolute;
+      width: 0;
+      height: 0;
+      overflow: hidden;
+    }
+    .diagram-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 24px;
+      border-bottom: 2px solid var(--c-border-strong);
+      padding-bottom: 18px;
+      margin-bottom: 24px;
+    }
+    .diagram-title {
+      font-size: 28px;
+      font-weight: 700;
+      line-height: 1.18;
+    }
+    .diagram-subtitle,
+    .header-right {
+      font-family: var(--font-mono);
+      color: var(--c-text-sub);
+      font-size: 11px;
+      text-transform: uppercase;
+      line-height: 1.7;
+      text-align: right;
+    }
+    .kpi-bar {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      border: 1px solid var(--c-border);
+      margin-bottom: 28px;
+    }
+    .kpi-cell {
+      padding: 14px 16px;
+      border-right: 1px solid var(--c-border);
+      min-width: 0;
+    }
+    .kpi-cell:last-child { border-right: none; }
+    .kpi-label {
+      color: var(--c-text-sub);
+      font-size: 12px;
+      margin-bottom: 6px;
+    }
+    .kpi-value {
+      font-family: var(--font-mono);
+      font-weight: 700;
+      font-size: 22px;
+      line-height: 1.1;
+    }
+    .kpi-sub {
+      margin-top: 5px;
+      color: var(--c-text-muted);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      line-height: 1.45;
+    }
+    .section { margin-top: 28px; }
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid var(--c-border);
+      padding-bottom: 8px;
+      margin-bottom: 12px;
+    }
+    .section-index {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 32px;
+      height: 24px;
+      background: var(--c-text-main);
+      color: var(--c-canvas);
+      font-family: var(--font-mono);
+      font-weight: 700;
+      font-size: 11px;
+    }
+    .section-title {
+      font-weight: 700;
+      font-size: 17px;
+    }
+    .section-title-en {
+      color: var(--c-text-sub);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      text-transform: uppercase;
+    }
+    .note {
+      border: 1px solid var(--c-border);
+      background: var(--c-fill-muted);
+      padding: 12px 14px;
+      font-size: 13px;
+      line-height: 1.7;
+      margin-bottom: 12px;
+    }
+    .path,
+    code,
+    .badge,
+    .mono {
+      font-family: var(--font-mono);
+    }
+    code,
+    .path {
+      font-size: 11px;
+      color: var(--c-text-main);
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+    .badge {
+      display: inline-block;
+      border: 1px solid var(--c-border-strong);
+      padding: 1px 5px;
+      font-size: 10px;
+      line-height: 1.4;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .badge.fill {
+      color: var(--c-canvas);
+      background: var(--c-text-main);
+    }
+    .module-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      border: 1px solid var(--c-border);
+    }
+    .module-card {
+      min-height: 132px;
+      padding: 13px;
+      border-right: 1px solid var(--c-border);
+      border-bottom: 1px solid var(--c-border);
+    }
+    .module-card:nth-child(4n) { border-right: none; }
+    .module-card:nth-last-child(-n+4) { border-bottom: none; }
+    .module-name {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .module-desc {
+      font-size: 12px;
+      line-height: 1.55;
+      color: var(--c-text-sub);
+    }
+    .module-keys {
+      margin-top: 9px;
+      font-family: var(--font-mono);
+      color: var(--c-text-muted);
+      font-size: 10px;
+      line-height: 1.55;
+    }
+    .flow-row {
+      display: grid;
+      grid-template-columns: 1fr 56px 1fr 56px 1fr;
+      align-items: stretch;
+      margin-bottom: 0;
+    }
+    .flow-node {
+      border: 1px solid var(--c-border);
+      padding: 12px 10px;
+      min-height: 76px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      text-align: center;
+    }
+    .flow-node.current {
+      border-width: 2px;
+      border-color: var(--c-text-main);
+    }
+    .flow-node .node-title {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 5px;
+    }
+    .flow-node .node-sub {
+      color: var(--c-text-sub);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    .flow-arrow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 76px;
+    }
+    .flow-vconnect {
+      display: grid;
+      grid-template-columns: 1fr 56px 1fr 56px 1fr;
+      height: 28px;
+    }
+    .v-slot {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .phase-grid {
+      display: grid;
+      grid-template-columns: 56px 1fr 1.25fr 1fr;
+      border: 1px solid var(--c-border);
+    }
+    .phase-row { display: contents; }
+    .phase-row > div {
+      padding: 10px 12px;
+      border-right: 1px solid var(--c-border);
+      border-bottom: 1px solid var(--c-border);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+    .phase-row > div:last-child { border-right: none; }
+    .phase-row:last-child > div { border-bottom: none; }
+    .phase-no {
+      background: var(--c-text-main);
+      color: var(--c-canvas);
+      font-family: var(--font-mono);
+      font-weight: 700;
+      text-align: center;
+    }
+    .phase-name {
+      font-family: var(--font-mono);
+      font-weight: 700;
+    }
+    .phase-code {
+      color: var(--c-text-sub);
+      font-family: var(--font-mono);
+      font-size: 10px;
+    }
+    .schema-grid {
+      display: grid;
+      grid-template-columns: 170px 1fr 1fr;
+      border: 1px solid var(--c-border);
+    }
+    .schema-row { display: contents; }
+    .schema-row > div {
+      padding: 11px 12px;
+      border-right: 1px solid var(--c-border);
+      border-bottom: 1px solid var(--c-border);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+    .schema-row > div:last-child { border-right: none; }
+    .schema-row:last-child > div { border-bottom: none; }
+    .schema-head > div {
+      font-family: var(--font-mono);
+      font-weight: 700;
+      background: var(--c-fill-muted);
+      color: var(--c-text-main);
+    }
+    .timeline-table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid var(--c-border);
+      font-size: 12px;
+      line-height: 1.5;
+      table-layout: fixed;
+    }
+    .timeline-table th,
+    .timeline-table td {
+      padding: 9px 10px;
+      border-right: 1px solid var(--c-border);
+      border-bottom: 1px solid var(--c-border);
+      vertical-align: top;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+    .timeline-table th {
+      text-align: left;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      background: var(--c-fill-muted);
+      border-bottom: 2px solid var(--c-border-strong);
+    }
+    .timeline-table tr:last-child td { border-bottom: none; }
+    .timeline-table th:last-child,
+    .timeline-table td:last-child { border-right: none; }
+    .compact-list {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      border: 1px solid var(--c-border);
+    }
+    .compact-item {
+      padding: 12px;
+      border-right: 1px solid var(--c-border);
+      border-bottom: 1px solid var(--c-border);
+      min-height: 102px;
+    }
+    .compact-item:nth-child(2n) { border-right: none; }
+    .compact-item:nth-last-child(-n+2) { border-bottom: none; }
+    .compact-title {
+      font-family: var(--font-mono);
+      font-weight: 700;
+      font-size: 12px;
+      margin-bottom: 6px;
+    }
+    .compact-body {
+      color: var(--c-text-sub);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+    .doc-footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      border-top: 2px solid var(--c-border-strong);
+      margin-top: 32px;
+      padding-top: 12px;
+      color: var(--c-text-sub);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      line-height: 1.6;
+    }
+
+    @media (max-width: 720px) {
+      body { padding: 18px 12px; }
+      .diagram-canvas { padding: 18px; }
+      .diagram-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+      }
+      .diagram-title { font-size: 22px; }
+      .header-right { text-align: left; }
+      .kpi-bar { grid-template-columns: 1fr 1fr; }
+      .kpi-cell { border-bottom: 1px solid var(--c-border); }
+      .kpi-cell:nth-child(2n) { border-right: none; }
+      .kpi-cell:nth-last-child(-n+2) { border-bottom: none; }
+      .module-grid { grid-template-columns: 1fr 1fr; }
+      .module-card { border-right: 1px solid var(--c-border); border-bottom: 1px solid var(--c-border); }
+      .module-card:nth-child(4n) { border-right: 1px solid var(--c-border); }
+      .module-card:nth-child(2n) { border-right: none; }
+      .module-card:nth-last-child(-n+4) { border-bottom: 1px solid var(--c-border); }
+      .module-card:nth-last-child(-n+2) { border-bottom: none; }
+      .flow-row {
+        display: flex;
+        flex-direction: column;
+      }
+      .flow-arrow {
+        width: 100%;
+        min-height: auto;
+        padding: 5px 0;
+        font-size: 0;
+      }
+      .flow-arrow::after {
+        content: '↓';
+        font-family: var(--font-mono);
+        font-size: 14px;
+        color: var(--c-border-strong);
+      }
+      .flow-arrow svg { display: none; }
+      .flow-vconnect { display: none; }
+      .phase-grid {
+        grid-template-columns: 40px 1fr;
+      }
+      .phase-row > div:nth-child(3),
+      .phase-row > div:nth-child(4) {
+        grid-column: 1 / -1;
+      }
+      .phase-row > div:nth-child(2) { border-right: none; }
+      .phase-row > div:nth-child(3),
+      .phase-row > div:nth-child(4) {
+        border-top: 1px dashed var(--c-border);
+      }
+      .schema-grid { grid-template-columns: 1fr; }
+      .schema-row > div {
+        border-right: none;
+      }
+      .schema-head { display: none; }
+      .compact-list { grid-template-columns: 1fr; }
+      .compact-item { border-right: none; }
+      .compact-item:nth-last-child(-n+2) { border-bottom: 1px solid var(--c-border); }
+      .compact-item:last-child { border-bottom: none; }
+      .timeline-table { font-size: 10px; }
+      .timeline-table th,
+      .timeline-table td { padding: 6px 7px; }
+      .doc-footer {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      body { padding: 14px 10px; }
+      .diagram-canvas { padding: 14px; }
+      .diagram-title { font-size: 19px; }
+      .kpi-bar { grid-template-columns: 1fr; }
+      .kpi-cell { border-right: none; border-bottom: 1px solid var(--c-border); }
+      .kpi-cell:nth-last-child(-n+2) { border-bottom: 1px solid var(--c-border); }
+      .kpi-cell:last-child { border-bottom: none; }
+      .module-grid { grid-template-columns: 1fr; }
+      .module-card { border-right: none; }
+      .module-card:nth-child(2n) { border-right: none; }
+      .module-card:nth-last-child(-n+2) { border-bottom: 1px solid var(--c-border); }
+      .module-card:last-child { border-bottom: none; }
+      .phase-row > div { padding: 8px 9px; font-size: 11px; }
+      .timeline-table { font-size: 9px; }
+      .timeline-table th,
+      .timeline-table td { padding: 4px 5px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="diagram-container">
+    <div class="diagram-canvas">
+      <svg class="flow-defs" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arrHead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 1 L 9 5 L 0 9 z" fill="#0f172a"/>
+          </marker>
+          <marker id="arrHeadMuted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 1 L 9 5 L 0 9 z" fill="#64748b"/>
+          </marker>
+        </defs>
+      </svg>
+
+      <div class="diagram-header">
+        <div>
+          <div class="diagram-title">mem0 模块实现逻辑蓝图</div>
+          <div class="diagram-subtitle">THIRDPARTY/MEM0 CORE + MEMORYSIDECAR ADAPTER</div>
+        </div>
+        <div class="header-right">
+          repo: /Users/1pitaph/dev/mac/claude-stats<br>
+          date: 2026-06-17<br>
+          scope: mem0-related code only
+        </div>
+      </div>
+
+      <div class="kpi-bar">
+        <div class="kpi-cell">
+          <div class="kpi-label">核心入口</div>
+          <div class="kpi-value">2</div>
+          <div class="kpi-sub">Memory / MemoryClient</div>
+        </div>
+        <div class="kpi-cell">
+          <div class="kpi-label">本仓库接入</div>
+          <div class="kpi-value">1</div>
+          <div class="kpi-sub">MemorySidecar Mem0Adapter</div>
+        </div>
+        <div class="kpi-cell">
+          <div class="kpi-label">实际向量库</div>
+          <div class="kpi-value">QDRANT</div>
+          <div class="kpi-sub">dense + optional bm25 sparse</div>
+        </div>
+        <div class="kpi-cell">
+          <div class="kpi-label">默认写入策略</div>
+          <div class="kpi-value">ADD</div>
+          <div class="kpi-sub">v1.1 additive extraction</div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-index">01</span>
+          <span class="section-title">读取边界与模块地图</span>
+          <span class="section-title-en">SOURCE BOUNDARY</span>
+        </div>
+        <div class="note">
+          本次只读取 mem0 相关实现代码：核心包 <code>ThirdParty/mem0/mem0/</code>、仓库侧 <code>MemorySidecar/memoryd/mem0_adapter.py</code> 及其直接转换/配置依赖。未展开 docs、cookbooks、examples、openmemory UI 和其它第三方模块。
+        </div>
+        <div class="module-grid">
+          <div class="module-card">
+            <div class="module-name">mem0.memory</div>
+            <div class="module-desc">本地 OSS 运行时。负责 add/search/get/update/delete、SQLite history、实体索引、遥测。</div>
+            <div class="module-keys">main.py:331 / 573 / 1126 / 1501</div>
+          </div>
+          <div class="module-card">
+            <div class="module-name">mem0.utils.factory</div>
+            <div class="module-desc">按 provider name 动态导入 LLM、Embedder、VectorStore、Reranker，并允许注册自定义 provider。</div>
+            <div class="module-keys">factory.py:30 / 139 / 167 / 213</div>
+          </div>
+          <div class="module-card">
+            <div class="module-name">mem0.vector_stores.qdrant</div>
+            <div class="module-desc">本仓库实际使用的向量库适配器。创建 collection、写 dense vector、可选 BM25 sparse vector、转换 metadata filters。</div>
+            <div class="module-keys">qdrant.py:29 / 120 / 178 / 374</div>
+          </div>
+          <div class="module-card">
+            <div class="module-name">mem0.llms / embeddings</div>
+            <div class="module-desc">模型和 embedding 适配层。OpenAI 兼容客户端为默认路径，本仓库额外注册 Responses 与 Anthropic Messages provider。</div>
+            <div class="module-keys">openai.py / llm_providers.py</div>
+          </div>
+          <div class="module-card">
+            <div class="module-name">mem0.client</div>
+            <div class="module-desc">托管平台 REST 客户端。与本地 Memory 平行存在，封装 v1/v3 HTTP endpoints、项目配置、webhook、导出。</div>
+            <div class="module-keys">client/main.py:62 / 164 / 280</div>
+          </div>
+          <div class="module-card">
+            <div class="module-name">MemorySidecar.mem0_adapter</div>
+            <div class="module-desc">Claude Stats 接入层。用 LocalAIConfig 初始化 mem0，把结果镜像为 sidecar 的 canonical memory 形状。</div>
+            <div class="module-keys">mem0_adapter.py:13 / 63 / 233</div>
+          </div>
+          <div class="module-card">
+            <div class="module-name">memory_mirror</div>
+            <div class="module-desc">把 mem0 返回的 <code>results</code>、metadata、source_refs、scopes 规整成 sidecar memory。</div>
+            <div class="module-keys">memory_mirror.py:18 / 50</div>
+          </div>
+          <div class="module-card">
+            <div class="module-name">SQLiteManager</div>
+            <div class="module-desc">不是主存储，只记录 history 和每个 session scope 最近 10 条消息，服务 additive prompt 上下文。</div>
+            <div class="module-keys">storage.py:11 / 150 / 257</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-index">02</span>
+          <span class="section-title">初始化装配链路</span>
+          <span class="section-title-en">BOOTSTRAP FLOW</span>
+        </div>
+        <div class="flow-row">
+          <div class="flow-node">
+            <div class="node-title">LocalAIConfig</div>
+            <div class="node-sub">runtime/env 读取 LLM、embedding、dims、qdrant_path</div>
+          </div>
+          <div class="flow-arrow">
+            <svg width="56" height="10" viewBox="0 0 56 10"><line x1="0" y1="5" x2="48" y2="5" stroke="#0f172a" stroke-width="1" marker-end="url(#arrHead)"/></svg>
+          </div>
+          <div class="flow-node current">
+            <div class="node-title">Mem0Adapter</div>
+            <div class="node-sub">调用 <code>Memory.from_config</code>，指定本地 Qdrant collection</div>
+          </div>
+          <div class="flow-arrow">
+            <svg width="56" height="10" viewBox="0 0 56 10"><line x1="0" y1="5" x2="48" y2="5" stroke="#0f172a" stroke-width="1" marker-end="url(#arrHead)"/></svg>
+          </div>
+          <div class="flow-node">
+            <div class="node-title">MemoryConfig</div>
+            <div class="node-sub">Pydantic 校验 vector_store / llm / embedder / history_db</div>
+          </div>
+        </div>
+        <div class="flow-vconnect">
+          <div></div><div></div><div class="v-slot"><svg width="10" height="28" viewBox="0 0 10 28"><line x1="5" y1="0" x2="5" y2="22" stroke="#0f172a" stroke-width="1" marker-end="url(#arrHead)"/></svg></div><div></div><div></div>
+        </div>
+        <div class="flow-row">
+          <div class="flow-node">
+            <div class="node-title">Factories</div>
+            <div class="node-sub">EmbedderFactory / VectorStoreFactory / LlmFactory / RerankerFactory</div>
+          </div>
+          <div class="flow-arrow">
+            <svg width="56" height="10" viewBox="0 0 56 10"><line x1="0" y1="5" x2="48" y2="5" stroke="#0f172a" stroke-width="1" marker-end="url(#arrHead)"/></svg>
+          </div>
+          <div class="flow-node">
+            <div class="node-title">Runtime Objects</div>
+            <div class="node-sub">OpenAIEmbedding + selected LLM + Qdrant + SQLiteManager</div>
+          </div>
+          <div class="flow-arrow">
+            <svg width="56" height="10" viewBox="0 0 56 10"><line x1="0" y1="5" x2="48" y2="5" stroke="#0f172a" stroke-width="1" marker-end="url(#arrHead)"/></svg>
+          </div>
+          <div class="flow-node">
+            <div class="node-title">Auxiliary Setup</div>
+            <div class="node-sub">timeouts、embedding diagnostics、lazy entity_store、telemetry off in sidecar config</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-index">03</span>
+          <span class="section-title">写入路径：Memory.add</span>
+          <span class="section-title-en">ADD PIPELINE</span>
+        </div>
+        <div class="phase-grid">
+          <div class="phase-row">
+            <div class="phase-no">00</div>
+            <div class="phase-name">Scope validation</div>
+            <div>必须至少提供 <code>user_id</code>、<code>agent_id</code> 或 <code>run_id</code>。这些 ID 同时进入 metadata 和 query filters。</div>
+            <div class="phase-code">main.py:231-314</div>
+          </div>
+          <div class="phase-row">
+            <div class="phase-no">01</div>
+            <div class="phase-name">Message normalization</div>
+            <div>字符串转 user message，dict 转单元素 list；procedural memory 直接进入总结分支。</div>
+            <div class="phase-code">main.py:636-659 / 1618-1655</div>
+          </div>
+          <div class="phase-row">
+            <div class="phase-no">02</div>
+            <div class="phase-name">infer=false raw add</div>
+            <div>跳过 LLM。每条非 system message 直接 embed，写入 Qdrant，并把 role / actor_id 写入 metadata。</div>
+            <div class="phase-code">main.py:662-697</div>
+          </div>
+          <div class="phase-row">
+            <div class="phase-no">03</div>
+            <div class="phase-name">Context + old memories</div>
+            <div>按 session scope 取最近 10 条消息；再用整个输入做 embedding，从 Qdrant 检索 top 10 旧记忆给 LLM 去重/链接参考。</div>
+            <div class="phase-code">main.py:699-722</div>
+          </div>
+          <div class="phase-row">
+            <div class="phase-no">04</div>
+            <div class="phase-name">Additive extraction</div>
+            <div>使用 <code>ADDITIVE_EXTRACTION_PROMPT</code> 和 prompt builder。LLM 只输出 <code>{"memory":[...]}</code>，默认事件都是 ADD。</div>
+            <div class="phase-code">main.py:723-763 / prompts.py:1016</div>
+          </div>
+          <div class="phase-row">
+            <div class="phase-no">05</div>
+            <div class="phase-name">Embedding + dedup</div>
+            <div>批量 embed 新文本；以文本 MD5 对旧检索结果和本批次做 hash 去重；生成 UUID、created_at、updated_at、text_lemmatized。</div>
+            <div class="phase-code">main.py:770-823</div>
+          </div>
+          <div class="phase-row">
+            <div class="phase-no">06</div>
+            <div class="phase-name">Persist + history</div>
+            <div>批量写 Qdrant，失败后逐条 fallback；再写 SQLite history event=ADD。</div>
+            <div class="phase-code">main.py:824-864</div>
+          </div>
+          <div class="phase-row">
+            <div class="phase-no">07</div>
+            <div class="phase-name">Entity linking</div>
+            <div>spaCy 提取实体，写入独立 <code>{collection}_entities</code> collection；实体 payload 维护 <code>linked_memory_ids</code>，供 search boost。</div>
+            <div class="phase-code">main.py:865-955</div>
+          </div>
+          <div class="phase-row">
+            <div class="phase-no">08</div>
+            <div class="phase-name">Message window</div>
+            <div>保存最近消息窗口，每个 session scope 只保留最新 10 条，作为后续 prompt 上下文。</div>
+            <div class="phase-code">main.py:957-971 / storage.py:257-324</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-index">04</span>
+          <span class="section-title">检索路径：Memory.search</span>
+          <span class="section-title-en">RETRIEVAL PIPELINE</span>
+        </div>
+        <div class="flow-row">
+          <div class="flow-node">
+            <div class="node-title">Filters</div>
+            <div class="node-sub">entity ID 必填；高级过滤转 eq/ne/in/range/OR/NOT</div>
+          </div>
+          <div class="flow-arrow"><svg width="56" height="10" viewBox="0 0 56 10"><line x1="0" y1="5" x2="48" y2="5" stroke="#0f172a" stroke-width="1" marker-end="url(#arrHead)"/></svg></div>
+          <div class="flow-node">
+            <div class="node-title">Query Signals</div>
+            <div class="node-sub">lemmatize_for_bm25 + extract_entities + embedding</div>
+          </div>
+          <div class="flow-arrow"><svg width="56" height="10" viewBox="0 0 56 10"><line x1="0" y1="5" x2="48" y2="5" stroke="#0f172a" stroke-width="1" marker-end="url(#arrHead)"/></svg></div>
+          <div class="flow-node current">
+            <div class="node-title">Candidate Pool</div>
+            <div class="node-sub">semantic over-fetch: max(top_k * 4, 60)</div>
+          </div>
+        </div>
+        <div class="flow-vconnect">
+          <div></div><div></div><div class="v-slot"><svg width="10" height="28" viewBox="0 0 10 28"><line x1="5" y1="0" x2="5" y2="22" stroke="#0f172a" stroke-width="1" marker-end="url(#arrHead)"/></svg></div><div></div><div></div>
+        </div>
+        <div class="flow-row">
+          <div class="flow-node">
+            <div class="node-title">BM25</div>
+            <div class="node-sub">Qdrant sparse slot 存在且 fastembed 可用时启用</div>
+          </div>
+          <div class="flow-arrow"><svg width="56" height="10" viewBox="0 0 56 10"><line x1="0" y1="5" x2="48" y2="5" stroke="#64748b" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#arrHeadMuted)"/></svg></div>
+          <div class="flow-node">
+            <div class="node-title">Entity Boost</div>
+            <div class="node-sub">查询实体命中 entity_store 后，对 linked memories 加权</div>
+          </div>
+          <div class="flow-arrow"><svg width="56" height="10" viewBox="0 0 56 10"><line x1="0" y1="5" x2="48" y2="5" stroke="#0f172a" stroke-width="1" marker-end="url(#arrHead)"/></svg></div>
+          <div class="flow-node">
+            <div class="node-title">Score + Format</div>
+            <div class="node-sub">semantic threshold 先过滤；再 additive score；可选 reranker</div>
+          </div>
+        </div>
+        <table class="timeline-table">
+          <thead>
+            <tr><th>Signal</th><th>Implementation</th><th>Fallback</th><th>Reference</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="badge fill">semantic</span></td>
+              <td>query embedding 进入 <code>vector_store.search</code>，Qdrant 使用 dense vector。</td>
+              <td>无 fallback，embedding/provider 异常会向上传播。</td>
+              <td class="mono">main.py:1352-1359</td>
+            </tr>
+            <tr>
+              <td><span class="badge">bm25</span></td>
+              <td>Qdrant 新 collection 创建 <code>bm25</code> sparse vector，写入时从 <code>text_lemmatized</code> 编码。</td>
+              <td>老 collection 无 slot 或 fastembed 不可用时返回 None，检索退回语义。</td>
+              <td class="mono">qdrant.py:120-156 / 413-443</td>
+            </tr>
+            <tr>
+              <td><span class="badge">entity</span></td>
+              <td>entity_store 查实体相似度，命中后按 linked 数量衰减 boost，最大权重 0.5。</td>
+              <td>spaCy 不可用或 entity_store 失败时 boost 为空。</td>
+              <td class="mono">main.py:1440-1499</td>
+            </tr>
+            <tr>
+              <td><span class="badge">rerank</span></td>
+              <td>调用配置的 reranker provider，输入已格式化 memory list。</td>
+              <td>reranker 异常时保留原排序。</td>
+              <td class="mono">main.py:1229-1237</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-index">05</span>
+          <span class="section-title">存储模型与数据契约</span>
+          <span class="section-title-en">DATA CONTRACT</span>
+        </div>
+        <div class="schema-grid">
+          <div class="schema-row schema-head">
+            <div>Store</div><div>写入内容</div><div>读取输出</div>
+          </div>
+          <div class="schema-row">
+            <div class="mono">Qdrant main collection</div>
+            <div><code>data</code>、<code>hash</code>、<code>text_lemmatized</code>、<code>created_at</code>、<code>updated_at</code>、session IDs、role/actor、业务 metadata。</div>
+            <div><code>MemoryItem</code>：id、memory、hash、score、created_at、updated_at；session/actor/role 被提升到顶层，其它 payload 放入 metadata。</div>
+          </div>
+          <div class="schema-row">
+            <div class="mono">Qdrant entity collection</div>
+            <div>collection 名为 <code>{collection}_entities</code>；payload 包含 entity text、entity_type、linked_memory_ids 与 session filters。</div>
+            <div>不直接暴露给 public API，只在 search 阶段产生 entity boost，并在 update/delete 时清理链接。</div>
+          </div>
+          <div class="schema-row">
+            <div class="mono">SQLite history</div>
+            <div>每次 ADD/UPDATE/DELETE 写一行，含 old_memory、new_memory、event、timestamps、actor_id、role、is_deleted。</div>
+            <div><code>history(memory_id)</code> 返回该 memory 的事件流水。</div>
+          </div>
+          <div class="schema-row">
+            <div class="mono">SQLite messages</div>
+            <div>按 <code>user_id/agent_id/run_id</code> 拼出的 session_scope 保存最近消息。</div>
+            <div>只给 additive prompt 提供 Last k Messages，上限 10 条。</div>
+          </div>
+          <div class="schema-row">
+            <div class="mono">Sidecar mirror</div>
+            <div>把 mem0 item 合并 fallback metadata，写入 source_refs_json / scopes_json / provider_id / mem0_id。</div>
+            <div>输出 sidecar canonical memory：id、project_id、type、status、title、body、normalized_claim、source_refs、scopes、metadata。</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-index">06</span>
+          <span class="section-title">操作矩阵</span>
+          <span class="section-title-en">PUBLIC BEHAVIOR</span>
+        </div>
+        <table class="timeline-table">
+          <thead>
+            <tr><th>API</th><th>核心行为</th><th>状态副作用</th><th>Reference</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="mono">add</td>
+              <td>默认 infer=true，additive 提取新 memory；infer=false 直接写原文。</td>
+              <td>Qdrant insert、SQLite ADD、entity linking、保存 message window。</td>
+              <td class="mono">main.py:573-971</td>
+            </tr>
+            <tr>
+              <td class="mono">get / get_all</td>
+              <td>按 ID 或 filters 从 Qdrant 读 payload 并格式化。</td>
+              <td>只读；get_all 要求 filters 中有 session ID。</td>
+              <td class="mono">main.py:973-1124</td>
+            </tr>
+            <tr>
+              <td class="mono">search</td>
+              <td>混合检索：semantic + optional BM25 + optional entity boost + optional rerank。</td>
+              <td>只读；entity_store lazy init 可能在首次 query entity boost 时创建。</td>
+              <td class="mono">main.py:1126-1499</td>
+            </tr>
+            <tr>
+              <td class="mono">update</td>
+              <td>手动替换指定 memory 文本和 metadata，保留 session IDs、created_at。</td>
+              <td>Qdrant update、SQLite UPDATE、清理旧实体链接并重建。</td>
+              <td class="mono">main.py:1501-1720</td>
+            </tr>
+            <tr>
+              <td class="mono">delete / delete_all</td>
+              <td>删除指定 ID 或某 session 下所有 memories。</td>
+              <td>Qdrant delete、SQLite DELETE、从 entity_store 移除 linked ID。</td>
+              <td class="mono">main.py:1524-1571 / 1722-1748</td>
+            </tr>
+            <tr>
+              <td class="mono">reset</td>
+              <td>重建 SQLite 与 vector store collection。</td>
+              <td>清空主 collection；若 entity_store 已初始化也 reset。</td>
+              <td class="mono">main.py:1752-1783</td>
+            </tr>
+            <tr>
+              <td class="mono">MemoryClient</td>
+              <td>托管平台 REST 客户端，主要调用 <code>/v3/memories/add/</code>、<code>/v3/memories/search/</code> 等。</td>
+              <td>HTTP 层遥测和结构化异常；不参与本地 Qdrant。</td>
+              <td class="mono">client/main.py:62-950</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-index">07</span>
+          <span class="section-title">Claude Stats 接入逻辑</span>
+          <span class="section-title-en">SIDECAR INTEGRATION</span>
+        </div>
+        <div class="compact-list">
+          <div class="compact-item">
+            <div class="compact-title">01. 固定本地存储</div>
+            <div class="compact-body">Mem0Adapter 初始化时指定 Qdrant path 为 <code>config.qdrant_path</code>，collection 为 <code>claude_stats_memories</code>，history DB 为同目录 <code>mem0-history.sqlite3</code>。</div>
+          </div>
+          <div class="compact-item">
+            <div class="compact-title">02. 模型配置</div>
+            <div class="compact-body">LLM provider 根据协议选择：OpenAI chat completions、OpenAI Responses 自定义 provider、Anthropic Messages 自定义 provider；embedding 固定使用 OpenAIEmbedding 兼容接口。</div>
+          </div>
+          <div class="compact-item">
+            <div class="compact-title">03. source capture</div>
+            <div class="compact-body">每个 chunk 组装 metadata、run_id、source refs、scopes，再调用 <code>client.add(... infer=True)</code>，让 mem0 管理提取。</div>
+          </div>
+          <div class="compact-item">
+            <div class="compact-title">04. manual memory</div>
+            <div class="compact-body"><code>capture_memory</code>、<code>index_memory</code> 使用 infer=false，把 canonical memory 原文直接存入 mem0。</div>
+          </div>
+          <div class="compact-item">
+            <div class="compact-title">05. mirror conversion</div>
+            <div class="compact-body"><code>mirror_from_mem0_item</code> 将 mem0 item 转成 sidecar memory，保留 provider_id、mem0_id、source_refs、scopes 与 status/type/title。</div>
+          </div>
+          <div class="compact-item">
+            <div class="compact-title">06. search surface</div>
+            <div class="compact-body">sidecar 搜索固定 filters 为 <code>{"user_id": project_id, "status": "active"}</code>，返回 rank、score、memory、match_kind=mem0。</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-index">08</span>
+          <span class="section-title">实现观察与注意点</span>
+          <span class="section-title-en">ENGINEERING NOTES</span>
+        </div>
+        <table class="timeline-table">
+          <thead>
+            <tr><th>Topic</th><th>Observation</th><th>Impact</th><th>Reference</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="badge fill">additive</span></td>
+              <td>v1.1 add 默认只新增。旧的 ADD/UPDATE/DELETE/NONE prompt 仍存在，但主流程使用 additive prompt。</td>
+              <td>自动抽取不会直接更新或删除旧 memory；旧记忆主要靠 hash 去重、prompt 去重和 entity boost 链接避免噪声。</td>
+              <td class="mono">prompts.py:176 / 468 / main.py:723</td>
+            </tr>
+            <tr>
+              <td><span class="badge">linked ids</span></td>
+              <td>代码给 existing memories 编了短 ID 并生成 <code>uuid_mapping</code>，但写入阶段没有消费 LLM 输出的 <code>linked_memory_ids</code>。</td>
+              <td>当前有效链接主要来自 spaCy entity_store，不是 prompt 输出的 linked IDs；这点与 prompt 文案存在语义落差。</td>
+              <td class="mono">main.py:716-722 / prompts.py:924-936</td>
+            </tr>
+            <tr>
+              <td><span class="badge">filters</span></td>
+              <td>本地 Memory 的 add/get_all/search 都强制 session scope；托管 MemoryClient v3 则要求身份字段放进 filters。</td>
+              <td>调用方应避免传顶层 user_id 到 search/get_all；仓库侧 Mem0Adapter 已按 project_id 映射为 user_id。</td>
+              <td class="mono">main.py:103-110 / client/types.py:1-8</td>
+            </tr>
+            <tr>
+              <td><span class="badge">hybrid</span></td>
+              <td>BM25 依赖新建 collection 的 sparse slot 与 fastembed；老 collection 自动禁用 BM25。</td>
+              <td>同一查询在老数据目录和新数据目录上可能排序不同，但语义检索仍可用。</td>
+              <td class="mono">qdrant.py:136-143 / 425-443</td>
+            </tr>
+            <tr>
+              <td><span class="badge">async</span></td>
+              <td>AsyncMemory 业务逻辑镜像同步版，主要用 <code>asyncio.to_thread</code> 包装阻塞调用。</td>
+              <td>并没有 async-native provider 协议；性能仍受底层同步客户端和线程池影响。</td>
+              <td class="mono">main.py:2003-3222</td>
+            </tr>
+            <tr>
+              <td><span class="badge">sidecar</span></td>
+              <td>本仓库在 <code>load_local_ai_config</code> 中关闭 mem0 telemetry；健康检查会先探测 LLM 和 embedding endpoint。</td>
+              <td>local helper 未启动时 Mem0Adapter 可初始化但 health/capture/search 会返回 unavailable 信息。</td>
+              <td class="mono">config.py:83-92 / adapter_utils.py:29-52</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="doc-footer">
+        <div>Generated as Flat Engineering Blueprint. No app code was changed.</div>
+        <div>Primary code paths: ThirdParty/mem0/mem0 + MemorySidecar/memoryd/mem0_adapter.py</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
