@@ -64,6 +64,7 @@ struct MainWindowView: View {
     @SceneStorage("mainWindow.sidebarVisible") private var sidebarVisible: Bool = true
     @SceneStorage("mainWindow.mode") private var modeRaw: String = MainWindowMode.app.rawValue
     @SceneStorage("mainWindow.settingsSection") private var settingsSectionRaw: String = SettingsSection.general.rawValue
+    @SceneStorage("mainWindow.gitSelection") private var gitSelectionRaw: String = GitWorkspaceSelection.all.rawValue
     #if !CLAUDE_STATS_LITE
     @SceneStorage("mainWindow.configSection") private var configSectionRaw: String = ""
     @SceneStorage("mainWindow.configsSection") private var configFilesSectionRaw: String = AIConfigsSection.overview.rawValue
@@ -78,6 +79,7 @@ struct MainWindowView: View {
     @SceneStorage("mainWindow.trackSection") private var trackSectionRaw: String = TrackSection.flow.rawValue
     #endif
     @State private var page: MainPage = .dashboard
+    @State private var gitRepoSelectionToken: UInt64 = 0
     @State private var toggleHovering = false
     @State private var trafficLights = TrafficLightPositioner()
     #if !CLAUDE_STATS_LITE
@@ -88,7 +90,6 @@ struct MainWindowView: View {
     private var availablePages: [MainPage] {
         var pages: [MainPage] = [.dashboard, .usage, .leaderboards, .dailyReport, .gantt]
         if env.preferences.aiActivityAnalysisEnabled { pages.append(.activity) }
-        if env.preferences.gitTrackingEnabled { pages.append(.git) }
         if env.preferences.systemMonitorEnabled { pages.append(.system) }
         return pages
     }
@@ -100,6 +101,10 @@ struct MainWindowView: View {
     private var settingsSection: SettingsSection {
         let storedSection = SettingsSection(rawValue: settingsSectionRaw) ?? .general
         return SettingsSection.availableCases.contains(storedSection) ? storedSection : .general
+    }
+
+    private var gitSelection: GitWorkspaceSelection {
+        GitWorkspaceSelection(rawValue: gitSelectionRaw)
     }
 
     #if !CLAUDE_STATS_LITE
@@ -133,6 +138,13 @@ struct MainWindowView: View {
         Binding(
             get: { settingsSection },
             set: { settingsSectionRaw = $0.rawValue }
+        )
+    }
+
+    private var gitSelectionBinding: Binding<GitWorkspaceSelection> {
+        Binding(
+            get: { gitSelection },
+            set: { gitSelectionRaw = $0.rawValue }
         )
     }
 
@@ -203,6 +215,7 @@ struct MainWindowView: View {
                     isSessionsActive: AppVariant.isEnabled(.sessions) && mode == .sessions,
                     isConfigsActive: mode == .configs,
                     isMemoryActive: AppVariant.isEnabled(.memory) && mode == .memory,
+                    isGitActive: mode == .git,
                     isWarpActive: mode == .warp,
                     isTrackActive: AppVariant.isEnabled(.track) && mode == .track,
                     onOpenSettings: openSettings,
@@ -210,6 +223,7 @@ struct MainWindowView: View {
                     onOpenSessions: openSessions,
                     onOpenConfigs: openConfigs,
                     onOpenMemory: openMemory,
+                    onOpenGit: openGit,
                     onOpenNetwork: openNetwork,
                     onOpenWarp: { openWarp() },
                     onOpenOps: openOps,
@@ -247,6 +261,13 @@ struct MainWindowView: View {
                 #else
                 MemoryWorkspaceSidebar(store: env.memory, onExit: closeMemory)
                 #endif
+            } gitSidebar: {
+                GitWorkspaceSidebar(
+                    model: env.gitActivity,
+                    selection: gitSelectionBinding,
+                    onSelect: selectGitWorkspace,
+                    onExit: closeGit
+                )
             } settingsSidebar: {
                 SettingsSidebarColumn(section: settingsSectionBinding, onExit: closeSettings)
             } networkSidebar: {
@@ -303,6 +324,11 @@ struct MainWindowView: View {
                 #else
                 MemoryWorkspaceView(store: env.memory)
                 #endif
+            } gitDetail: {
+                GitWorkspaceDetailView(
+                    selection: gitSelectionBinding,
+                    repoSelectionToken: gitRepoSelectionToken
+                )
             } settingsDetail: {
                 SettingsDetailView(section: settingsSection, onSelectSection: selectSettingsSection)
             } networkDetail: {
@@ -341,7 +367,7 @@ struct MainWindowView: View {
                     .onTapGesture { clearTextFocus() }
             }
 
-            if mode == .app || mode == .linuxDo || mode == .sessions || mode == .configs || mode == .memory || mode == .network || mode == .warp || mode == .ops || mode == .track {
+            if mode == .app || mode == .linuxDo || mode == .sessions || mode == .configs || mode == .memory || mode == .git || mode == .network || mode == .warp || mode == .ops || mode == .track {
                 sidebarToggle
                     .padding(.leading, 81)
                     .padding(.top, 11)
@@ -419,7 +445,11 @@ struct MainWindowView: View {
             if !on && page == .activity { page = .dashboard }
         }
         .onChange(of: env.preferences.gitTrackingEnabled) { _, on in
-            if !on && page == .git { page = .dashboard }
+            if !on && (page == .git || mode == .git) {
+                page = .dashboard
+                pageRaw = MainPage.dashboard.rawValue
+                transition(to: .app)
+            }
         }
         .onChange(of: env.preferences.systemMonitorEnabled) { _, on in
             if !on && page == .system { page = .dashboard }
@@ -476,7 +506,10 @@ struct MainWindowView: View {
         case .gantt:
             MainGanttView()
         case .git:
-            MainGitActivityView()
+            GitWorkspaceDetailView(
+                selection: gitSelectionBinding,
+                repoSelectionToken: gitRepoSelectionToken
+            )
         case .system:
             MainSystemMonitorView()
         case .terminal:
@@ -591,6 +624,16 @@ struct MainWindowView: View {
     }
     #endif
 
+    private func openGit() {
+        guard env.preferences.gitTrackingEnabled else {
+            page = .dashboard
+            pageRaw = MainPage.dashboard.rawValue
+            transition(to: .app)
+            return
+        }
+        transition(to: .git)
+    }
+
     #if CLAUDE_STATS_LITE
     private func openNetwork() {}
     #else
@@ -663,6 +706,17 @@ struct MainWindowView: View {
     }
     #endif
 
+    private func closeGit() {
+        transition(to: .app)
+    }
+
+    private func selectGitWorkspace(_ nextSelection: GitWorkspaceSelection) {
+        if nextSelection.repoID != nil {
+            gitRepoSelectionToken &+= 1
+        }
+        gitSelectionRaw = nextSelection.rawValue
+    }
+
     #if CLAUDE_STATS_LITE
     private func closeNetwork() {}
     #else
@@ -698,6 +752,10 @@ struct MainWindowView: View {
     private func openFloatingStatsDestination(_ destination: FloatingStatsMainWindowDestination) {
         switch destination {
         case .page(let nextPage):
+            if nextPage == .git {
+                openGit()
+                return
+            }
             #if CLAUDE_STATS_LITE
             let resolvedPage: MainPage = nextPage == .terminal ? .dashboard : nextPage
             page = availablePages.contains(resolvedPage) ? resolvedPage : .dashboard
@@ -710,6 +768,8 @@ struct MainWindowView: View {
             page = availablePages.contains(nextPage) ? nextPage : .dashboard
             transition(to: .app)
             #endif
+        case .git:
+            openGit()
         #if !CLAUDE_STATS_LITE
         case .network:
             transition(to: .network)
@@ -782,6 +842,11 @@ struct MainWindowView: View {
             modeRaw = MainWindowMode.app.rawValue
         }
 
+        if mode == .git && !env.preferences.gitTrackingEnabled {
+            modeRaw = MainWindowMode.app.rawValue
+            sidebarVisible = true
+        }
+
         #if !CLAUDE_STATS_LITE
         if env.configWorkspace.migrateLegacyMainPage(rawValue: pageRaw) {
             configSectionRaw = env.configWorkspace.section.rawValue
@@ -795,6 +860,18 @@ struct MainWindowView: View {
         #endif
 
         let storedPage = MainPage(rawValue: pageRaw) ?? .dashboard
+        if storedPage == .git {
+            page = .dashboard
+            pageRaw = MainPage.dashboard.rawValue
+            if env.preferences.gitTrackingEnabled {
+                modeRaw = MainWindowMode.git.rawValue
+                sidebarVisible = true
+            } else {
+                modeRaw = MainWindowMode.app.rawValue
+            }
+            return
+        }
+
         if storedPage == .terminal {
             #if CLAUDE_STATS_LITE
             page = .dashboard
@@ -819,7 +896,7 @@ struct MainWindowView: View {
             pageRaw = MainPage.dashboard.rawValue
         }
 
-        if mode == .linuxDo {
+        if mode == .linuxDo || mode == .git {
             sidebarVisible = true
         }
     }

@@ -214,7 +214,7 @@ struct FloatingStatsPanelView: View {
             FloatingStatsActionButton(symbol: AppIcon.Workspace.git, label: "Open Git") {
                 NotificationCenter.default.post(
                     name: .openMainWindowDestinationFromFloatingStats,
-                    object: FloatingStatsMainWindowDestination.page(.git)
+                    object: FloatingStatsMainWindowDestination.git
                 )
             }
 

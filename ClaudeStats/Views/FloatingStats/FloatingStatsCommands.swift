@@ -3,6 +3,7 @@ import SwiftUI
 
 enum FloatingStatsMainWindowDestination: Sendable {
     case page(MainPage)
+    case git
     #if !CLAUDE_STATS_LITE
     case network
     case warp

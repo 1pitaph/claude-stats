@@ -15,6 +15,7 @@ struct SidebarColumn: View {
     var isSessionsActive = false
     var isConfigsActive = false
     var isMemoryActive = false
+    var isGitActive = false
     var isWarpActive = false
     var isTrackActive = false
     var onOpenSettings: () -> Void
@@ -22,6 +23,7 @@ struct SidebarColumn: View {
     var onOpenSessions: () -> Void
     var onOpenConfigs: () -> Void
     var onOpenMemory: () -> Void
+    var onOpenGit: () -> Void
     var onOpenNetwork: () -> Void
     var onOpenWarp: () -> Void
     var onOpenOps: () -> Void
@@ -119,7 +121,18 @@ struct SidebarColumn: View {
                     onOpenConfigs()
                 }
             }
-            if env.preferences.gitTrackingEnabled { navRow(.git) }
+            if env.preferences.gitTrackingEnabled {
+                SidebarRow(
+                    title: MainPage.git.title,
+                    symbol: MainPage.git.symbol,
+                    isSelected: isGitActive,
+                    trailingSymbol: "chevron.right",
+                    showsTrailingOnHover: true
+                ) {
+                    clearTextFocus()
+                    onOpenGit()
+                }
+            }
             if AppVariant.isEnabled(.ops) {
                 SidebarRow(
                     title: "Ops",
@@ -358,6 +371,7 @@ struct SidebarRow: View {
         isSessionsActive: false,
         isConfigsActive: false,
         isMemoryActive: false,
+        isGitActive: false,
         isWarpActive: false,
         isTrackActive: false,
         onOpenSettings: {},
@@ -365,6 +379,7 @@ struct SidebarRow: View {
         onOpenSessions: {},
         onOpenConfigs: {},
         onOpenMemory: {},
+        onOpenGit: {},
         onOpenNetwork: {},
         onOpenWarp: {},
         onOpenOps: {},

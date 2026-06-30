@@ -6,6 +6,7 @@ struct GitRepoWorkspaceView: View {
     let repo: GitRepo
     let repoSelectionToken: UInt64
     @State private var vm: GitRepoGraphViewModel
+    @State private var refsVM = GitReferenceSidebarViewModel()
     @State private var inspectorMode: GitInspectorMode = .repo
 
     private static let rowHeight: CGFloat = 36
@@ -19,6 +20,11 @@ struct GitRepoWorkspaceView: View {
     private static let inspectorMinWidth: CGFloat = 290
     private static let inspectorIdealWidth: CGFloat = 300
     private static let inspectorMaxWidth: CGFloat = 360
+    private static let referenceSidebarSplitFraction: CGFloat = 0.20
+    private static let referenceSidebarMinWidth: CGFloat = 190
+    private static let referenceSidebarIdealWidth: CGFloat = 230
+    private static let referenceSidebarMaxWidth: CGFloat = 280
+    private static let referenceSidebarBreakpoint: CGFloat = 980
     private static let historySplitFraction: CGFloat = 0.14
     private static let graphListMinHeight: CGFloat = 180
     private static let historyMinHeight: CGFloat = 72
@@ -51,30 +57,40 @@ struct GitRepoWorkspaceView: View {
     }
 
     var body: some View {
-        HoverableSplitView(
-            axis: .vertical,
-            primaryFraction: Self.graphInspectorSplitFraction,
-            configuration: HoverableSplitViewConfiguration(
-                primaryMinimumPaneLength: Self.graphMinWidth,
-                secondaryMinimumPaneLength: Self.inspectorMinWidth,
-                secondaryMaximumPaneLength: Self.inspectorMaxWidth
-            )
-        ) {
-            graphColumn
-                .frame(minWidth: Self.graphMinWidth, idealWidth: Self.graphIdealWidth, maxWidth: .infinity)
-        } secondary: {
-            GitCommitInspector(repo: repo, vm: vm, mode: $inspectorMode)
-                .frame(
-                    minWidth: Self.inspectorMinWidth,
-                    idealWidth: Self.inspectorIdealWidth,
-                    maxWidth: Self.inspectorMaxWidth
-                )
+        GeometryReader { proxy in
+            let showsReferenceSidebar = proxy.size.width >= Self.referenceSidebarBreakpoint
+
+            if showsReferenceSidebar {
+                HoverableSplitView(
+                    axis: .vertical,
+                    primaryFraction: Self.referenceSidebarSplitFraction,
+                    configuration: HoverableSplitViewConfiguration(
+                        primaryMinimumPaneLength: Self.referenceSidebarMinWidth,
+                        primaryMaximumPaneLength: Self.referenceSidebarMaxWidth,
+                        secondaryMinimumPaneLength: Self.graphMinWidth + Self.inspectorMinWidth
+                    )
+                ) {
+                    referenceSidebar(compact: false)
+                        .frame(
+                            minWidth: Self.referenceSidebarMinWidth,
+                            idealWidth: Self.referenceSidebarIdealWidth,
+                            maxWidth: Self.referenceSidebarMaxWidth
+                        )
+                } secondary: {
+                    graphInspectorSplit(showsRefsInspectorMode: false)
+                }
+            } else {
+                graphInspectorSplit(showsRefsInspectorMode: true)
+            }
         }
         .task(id: "\(repo.id)|\(vm.limit)") {
             await vm.loadGraph(repo: repo)
         }
         .task(id: "\(repo.id)|\(vm.selectedHash ?? "")") {
             await vm.loadDetail(repo: repo)
+        }
+        .task(id: "\(repo.id)|\(vm.statsRefreshGeneration)") {
+            await refsVM.reload(repo: repo)
         }
         .onAppear {
             vm.statsScope = env.preferences.gitStatsScope
@@ -88,6 +104,54 @@ struct GitRepoWorkspaceView: View {
         .onChange(of: repoSelectionToken) { _, _ in
             showRepoInspector()
         }
+    }
+
+    private func graphInspectorSplit(showsRefsInspectorMode: Bool) -> some View {
+        HoverableSplitView(
+            axis: .vertical,
+            primaryFraction: Self.graphInspectorSplitFraction,
+            configuration: HoverableSplitViewConfiguration(
+                primaryMinimumPaneLength: Self.graphMinWidth,
+                secondaryMinimumPaneLength: Self.inspectorMinWidth,
+                secondaryMaximumPaneLength: Self.inspectorMaxWidth
+            )
+        ) {
+            graphColumn
+                .frame(minWidth: Self.graphMinWidth, idealWidth: Self.graphIdealWidth, maxWidth: .infinity)
+        } secondary: {
+            GitCommitInspector(
+                repo: repo,
+                vm: vm,
+                refsModel: refsVM,
+                mode: $inspectorMode,
+                showsRefsMode: showsRefsInspectorMode,
+                onSelectReferenceTarget: { hash, kind in
+                    await selectReferenceTarget(hash, kind: kind)
+                },
+                onRepositoryChanged: {
+                    await reloadAfterReferenceOperation()
+                }
+            )
+                .frame(
+                    minWidth: Self.inspectorMinWidth,
+                    idealWidth: Self.inspectorIdealWidth,
+                    maxWidth: Self.inspectorMaxWidth
+                )
+        }
+    }
+
+    private func referenceSidebar(compact: Bool) -> some View {
+        GitReferenceSidebar(
+            repo: repo,
+            model: refsVM,
+            compact: compact,
+            onSelectTarget: { hash, kind in
+                await selectReferenceTarget(hash, kind: kind)
+            },
+            onRepositoryChanged: {
+                await reloadAfterReferenceOperation()
+            }
+        )
     }
 
     private var graphColumn: some View {
@@ -254,6 +318,17 @@ struct GitRepoWorkspaceView: View {
     private func showRepoInspector() {
         inspectorMode = .repo
     }
+
+    private func selectReferenceTarget(_ hash: String, kind: GitReferenceTreeRowKind) async {
+        let title = kind == .reflog ? "Reflog Commit" : "Reference Commit"
+        _ = await vm.selectReferenceTarget(hash, repo: repo, title: title)
+        inspectorMode = .commit
+    }
+
+    private func reloadAfterReferenceOperation() async {
+        await vm.reloadAfterRepositoryMutation(repo: repo)
+        env.gitActivity.bumpReload()
+    }
 }
 
 private struct GitCommitInspector: View {
@@ -261,8 +336,12 @@ private struct GitCommitInspector: View {
 
     let repo: GitRepo
     @Bindable var vm: GitRepoGraphViewModel
+    @Bindable var refsModel: GitReferenceSidebarViewModel
 
     @Binding var mode: GitInspectorMode
+    let showsRefsMode: Bool
+    let onSelectReferenceTarget: (String, GitReferenceTreeRowKind) async -> Void
+    let onRepositoryChanged: () async -> Void
     @State private var diffRequest: GitFileDiffRequest?
 
     var body: some View {
@@ -278,6 +357,8 @@ private struct GitCommitInspector: View {
                 workingTreeBody
             case .repo:
                 repoBody
+            case .refs:
+                refsBody
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -286,6 +367,9 @@ private struct GitCommitInspector: View {
             GitFileDiffViewer(request: request)
         }
         .onChange(of: repo.id) { _, _ in mode = .repo }
+        .onChange(of: showsRefsMode) { _, newValue in
+            if !newValue, mode == .refs { mode = .repo }
+        }
         .onChange(of: vm.graph?.outgoingChanges.isActive == true) { _, isActive in
             if !isActive, mode == .outgoing { mode = .repo }
         }
@@ -310,7 +394,8 @@ private struct GitCommitInspector: View {
             Picker("", selection: $mode) {
                 ForEach(GitInspectorMode.modes(
                     hasWorkingTree: vm.graph?.workingTree.isDirty == true,
-                    hasOutgoing: vm.graph?.outgoingChanges.isActive == true
+                    hasOutgoing: vm.graph?.outgoingChanges.isActive == true,
+                    showsRefs: showsRefsMode
                 )) { mode in
                     Text(mode.label).tag(mode)
                 }
@@ -332,7 +417,8 @@ private struct GitCommitInspector: View {
     private var inspectorModePickerWidth: CGFloat {
         let count = GitInspectorMode.modes(
             hasWorkingTree: vm.graph?.workingTree.isDirty == true,
-            hasOutgoing: vm.graph?.outgoingChanges.isActive == true
+            hasOutgoing: vm.graph?.outgoingChanges.isActive == true,
+            showsRefs: showsRefsMode
         ).count
         return CGFloat(count) * 64
     }
@@ -347,6 +433,7 @@ private struct GitCommitInspector: View {
             return "OUTGOING CHANGES"
         case .workingTree: return "WORKING TREE"
         case .repo: return "REPO INSPECTOR"
+        case .refs: return "GIT REFS"
         }
     }
 
@@ -377,9 +464,39 @@ private struct GitCommitInspector: View {
                 }
                 .frame(width: viewportWidth, height: proxy.size.height, alignment: .topLeading)
             }
+        } else if vm.isReferenceCommitActive {
+            referenceCommitBody
         } else {
             GitWorkspaceInlineEmptyState("Select a commit.")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    @ViewBuilder
+    private var referenceCommitBody: some View {
+        GeometryReader { proxy in
+            let viewportWidth = max(0, proxy.size.width)
+
+            AppScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    if let detail = vm.referenceCommitDetail {
+                        referenceCommitSummary(detail)
+                        commitMessage(detail)
+                        GitCommitMessageCard(
+                            repo: repo,
+                            target: .commit(hash: detail.hash, subject: detail.subject)
+                        )
+                        changedFiles(detail)
+                    } else if vm.isDetailLoading {
+                        GitWorkspaceInlineEmptyState("Loading commit detail.")
+                    } else {
+                        GitWorkspaceInlineEmptyState("Couldn't load this commit.")
+                    }
+                }
+                .padding(14)
+                .frame(width: viewportWidth, alignment: .topLeading)
+            }
+            .frame(width: viewportWidth, height: proxy.size.height, alignment: .topLeading)
         }
     }
 
@@ -423,6 +540,55 @@ private struct GitCommitInspector: View {
 
             if !commit.refs.isEmpty {
                 FlowPills(refs: commit.refs)
+            }
+        }
+        .padding(12)
+        .gitWorkspaceCard()
+    }
+
+    private func referenceCommitSummary(_ detail: CommitDetail) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let title = vm.referenceCommitTitle {
+                Text(title.uppercased())
+                    .font(.sora(10, weight: .semibold))
+                    .tracking(0.8)
+                    .foregroundStyle(Color.stxMuted)
+            }
+
+            HStack(spacing: 8) {
+                GitAvatar(name: detail.authorName, email: detail.authorEmail)
+                    .frame(width: 28, height: 28)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(detail.authorName)
+                        .font(.sora(12, weight: .semibold))
+                        .lineLimit(1)
+                    Text(detail.authorEmail)
+                        .font(.sora(9))
+                        .foregroundStyle(Color.stxMuted)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+
+            Text(TitleSanitizer.sanitize(detail.subject) ?? detail.subject)
+                .font(.sora(13, weight: .semibold))
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 6) {
+                Text(detail.abbreviatedHash)
+                    .font(.sora(10).monospacedDigit())
+                    .foregroundStyle(Color.stxAccent)
+                    .textSelection(.enabled)
+                Text(Format.shortDate(detail.authorDate))
+                    .font(.sora(10).monospacedDigit())
+                    .foregroundStyle(Color.stxMuted)
+                if detail.isMerge {
+                    Text("merge")
+                        .font(.sora(9, weight: .semibold))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Color.primary.opacity(0.08), in: Capsule())
+                }
             }
         }
         .padding(12)
@@ -710,6 +876,15 @@ private struct GitCommitInspector: View {
         }
     }
 
+    private var refsBody: some View {
+        GitReferenceSidebar(
+            repo: repo,
+            model: refsModel,
+            compact: true,
+            onSelectTarget: onSelectReferenceTarget,
+            onRepositoryChanged: onRepositoryChanged
+        )
+    }
 }
 
 private enum GitInspectorMode: String, CaseIterable, Identifiable {
@@ -717,6 +892,7 @@ private enum GitInspectorMode: String, CaseIterable, Identifiable {
     case outgoing
     case workingTree
     case repo
+    case refs
 
     var id: String { rawValue }
 
@@ -726,13 +902,15 @@ private enum GitInspectorMode: String, CaseIterable, Identifiable {
         case .outgoing: return "Sync"
         case .workingTree: return "Worktree"
         case .repo: return "Repo"
+        case .refs: return "Refs"
         }
     }
 
-    static func modes(hasWorkingTree: Bool, hasOutgoing: Bool) -> [GitInspectorMode] {
+    static func modes(hasWorkingTree: Bool, hasOutgoing: Bool, showsRefs: Bool = false) -> [GitInspectorMode] {
         var modes: [GitInspectorMode] = [.commit]
         if hasOutgoing { modes.append(.outgoing) }
         if hasWorkingTree { modes.append(.workingTree) }
+        if showsRefs { modes.append(.refs) }
         modes.append(.repo)
         return modes
     }

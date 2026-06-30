@@ -3,11 +3,10 @@ import SwiftUI
 /// Main-window Git surface. Unlike the compact menu-bar pane, this view is a
 /// repository-oriented workspace with stable selection and a denser desktop
 /// layout.
-struct MainGitActivityView: View {
+struct GitWorkspaceDetailView: View {
     @Environment(AppEnvironment.self) private var env
-    @SceneStorage("mainWindow.gitSelection") private var selectionRaw: String = Self.allSelection
-    @State private var previewSelectionRaw: String?
-    @State private var repoSelectionToken: UInt64 = 0
+    @Binding private var selection: GitWorkspaceSelection
+    let repoSelectionToken: UInt64
     private let previewModel: GitActivityViewModel?
 
     private let isPreview: Bool
@@ -15,13 +14,10 @@ struct MainGitActivityView: View {
     private let previewGraph: GitGraph?
     #endif
 
-    private static let allSelection = "all"
-    private static let repoColumnMinWidth: CGFloat = 140
-    private static let repoColumnIdealWidth: CGFloat = 196
-
-    init() {
+    init(selection: Binding<GitWorkspaceSelection>, repoSelectionToken: UInt64 = 0) {
+        _selection = selection
+        self.repoSelectionToken = repoSelectionToken
         previewModel = nil
-        _previewSelectionRaw = State(wrappedValue: nil)
         isPreview = false
         #if DEBUG
         previewGraph = nil
@@ -29,9 +25,15 @@ struct MainGitActivityView: View {
     }
 
     #if DEBUG
-    init(previewModel: GitActivityViewModel, selection: String = Self.allSelection, graph: GitGraph? = nil) {
+    init(
+        selection: Binding<GitWorkspaceSelection>,
+        repoSelectionToken: UInt64 = 0,
+        previewModel: GitActivityViewModel,
+        graph: GitGraph? = nil
+    ) {
+        _selection = selection
+        self.repoSelectionToken = repoSelectionToken
         self.previewModel = previewModel
-        _previewSelectionRaw = State(wrappedValue: selection)
         isPreview = true
         previewGraph = graph
     }
@@ -43,17 +45,13 @@ struct MainGitActivityView: View {
         let sourceIDs: String
     }
 
-    private var currentSelection: String {
-        previewSelectionRaw ?? selectionRaw
-    }
-
     private var activityModel: GitActivityViewModel {
         previewModel ?? env.gitActivity
     }
 
     private var selectedActivity: RepoActivity? {
-        guard currentSelection != Self.allSelection else { return nil }
-        return activityModel.repos.first { $0.repo.id == currentSelection }
+        guard let repoID = selection.repoID else { return nil }
+        return activityModel.repos.first { $0.repo.id == repoID }
     }
 
     var body: some View {
@@ -69,28 +67,8 @@ struct MainGitActivityView: View {
         return VStack(spacing: 0) {
             header(model: vm)
             StxRule()
-            HStack(spacing: 0) {
-                GitRepoSelectionColumn(
-                    repos: vm.repos,
-                    totalCommits: vm.overviewSnapshot.totalCommits,
-                    totalChurn: vm.overviewSnapshot.totalChurn,
-                    selection: currentSelection,
-                    isLoading: vm.isLoading,
-                    onSelect: setSelection
-                )
-                .frame(
-                    minWidth: Self.repoColumnMinWidth,
-                    idealWidth: Self.repoColumnIdealWidth,
-                    maxWidth: Self.repoColumnIdealWidth
-                )
-
-                Rectangle()
-                    .fill(Color.stxStroke)
-                    .frame(width: 1)
-
-                detailContent
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
+            detailContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .task(id: key) {
             if isPreview { return }
@@ -159,142 +137,11 @@ struct MainGitActivityView: View {
         }
     }
 
-    private func setSelection(_ value: String) {
-        if value != Self.allSelection {
-            repoSelectionToken &+= 1
-        }
-        if isPreview {
-            previewSelectionRaw = value
-        } else {
-            selectionRaw = value
-        }
-    }
-
     private func reconcileSelection() {
-        guard currentSelection != Self.allSelection else { return }
-        if !activityModel.repos.contains(where: { $0.repo.id == currentSelection }) {
-            setSelection(Self.allSelection)
+        guard let repoID = selection.repoID else { return }
+        if !activityModel.repos.contains(where: { $0.repo.id == repoID }) {
+            selection = .all
         }
-    }
-}
-
-private struct GitRepoSelectionColumn: View {
-    let repos: [RepoActivity]
-    let totalCommits: Int
-    let totalChurn: Int
-    let selection: String
-    let isLoading: Bool
-    let onSelect: (String) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            columnHeader
-            AppScrollView {
-                LazyVStack(alignment: .leading, spacing: 4) {
-                    GitRepoSelectionRow(
-                        title: "All Repos",
-                        subtitle: "\(totalCommits) commits",
-                        detail: Format.tokens(totalChurn) + " churn",
-                        symbol: AppIcon.Workspace.dashboard,
-                        isSelected: selection == "all"
-                    ) {
-                        onSelect("all")
-                    }
-
-                    ForEach(repos) { activity in
-                        GitRepoSelectionRow(
-                            title: activity.repo.displayName,
-                            subtitle: "\(activity.commitCount) commits",
-                            detail: "\(activity.filesChanged) files",
-                            symbol: AppIcon.Resource.folder,
-                            isSelected: selection == activity.repo.id
-                        ) {
-                            onSelect(activity.repo.id)
-                        }
-                        .help(activity.repo.rootPath)
-                    }
-                }
-                .padding(10)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background {
-            Rectangle()
-                .fill(AppSurface.panelFill)
-        }
-    }
-
-    private var columnHeader: some View {
-        HStack(spacing: 6) {
-            Text("REPOSITORIES")
-                .font(.sora(10, weight: .semibold))
-                .tracking(1.0)
-                .foregroundStyle(Color.stxMuted)
-            Spacer()
-            if isLoading {
-                ProgressView()
-                    .controlSize(.mini)
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.top, 12)
-        .padding(.bottom, 8)
-    }
-}
-
-private struct GitRepoSelectionRow: View {
-    let title: String
-    let subtitle: String
-    let detail: String
-    let symbol: String
-    let isSelected: Bool
-    let action: () -> Void
-
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 9) {
-                Image(systemName: symbol)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(isSelected ? Color.stxAccent : Color.stxMuted)
-                    .frame(width: 16)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.sora(11, weight: .semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    HStack(spacing: 5) {
-                        Text(subtitle)
-                        Text("-")
-                        Text(detail)
-                    }
-                    .font(.sora(9))
-                    .foregroundStyle(Color.stxMuted)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 9)
-            .padding(.vertical, 7)
-            .background(rowBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(isSelected ? Color.stxStroke : Color.clear, lineWidth: 1)
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-        .accessibilityLabel(Text(title))
-    }
-
-    private var rowBackground: Color {
-        if isSelected { return AppSurface.panelFill }
-        if hovering { return Color.primary.opacity(0.06) }
-        return .clear
     }
 }
 
@@ -980,18 +827,23 @@ private extension View {
 }
 
 #if DEBUG
-#Preview("Main Git - all repos") {
-    MainGitActivityView(previewModel: .preview())
-        .environment(AppEnvironment.preview())
-        .frame(width: 800, height: 620)
-        .background(Color.stxBackground)
+#Preview("Git workspace detail - all repos") {
+    @Previewable @State var selection = GitWorkspaceSelection.all
+    return GitWorkspaceDetailView(
+        selection: $selection,
+        previewModel: .preview()
+    )
+    .environment(AppEnvironment.preview())
+    .frame(width: 800, height: 620)
+    .background(Color.stxBackground)
 }
 
-#Preview("Main Git - repo") {
+#Preview("Git workspace detail - repo") {
+    @Previewable @State var selection = GitWorkspaceSelection.repo(GitGraph.preview().repo.id)
     let previewModel = GitActivityViewModel.preview()
-    return MainGitActivityView(
+    return GitWorkspaceDetailView(
+        selection: $selection,
         previewModel: previewModel,
-        selection: GitGraph.preview().repo.id,
         graph: .preview()
     )
     .environment(AppEnvironment.preview())
@@ -999,10 +851,14 @@ private extension View {
     .background(Color.stxBackground)
 }
 
-#Preview("Main Git - empty") {
-    MainGitActivityView(previewModel: .previewEmpty())
-        .environment(AppEnvironment.preview(populated: false))
-        .frame(width: 800, height: 620)
-        .background(Color.stxBackground)
+#Preview("Git workspace detail - empty") {
+    @Previewable @State var selection = GitWorkspaceSelection.all
+    return GitWorkspaceDetailView(
+        selection: $selection,
+        previewModel: .previewEmpty()
+    )
+    .environment(AppEnvironment.preview(populated: false))
+    .frame(width: 800, height: 620)
+    .background(Color.stxBackground)
 }
 #endif

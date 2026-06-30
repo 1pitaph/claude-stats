@@ -11,6 +11,9 @@ final class GitRepoGraphViewModel {
     private(set) var isBaseStatsLoading = false
     private(set) var isCodeOwnershipLoading = false
     private(set) var commitDetail: CommitDetail?
+    private(set) var referenceCommitDetail: CommitDetail?
+    private(set) var referenceCommitHash: String?
+    private(set) var referenceCommitTitle: String?
     private(set) var repoBaseStats: GitRepoInspectorBaseStats?
     private(set) var codeOwnershipState: GitCodeOwnershipLoadState = .idle
     private(set) var minimapData: GitGraphMinimapData?
@@ -103,6 +106,10 @@ final class GitRepoGraphViewModel {
         return graph?.commits.first { $0.hash == selectedHash }
     }
 
+    var isReferenceCommitActive: Bool {
+        selectedHash == nil && referenceCommitHash != nil
+    }
+
     var graphLoadID: String {
         "\(currentRepoID ?? "")|\(limit)"
     }
@@ -160,6 +167,7 @@ final class GitRepoGraphViewModel {
 
     func loadDetail(repo: GitRepo) async {
         guard let hash = selectedHash else {
+            if referenceCommitHash != nil { return }
             invalidateDetailRequest()
             commitDetail = nil
             return
@@ -255,6 +263,7 @@ final class GitRepoGraphViewModel {
     func selectCommit(_ hash: String) {
         guard selectedHash != hash else { return }
         invalidateDetailRequest()
+        clearReferenceCommit()
         selectedHash = hash
         updateMinimapSelection()
         commitDetail = nil
@@ -262,6 +271,7 @@ final class GitRepoGraphViewModel {
 
     func selectWorkingTree() {
         invalidateDetailRequest()
+        clearReferenceCommit()
         selectedHash = nil
         updateMinimapSelection()
         commitDetail = nil
@@ -269,6 +279,7 @@ final class GitRepoGraphViewModel {
 
     func selectOutgoingChanges() {
         invalidateDetailRequest()
+        clearReferenceCommit()
         selectedHash = nil
         updateMinimapSelection()
         commitDetail = nil
@@ -326,6 +337,39 @@ final class GitRepoGraphViewModel {
         selectCommit(hash)
     }
 
+    func selectReferenceTarget(_ hash: String, repo: GitRepo, title: String? = nil) async -> Bool {
+        if currentRepoID != repo.id {
+            reset(for: repo)
+        }
+        if graph == nil {
+            await loadGraph(repo: repo)
+        }
+
+        while graph?.commits.contains(where: { $0.hash == hash }) != true,
+              graph?.truncated == true {
+            let previousLoadedLimit = loadedLimit
+            loadMore()
+            let didLoad = await loadGraph(repo: repo)
+            guard didLoad, loadedLimit > previousLoadedLimit else { break }
+        }
+
+        if graph?.commits.contains(where: { $0.hash == hash }) == true {
+            selectCommit(hash)
+            return true
+        }
+
+        invalidateDetailRequest()
+        selectedHash = nil
+        updateMinimapSelection()
+        referenceCommitHash = hash
+        referenceCommitTitle = title
+        referenceCommitDetail = nil
+        commitDetail = nil
+
+        await loadReferenceCommitDetail(hash: hash, repo: repo)
+        return referenceCommitDetail != nil
+    }
+
     func reloadAfterRepositoryMutation(repo: GitRepo) async {
         await repositoryDidChange(repo: repo)
     }
@@ -374,6 +418,7 @@ final class GitRepoGraphViewModel {
         graph = nil
         layout = nil
         commitDetail = nil
+        clearReferenceCommit()
         repoBaseStats = nil
         repoBaseStatsRepoID = nil
         repoBaseStatsScope = nil
@@ -390,6 +435,7 @@ final class GitRepoGraphViewModel {
 
     private func reconcileSelection() {
         guard let commits = graph?.commits, !commits.isEmpty else {
+            if referenceCommitHash != nil { return }
             invalidateDetailRequest()
             selectedHash = nil
             commitDetail = nil
@@ -402,6 +448,30 @@ final class GitRepoGraphViewModel {
         selectedHash = nil
         updateMinimapSelection()
         commitDetail = nil
+    }
+
+    private func loadReferenceCommitDetail(hash: String, repo: GitRepo) async {
+        if isPreview { return }
+
+        detailRequestID &+= 1
+        let requestID = detailRequestID
+        isDetailLoading = true
+        defer { finishDetailRequest(requestID) }
+
+        let requestedRepoID = repo.id
+        let requestedHash = hash
+        let detail = await repositoryService.commitDetail(for: requestedHash, in: repo)
+
+        guard detailRequestID == requestID,
+              currentRepoID == requestedRepoID,
+              referenceCommitHash == requestedHash else { return }
+        referenceCommitDetail = detail
+    }
+
+    private func clearReferenceCommit() {
+        referenceCommitDetail = nil
+        referenceCommitHash = nil
+        referenceCommitTitle = nil
     }
 
     private func updateMinimapSelection() {
