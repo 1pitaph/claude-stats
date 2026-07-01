@@ -3,6 +3,34 @@
 extension ReleaseHistoryCatalog {
     static let generatedEntries: [ReleaseHistoryEntry] = [
         ReleaseHistoryEntry(
+            version: "1.9.9",
+            date: "July 1, 2026",
+            headline: "将多处使用的AIConfigsMiniStat组件统一替换为新的WorkspaceMiniStat，同时删除不再使用的AIConfigsMiniStat定义，减少代码冗余并统一组件样式。",
+            changes: [
+                "将多处使用的AIConfigsMiniStat组件统一替换为新的WorkspaceMiniStat，同时删除不再使用的AIConfigsMiniStat定义，减少代码冗余并统一组件样式。",
+            ]
+        ),
+        ReleaseHistoryEntry(
+            version: "1.9.8",
+            date: "June 30, 2026",
+            headline: "本次提交实现了完整的Git工作区统计模块，包括：",
+            changes: [
+                "新增Git页面导航入口与相关数据模型",
+                "实现Git仓库选择、引用浏览的完整UI与业务逻辑",
+                "添加Git操作相关的服务层与错误处理",
+                "补充完整的单元测试与预览代码",
+                "适配主窗口的模式切换与状态保存",
+            ]
+        ),
+        ReleaseHistoryEntry(
+            version: "1.9.7",
+            date: "June 30, 2026",
+            headline: "skip",
+            changes: [
+                "skip",
+            ]
+        ),
+        ReleaseHistoryEntry(
             version: "1.9.6",
             date: "June 12, 2026",
             headline: "Remove the `--timestamp` flag from code signing settings across all targets in project.yml. This flag is no longer needed, likely because timestamping is now handled by the signing identity or CI environment.",
