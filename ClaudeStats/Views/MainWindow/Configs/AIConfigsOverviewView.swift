@@ -136,8 +136,8 @@ struct AIConfigsOverviewView: View {
                                     .truncationMode(.middle)
                             }
                             Spacer(minLength: 8)
-                            AIConfigsMiniStat(value: "\(project.summary.existingDocumentCount)", label: "files")
-                            AIConfigsMiniStat(value: "\(project.summary.diagnosticCount)", label: "issues")
+                            WorkspaceMiniStat(value: "\(project.summary.existingDocumentCount)", label: "files")
+                            WorkspaceMiniStat(value: "\(project.summary.diagnosticCount)", label: "issues")
                         }
                     }
                 }

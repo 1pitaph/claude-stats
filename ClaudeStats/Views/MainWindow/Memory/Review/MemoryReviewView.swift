@@ -24,10 +24,10 @@ struct MemoryReviewView: View {
 
     private var summary: some View {
         HStack(spacing: 10) {
-            AIConfigsMiniStat(value: "\(store.review.proposals.count)", label: "proposed")
-            AIConfigsMiniStat(value: "\(store.review.conflicts.count)", label: "conflicts")
-            AIConfigsMiniStat(value: "\(store.review.lowConfidence.count)", label: "low confidence")
-            AIConfigsMiniStat(value: "\(store.review.graphFacts.count)", label: "graph facts")
+            WorkspaceMiniStat(value: "\(store.review.proposals.count)", label: "proposed")
+            WorkspaceMiniStat(value: "\(store.review.conflicts.count)", label: "conflicts")
+            WorkspaceMiniStat(value: "\(store.review.lowConfidence.count)", label: "low confidence")
+            WorkspaceMiniStat(value: "\(store.review.graphFacts.count)", label: "graph facts")
             Spacer(minLength: 8)
             Button {
                 Task { await store.loadCodeProposals() }

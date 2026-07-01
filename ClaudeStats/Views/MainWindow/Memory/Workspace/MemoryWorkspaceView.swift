@@ -37,8 +37,8 @@ struct MemoryWorkspaceView: View {
             Spacer(minLength: 12)
 
             HStack(spacing: 10) {
-                AIConfigsMiniStat(value: "\(store.codeHealth?.memoryCount ?? 0)", label: "active")
-                AIConfigsMiniStat(value: "\(store.review.totalCount)", label: "review")
+                WorkspaceMiniStat(value: "\(store.codeHealth?.memoryCount ?? 0)", label: "active")
+                WorkspaceMiniStat(value: "\(store.review.totalCount)", label: "review")
                 if store.isCodeMemoryLoading {
                     ProgressView()
                         .controlSize(.small)

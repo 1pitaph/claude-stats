@@ -266,10 +266,10 @@ private struct AIConfigProjectRow: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                     HStack(spacing: 8) {
-                        AIConfigsMiniStat(value: "\(project.summary.existingDocumentCount)", label: "files")
-                        AIConfigsMiniStat(value: "\(project.summary.planStats.total)", label: "plans")
+                        WorkspaceMiniStat(value: "\(project.summary.existingDocumentCount)", label: "files")
+                        WorkspaceMiniStat(value: "\(project.summary.planStats.total)", label: "plans")
                         if project.summary.missingExpectedCount > 0 {
-                            AIConfigsMiniStat(value: "\(project.summary.missingExpectedCount)", label: "missing")
+                            WorkspaceMiniStat(value: "\(project.summary.missingExpectedCount)", label: "missing")
                         }
                     }
                 }

@@ -82,8 +82,8 @@ struct ChatWorkspaceSidebar: View {
             }
 
             HStack(spacing: 10) {
-                AIConfigsMiniStat(value: "\(store.conversations.count)", label: String(localized: "threads"))
-                AIConfigsMiniStat(value: store.projectOptions.isEmpty ? "0" : "\(store.projectOptions.count)", label: String(localized: "repos"))
+                WorkspaceMiniStat(value: "\(store.conversations.count)", label: String(localized: "threads"))
+                WorkspaceMiniStat(value: store.projectOptions.isEmpty ? "0" : "\(store.projectOptions.count)", label: String(localized: "repos"))
             }
 
             HStack(spacing: 8) {

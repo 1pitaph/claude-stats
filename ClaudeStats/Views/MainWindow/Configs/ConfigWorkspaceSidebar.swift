@@ -131,9 +131,9 @@ struct ConfigWorkspaceSidebar: View {
             }
 
             HStack(spacing: 10) {
-                AIConfigsMiniStat(value: "\(counts.providerCount)", label: "providers")
-                AIConfigsMiniStat(value: "\(counts.configFileCount)", label: "files")
-                AIConfigsMiniStat(value: "\(counts.profileCount)", label: "profiles")
+                WorkspaceMiniStat(value: "\(counts.providerCount)", label: "providers")
+                WorkspaceMiniStat(value: "\(counts.configFileCount)", label: "files")
+                WorkspaceMiniStat(value: "\(counts.profileCount)", label: "profiles")
                 Spacer(minLength: 0)
                 Button {
                     refresh()

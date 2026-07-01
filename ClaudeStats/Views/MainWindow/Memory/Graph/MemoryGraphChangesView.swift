@@ -356,9 +356,9 @@ private struct MemoryKnowledgeGraphInspectorView: View {
                 .font(.sora(13, weight: .semibold))
             if let presentation = store.graph.knowledgePresentation {
                 HStack(spacing: 10) {
-                    AIConfigsMiniStat(value: "\(presentation.totalEntityCount)", label: "entities")
-                    AIConfigsMiniStat(value: "\(presentation.totalFactCount)", label: "facts")
-                    AIConfigsMiniStat(value: "\(presentation.activeFactCount)", label: "active")
+                    WorkspaceMiniStat(value: "\(presentation.totalEntityCount)", label: "entities")
+                    WorkspaceMiniStat(value: "\(presentation.totalFactCount)", label: "facts")
+                    WorkspaceMiniStat(value: "\(presentation.activeFactCount)", label: "active")
                 }
                 MemoryGraphInspectorFactRow(label: "project", value: presentation.projectID.memoryAbbreviatingHomeDirectory)
                 MemoryGraphInspectorFactRow(label: "view", value: store.graph.factVisibility.label)

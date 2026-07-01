@@ -59,7 +59,7 @@ struct MemoryWorkspaceSidebar: View {
             }
 
             HStack(spacing: 10) {
-                AIConfigsMiniStat(value: "\(store.codeHealth?.memoryCount ?? 0)", label: "active")
+                WorkspaceMiniStat(value: "\(store.codeHealth?.memoryCount ?? 0)", label: "active")
                 Spacer(minLength: 0)
                 Button {
                     Task { await store.refreshCodeMemoryStatus(sessions: env.store.sessions) }

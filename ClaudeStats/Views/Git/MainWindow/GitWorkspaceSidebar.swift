@@ -81,8 +81,8 @@ struct GitWorkspaceSidebar: View {
             }
 
             HStack(spacing: 10) {
-                AIConfigsMiniStat(value: "\(model.repos.count)", label: model.repos.count == 1 ? "repo" : "repos")
-                AIConfigsMiniStat(value: "\(model.overviewSnapshot.totalCommits)", label: "commits")
+                WorkspaceMiniStat(value: "\(model.repos.count)", label: model.repos.count == 1 ? "repo" : "repos")
+                WorkspaceMiniStat(value: "\(model.overviewSnapshot.totalCommits)", label: "commits")
                 Spacer(minLength: 0)
             }
 

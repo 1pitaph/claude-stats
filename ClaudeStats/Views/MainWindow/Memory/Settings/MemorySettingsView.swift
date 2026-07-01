@@ -183,12 +183,12 @@ struct MemorySettingsView: View {
             Text("Mem0 Memory Engine")
                 .font(.sora(15, weight: .semibold))
             HStack(spacing: 10) {
-                AIConfigsMiniStat(value: "\(store.codeHealth?.capturePending ?? store.codeHealth?.projectionPending ?? 0)", label: "pending")
-                AIConfigsMiniStat(value: "\(store.codeHealth?.captureFailed ?? store.codeHealth?.projectionFailed ?? 0)", label: "failed")
-                AIConfigsMiniStat(value: "\(store.codeHealth?.migrationPending ?? 0)", label: "migration")
+                WorkspaceMiniStat(value: "\(store.codeHealth?.capturePending ?? store.codeHealth?.projectionPending ?? 0)", label: "pending")
+                WorkspaceMiniStat(value: "\(store.codeHealth?.captureFailed ?? store.codeHealth?.projectionFailed ?? 0)", label: "failed")
+                WorkspaceMiniStat(value: "\(store.codeHealth?.migrationPending ?? 0)", label: "migration")
                 if let result = store.codeLastProjectionDrainResult {
-                    AIConfigsMiniStat(value: "\(result.delivered ?? 0)", label: "delivered")
-                    AIConfigsMiniStat(value: "\(result.remaining ?? 0)", label: "remaining")
+                    WorkspaceMiniStat(value: "\(result.delivered ?? 0)", label: "delivered")
+                    WorkspaceMiniStat(value: "\(result.remaining ?? 0)", label: "remaining")
                 }
             }
 

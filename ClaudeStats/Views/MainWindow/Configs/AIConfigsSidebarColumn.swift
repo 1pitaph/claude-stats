@@ -68,8 +68,8 @@ struct AIConfigsSidebarColumn: View {
             }
 
             HStack(spacing: 10) {
-                AIConfigsMiniStat(value: "\(env.aiConfigs.snapshot.summary.existingDocumentCount)", label: "files")
-                AIConfigsMiniStat(value: "\(env.aiConfigs.snapshot.summary.diagnosticCount)", label: "issues")
+                WorkspaceMiniStat(value: "\(env.aiConfigs.snapshot.summary.existingDocumentCount)", label: "files")
+                WorkspaceMiniStat(value: "\(env.aiConfigs.snapshot.summary.diagnosticCount)", label: "issues")
                 Spacer(minLength: 0)
                 Button {
                     refresh()
