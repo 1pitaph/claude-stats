@@ -6,6 +6,48 @@
     <description>Most recent updates to Claude Stats Lite.</description>
     <language>en</language>
     <item>
+      <title>Version 1.9.10</title>
+      <sparkle:version>100</sparkle:version>
+      <sparkle:shortVersionString>1.9.10</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0.0</sparkle:minimumSystemVersion>
+      <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+      <description><![CDATA[
+<div class="cs-appcast-notes" style="font-family: -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif; color: #1f2937;">
+  <style>
+    .cs-update-size-fallback { margin: 0 0 14px; }
+    .cs-update-size-pills { display: inline-flex; align-items: center; margin-left: 10px; min-width: 0; vertical-align: middle; }
+    .cs-update-size-pill { display: inline-block; padding: 4px 10px; border: 0; border-radius: 999px; background: #eaf1ff; color: #172033; font-size: 12px; font-weight: 700; line-height: 1.2; white-space: nowrap; }
+    .cs-update-size-delta { display: none; }
+    .cs-update-size-delta.sparkle-installed-version { display: inline-block; }
+    .cs-update-size-delta.sparkle-installed-version ~ .cs-update-size-full { display: none; }
+  </style>
+<div style="margin: 0; color: #1f2937; font-size: 13px; line-height: 1.55;">
+  <p style="margin: 0 0 10px; color: #172033; font-size: 15px; font-weight: 700;">更新内容</p>
+  <div style="margin: 0; padding: 0;">
+<h2>本次更新<span class="cs-update-size-pills"><span class="cs-update-size-pill cs-update-size-delta" data-sparkle-version="99">2.3 MB</span><span class="cs-update-size-pill cs-update-size-delta" data-sparkle-version="96">2.9 MB</span><span class="cs-update-size-pill cs-update-size-delta" data-sparkle-version="94">4.2 MB</span><span class="cs-update-size-pill cs-update-size-full">62.7 MB</span></span></h2>
+<ul>
+<li>This commit adds the full project launcher feature set:</li>
+<li>新增项目扫描识别能力，支持检测Electron、Web、Docker、Xcode等多种项目类型</li>
+<li>实现进程管理系统，支持长运行进程和一次性脚本，包含进程树清理和停止命令执行</li>
+<li>新增侧边栏和详情视图，支持项目搜索、启停操作和日志查看</li>
+<li>集成到主应用框架，添加项目功能开关和导航入口</li>
+<li>完善应用退出时的进程清理逻辑，确保所有运行中的项目进程被正确终止</li>
+<li>新增配套单元测试覆盖核心流程</li>
+<li>调整轻量版应用的功能开关配置，移除projects的禁用限制</li>
+</ul>
+  </div>
+</div>
+</div>
+]]></description>
+      <pubDate>Fri, 10 Jul 2026 09:00:18 GMT</pubDate>
+      <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.9.10/ClaudeStatsLite-1.9.10.dmg" sparkle:edSignature="6cbW1nh6NbTiCNgipQLDqNElaIX7Mc+Trk86nETgLQkMY0SKCjrRiPTV03xAvZd8/L5kGA/6h8MuJVVSyuhHBA==" length="62658264" type="application/octet-stream"/>
+      <sparkle:deltas>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.9.10/ClaudeStatsLite-100-from-99.delta" sparkle:deltaFrom="99" sparkle:edSignature="izW1eKkSW8vj4OEpjIO7GberlSit+K/+U1g1yeMORtmxIvlrn+gEaemhBCwgVMO8fS99LeN+FWq5GBcJdsJ/CA==" length="2336062" type="application/octet-stream"/>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.9.10/ClaudeStatsLite-100-from-96.delta" sparkle:deltaFrom="96" sparkle:edSignature="vqh+zCbOhR67PsVci09pnW7tRYghRrtV9Um0wkEromdzohOk88T1qu+qbD/pYk0neQ+l54w5P95ypixS8CBEBA==" length="2946762" type="application/octet-stream"/>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.9.10/ClaudeStatsLite-100-from-94.delta" sparkle:deltaFrom="94" sparkle:edSignature="GvV+tzjHqtIr+mWGjlenghpe5YzngZmUvGzegAgdGgjHZhZG/+lpv/lc+P+S0FtfaBqo4TeyBvKqV9ngVKkECw==" length="4180986" type="application/octet-stream"/>
+      </sparkle:deltas>
+    </item>
+    <item>
       <title>Version 1.9.9</title>
       <sparkle:version>99</sparkle:version>
       <sparkle:shortVersionString>1.9.9</sparkle:shortVersionString>
