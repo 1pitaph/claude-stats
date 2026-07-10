@@ -17,8 +17,10 @@ name: Release
 #      appcast.xml and appcast-lite.xml files for GitHub Pages.
 #   4. Creates a GitHub Release for the tag in this public source repo, with the
 #      packaged app and any Sparkle deltas attached.
-#   5. Publishes the updated appcasts to this repo's gh-pages branch (served at
-#      each variant's SUFeedURL by GitHub Pages) so installs can auto-update.
+#   5. Uploads the updated appcasts as a GitHub Pages artifact and deploys it in
+#      a dedicated `deploy-pages` job, so the deployment and site URL are visible
+#      in Actions. The same files are also committed to this repo's gh-pages
+#      branch as a versioned snapshot; that branch no longer triggers deployment.
 #      During the migration away from 1pitaph/claude-stats-releases, the same
 #      appcast is also mirrored to that legacy repo's gh-pages branch when
 #      RELEASES_REPO_TOKEN is present. No binaries are uploaded there.
@@ -53,8 +55,8 @@ name: Release
 #                             key goes in Info.plist as SUPublicEDKey. Without
 #                             this secret the appcast step is skipped (releases
 #                             still publish, but installed apps won't see them).
-#                             Requires GitHub Pages enabled for this repo's
-#                             gh-pages branch.
+#                             Requires GitHub Pages enabled for this repo. The
+#                             workflow configures Pages to use GitHub Actions.
 #
 # Git language stats runtime:
 #   The workflow builds a relocatable GitTools runtime from pinned Ruby,
@@ -72,7 +74,7 @@ on:
       - 'v*.*.*'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   release:
@@ -81,6 +83,11 @@ jobs:
     # The macos-15 runner image only goes up to 26.3; macos-26 is the first image
     # that preinstalls 26.4.1 stable.
     runs-on: macos-26
+    permissions:
+      contents: write
+      pages: write
+    outputs:
+      pages_artifact_ready: ${{ steps.sparkle.outputs.enabled }}
     steps:
       - name: Checkout master
         uses: actions/checkout@v6
@@ -308,6 +315,26 @@ jobs:
             appcast-lite.xml \
             "Claude Stats Lite"
 
+      - name: Configure GitHub Pages for Actions
+        if: steps.sparkle.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method PUT \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "repos/${GITHUB_REPOSITORY}/pages" \
+            -f build_type=workflow
+
+      - name: Configure GitHub Pages
+        if: steps.sparkle.outputs.enabled == 'true'
+        uses: actions/configure-pages@v5
+
+      - name: Upload GitHub Pages artifact
+        if: steps.sparkle.outputs.enabled == 'true'
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+
       - name: Create GitHub Release (in source repo)
         uses: softprops/action-gh-release@v3
         with:
@@ -315,7 +342,7 @@ jobs:
           files: dist/*
           body_path: release_notes.md
 
-      - name: Deploy appcast to GitHub Pages
+      - name: Publish appcast snapshot to gh-pages branch
         if: steps.sparkle.outputs.enabled == 'true'
         env:
           PAGES_TOKEN: ${{ github.token }}
@@ -410,3 +437,22 @@ jobs:
       - name: Clean up keychain
         if: always() && steps.signing.outputs.enabled == 'true'
         run: security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" || true
+
+  deploy-pages:
+    name: Deploy appcast to GitHub Pages
+    needs: release
+    if: needs.release.outputs.pages_artifact_ready == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    steps:
+      - name: Deploy GitHub Pages artifact
+        id: deployment
+        uses: actions/deploy-pages@v4

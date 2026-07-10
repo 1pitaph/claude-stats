@@ -49,8 +49,9 @@ git tag v1.2.0 && git push origin v1.2.0
 (build number = the workflow run number), builds Release `Claude Stats.app` and
 `Claude Stats Lite.app`, packages both variants, publishes a GitHub Release
 **in this source repo** with the artifact(s) attached, publishes the Sparkle
-appcasts to this repo's `gh-pages` branch, and commits the bumped `project.yml`
-back to `master` here.
+appcasts through an explicit GitHub Pages deployment job, snapshots those files
+to this repo's `gh-pages` branch, and commits the bumped `project.yml` back to
+`master` here.
 
 The source repo is public and is the canonical download/update host. During the
 migration away from the old public `claude-stats-releases` companion repo, the
@@ -86,26 +87,31 @@ while Sparkle's windows are up and back to `.accessory` when the session ends.
 Settings ▸ About has a "Check for Updates…" button; scheduled background checks
 are on by default (`SUEnableAutomaticChecks` in `Info.plist`).
 
-The main update feed is `appcast.xml` on this repo's `gh-pages` branch, served at
+The main update feed is `appcast.xml`, served at
 `https://1pitaph.github.io/claude-stats/appcast.xml`
 (`SUFeedURL` in `Info.plist`). The Lite feed is `appcast-lite.xml`, served at
 `https://1pitaph.github.io/claude-stats/appcast-lite.xml`
 (`SUFeedURL` in `InfoLite.plist`). On each tagged release the workflow EdDSA-signs
 each variant archive (`scripts/publish-appcast.sh` → `scripts/update-appcast.py`)
-and pushes updated appcast files to that branch. During the transition, generated
-appcasts can also be mirrored to `https://1pitaph.github.io/claude-stats-releases/`
-for older builds whose `SUFeedURL` still points there. This works the same whether
-the release is the un-notarized zip/DMG or the signed+notarized DMG — Sparkle just
-downloads whichever asset the appcast points at (it prefers the `.zip` when
-present). Release notes are generated from the source repo's commit log
+and uploads the generated files as a Pages artifact. A dedicated `deploy-pages`
+job deploys that artifact and exposes the deployment status and site URL in
+Actions. The workflow also commits the same files to `gh-pages` as a history
+snapshot, but branch pushes do not drive the live deployment. During the
+transition, generated appcasts can also be mirrored to
+`https://1pitaph.github.io/claude-stats-releases/` for older builds whose
+`SUFeedURL` still points there. This works the same whether the release is the
+un-notarized zip/DMG or the signed+notarized DMG — Sparkle just downloads
+whichever asset the appcast points at (it prefers the `.zip` when present).
+Release notes are generated from the source repo's commit log
 between this tag and the previous semver tag, written as both markdown (used as
 the GitHub Release body) and minimal HTML (embedded directly in the appcast's
 `<description>` CDATA so Sparkle renders them inline without a webview fetch).
 
 **One-time setup:**
 
-1. Enable GitHub Pages on this repo: Settings → Pages → Source = `gh-pages`
-   branch / `/ (root)`.
+1. Enable GitHub Pages on this repo: Settings → Pages → Source = **GitHub
+   Actions**. The release workflow also sets `build_type=workflow` before each
+   deployment so it cannot fall back to the legacy branch build pipeline.
 2. Optional migration mirror: keep `1pitaph/claude-stats-releases` Pages enabled,
    create a fine-grained PAT scoped to that repo with **Contents: Read and write**,
    and add it as `RELEASES_REPO_TOKEN` until old builds have moved to the new feed.
