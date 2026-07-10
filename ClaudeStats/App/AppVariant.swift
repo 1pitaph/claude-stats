@@ -30,9 +30,9 @@ enum AppVariant {
     static func isEnabled(_ feature: AppFeature) -> Bool {
         #if CLAUDE_STATS_LITE
         switch feature {
-        case .sessions, .memory, .localAI, .linuxDo, .warp, .config, .ops, .network, .track, .notchIsland, .dictionary, .projects:
+        case .sessions, .memory, .localAI, .linuxDo, .warp, .config, .ops, .network, .track, .notchIsland, .dictionary:
             return false
-        case .git, .dailyReport:
+        case .git, .projects, .dailyReport:
             return true
         case .leaderboards:
             return true

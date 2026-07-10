@@ -1,6 +1,39 @@
 import AppKit
 import SwiftUI
 
+private enum ProjectLauncherLayout {
+    static let listSplitFraction: CGFloat = 0.19
+    static let listMinWidth: CGFloat = 180
+    static let listIdealWidth: CGFloat = 210
+    static let listMaxWidth: CGFloat = 250
+    static let detailMinWidth: CGFloat = 420
+
+    static let workspaceSplitFraction: CGFloat = 0.52
+    static let actionsMinHeight: CGFloat = 220
+    static let logsMinHeight: CGFloat = 190
+}
+
+private enum ProjectLaunchActionGridLayout: Equatable, Sendable {
+    case twoColumns
+    case threeColumns
+
+    static let spacing: CGFloat = 10
+    static let contentTopInset: CGFloat = 3
+    static let threeColumnMinimumWidth: CGFloat = 830
+
+    static func fitting(_ width: CGFloat) -> Self {
+        width >= threeColumnMinimumWidth ? .threeColumns : .twoColumns
+    }
+
+    var columns: [GridItem] {
+        let count = self == .threeColumns ? 3 : 2
+        return Array(
+            repeating: GridItem(.flexible(minimum: 0), spacing: Self.spacing, alignment: .top),
+            count: count
+        )
+    }
+}
+
 struct ProjectLauncherDetailView: View {
     @Environment(AppEnvironment.self) private var env
     @Bindable var store: ProjectLauncherStore
@@ -19,12 +52,37 @@ struct ProjectLauncherDetailView: View {
             sourceIDs: GitWorkspaceSourceCatalog.storageString(for: sourceIDs)
         )
 
-        HSplitView {
-            ProjectLauncherListPane(store: store)
-                .frame(minWidth: 210, idealWidth: 270, maxWidth: 340, maxHeight: .infinity)
-
-            projectDetailPane
-                .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
+        VStack(alignment: .leading, spacing: 0) {
+            ProjectLauncherHeader(
+                store: store,
+                project: store.selectedProject,
+                revealProject: revealSelectedProject
+            )
+            StxRule()
+            HoverableSplitView(
+                axis: .vertical,
+                primaryFraction: ProjectLauncherLayout.listSplitFraction,
+                configuration: HoverableSplitViewConfiguration(
+                    primaryMinimumPaneLength: ProjectLauncherLayout.listMinWidth,
+                    primaryMaximumPaneLength: ProjectLauncherLayout.listMaxWidth,
+                    secondaryMinimumPaneLength: ProjectLauncherLayout.detailMinWidth
+                )
+            ) {
+                ProjectLauncherListPane(store: store)
+                    .frame(
+                        minWidth: ProjectLauncherLayout.listMinWidth,
+                        idealWidth: ProjectLauncherLayout.listIdealWidth,
+                        maxWidth: ProjectLauncherLayout.listMaxWidth,
+                        maxHeight: .infinity
+                    )
+            } secondary: {
+                content
+                    .frame(
+                        minWidth: ProjectLauncherLayout.detailMinWidth,
+                        maxWidth: .infinity,
+                        maxHeight: .infinity
+                    )
+            }
         }
         .task(id: reloadKey) {
             await store.reloadIfNeeded(
@@ -37,19 +95,6 @@ struct ProjectLauncherDetailView: View {
             Button("OK") { store.clearError() }
         } message: {
             Text(store.lastError ?? "")
-        }
-    }
-
-    private var projectDetailPane: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ProjectLauncherHeader(
-                store: store,
-                project: store.selectedProject,
-                revealProject: revealSelectedProject
-            )
-            StxRule()
-            content
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -176,17 +221,27 @@ private struct ProjectLauncherWorkspace: View {
                 showsProgress: false
             )
         } else {
-            VSplitView {
+            HoverableSplitView(
+                axis: .horizontal,
+                primaryFraction: ProjectLauncherLayout.workspaceSplitFraction,
+                configuration: HoverableSplitViewConfiguration(
+                    primaryMinimumPaneLength: ProjectLauncherLayout.actionsMinHeight,
+                    secondaryMinimumPaneLength: ProjectLauncherLayout.logsMinHeight
+                )
+            ) {
                 ProjectLaunchActionsPane(store: store, project: project)
-                    .frame(minHeight: 220, idealHeight: 310, maxHeight: .infinity)
+                    .frame(minHeight: ProjectLauncherLayout.actionsMinHeight, maxHeight: .infinity)
+            } secondary: {
                 ProjectLaunchLogPane(store: store, project: project)
-                    .frame(minHeight: 190, idealHeight: 310, maxHeight: .infinity)
+                    .frame(minHeight: ProjectLauncherLayout.logsMinHeight, maxHeight: .infinity)
             }
         }
     }
 }
 
 private struct ProjectLaunchActionsPane: View {
+    @State private var gridLayout = ProjectLaunchActionGridLayout.twoColumns
+
     let store: ProjectLauncherStore
     let project: ProjectLaunchDescriptor
 
@@ -214,7 +269,11 @@ private struct ProjectLaunchActionsPane: View {
             .padding(.bottom, 10)
 
             AppScrollView {
-                LazyVStack(alignment: .leading, spacing: 10) {
+                LazyVGrid(
+                    columns: gridLayout.columns,
+                    alignment: .leading,
+                    spacing: ProjectLaunchActionGridLayout.spacing
+                ) {
                     ForEach(project.actions) { action in
                         ProjectLaunchActionCard(
                             action: action,
@@ -226,11 +285,22 @@ private struct ProjectLaunchActionsPane: View {
                             stop: { store.stop(action) },
                             restart: { store.restart(action) }
                         )
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 20)
+                .padding(.top, ProjectLaunchActionGridLayout.contentTopInset)
                 .padding(.bottom, 18)
+                .onGeometryChange(for: ProjectLaunchActionGridLayout.self) { proxy in
+                    ProjectLaunchActionGridLayout.fitting(proxy.size.width)
+                } action: { nextLayout in
+                    if gridLayout != nextLayout {
+                        gridLayout = nextLayout
+                    }
+                }
             }
+            .id(project.id)
         }
     }
 
@@ -252,41 +322,48 @@ private struct ProjectLaunchActionCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                Button(action: select) {
-                    HStack(spacing: 10) {
-                        Image(systemName: action.kind.symbol)
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(isSelected ? Color.stxAccent : Color.stxMuted)
-                            .frame(width: 22)
-                            .accessibilityHidden(true)
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 7) {
-                                Text(action.title)
-                                    .font(.sora(12, weight: .semibold))
-                                if isRecommended {
-                                    Text("RECOMMENDED")
-                                        .font(.sora(8, weight: .semibold))
-                                        .tracking(0.5)
-                                        .foregroundStyle(Color.stxAccent)
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(Color.stxAccent.opacity(0.12), in: Capsule())
-                                }
-                            }
-                            Text("\(action.kind.title) · \(action.confidence.title) · \(action.sourcePath)")
-                                .font(.sora(9))
-                                .foregroundStyle(Color.stxMuted)
+            Button(action: select) {
+                HStack(spacing: 10) {
+                    Image(systemName: action.kind.symbol)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(isSelected ? Color.stxAccent : Color.stxMuted)
+                        .frame(width: 22)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 7) {
+                            Text(action.title)
+                                .font(.sora(12, weight: .semibold))
                                 .lineLimit(1)
+                                .truncationMode(.middle)
+                                .layoutPriority(1)
+                            if isRecommended {
+                                Text("RECOMMENDED")
+                                    .font(.sora(8, weight: .semibold))
+                                    .tracking(0.5)
+                                    .foregroundStyle(Color.stxAccent)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.stxAccent.opacity(0.12), in: Capsule())
+                                    .fixedSize(horizontal: true, vertical: false)
+                            }
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        Text("\(action.kind.title) · \(action.confidence.title) · \(action.sourcePath)")
+                            .font(.sora(9))
+                            .foregroundStyle(Color.stxMuted)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
-                    .contentShape(Rectangle())
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Show logs for \(action.title)")
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Show logs for \(action.title)")
 
+            HStack(spacing: 8) {
                 ProjectLaunchPhaseLabel(phase: state.phase)
+
+                Spacer(minLength: 8)
 
                 if state.phase == .running {
                     Button(action: restart) {
@@ -340,6 +417,7 @@ private struct ProjectLaunchActionCard: View {
             RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(isSelected ? Color.stxAccent.opacity(0.55) : Color.stxStroke.opacity(0.7), lineWidth: 1)
         )
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 }
 

@@ -1,129 +1,38 @@
 import SwiftUI
 
 struct ProjectLauncherListPane: View {
-    @Bindable var store: ProjectLauncherStore
+    let store: ProjectLauncherStore
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-
-            statusCard
-                .padding(.horizontal, 10)
-
-            searchField
-                .padding(.horizontal, 10)
-                .padding(.top, 10)
-                .padding(.bottom, 8)
-
-            AppScrollView {
-                LazyVStack(alignment: .leading, spacing: 3) {
-                    if !store.visibleRunningProjects.isEmpty {
-                        ProjectLauncherSidebarSectionHeader(title: "RUNNING")
-                        ForEach(store.visibleRunningProjects) { project in
-                            projectRow(project)
-                        }
-                    }
-
-                    ProjectLauncherSidebarSectionHeader(title: "PROJECTS")
-                    ForEach(store.visibleOtherProjects) { project in
+        AppScrollView {
+            LazyVStack(alignment: .leading, spacing: 3) {
+                if !store.visibleRunningProjects.isEmpty {
+                    ProjectLauncherSidebarSectionHeader(title: "RUNNING")
+                    ForEach(store.visibleRunningProjects) { project in
                         projectRow(project)
                     }
-
-                    if store.visibleRunningProjects.isEmpty,
-                       store.visibleOtherProjects.isEmpty,
-                       !store.isScanning {
-                        Text(store.query.isEmpty ? "No projects discovered" : "No matching projects")
-                            .font(.sora(11))
-                            .foregroundStyle(Color.stxMuted)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                    }
                 }
-                .padding(.horizontal, 8)
-                .padding(.bottom, 12)
-            }
-        }
-        .padding(.bottom, 10)
-        .background(Color.primary.opacity(0.025))
-    }
 
-    private var header: some View {
-        HStack(alignment: .bottom, spacing: 10) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("PROJECTS")
-                    .font(.sora(10, weight: .semibold))
-                    .tracking(1.0)
-                    .foregroundStyle(Color.stxMuted)
-                Text("Launcher")
-                    .font(.sora(18, weight: .semibold))
-            }
-            Spacer(minLength: 8)
-            if store.isScanning {
-                ProgressView()
-                    .controlSize(.mini)
-                    .help("Scanning projects")
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.top, 50)
-        .padding(.bottom, 12)
-    }
-
-    private var statusCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                WorkspaceMiniStat(value: "\(store.projects.count)", label: "projects")
-                WorkspaceMiniStat(value: "\(store.runningActionCount)", label: "running")
-                Spacer(minLength: 0)
-            }
-
-            HStack(spacing: 8) {
-                Image(systemName: store.runningActionCount > 0 ? AppIcon.Status.successFilled : AppIcon.Status.clock)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(store.runningActionCount > 0 ? Color.stxAccent : Color.stxMuted)
-                    .accessibilityHidden(true)
-                Text(statusMessage)
-                    .font(.sora(10))
-                    .foregroundStyle(Color.stxMuted)
-                    .lineLimit(2)
-            }
-        }
-        .padding(10)
-        .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.stxStroke.opacity(0.7), lineWidth: 1))
-    }
-
-    private var statusMessage: String {
-        if store.isScanning { return "discovering launch methods" }
-        if store.runningActionCount > 0 { return "managed services are running" }
-        return store.projects.isEmpty ? "waiting for project sources" : "ready to launch"
-    }
-
-    private var searchField: some View {
-        HStack(spacing: 7) {
-            Image(systemName: AppIcon.Action.search)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Color.stxMuted)
-                .accessibilityHidden(true)
-            TextField("Search projects", text: $store.query)
-                .textFieldStyle(.plain)
-                .font(.sora(11))
-            if !store.query.isEmpty {
-                Button {
-                    store.query = ""
-                } label: {
-                    Image(systemName: AppIcon.Action.clear)
+                ProjectLauncherSidebarSectionHeader(title: "PROJECTS")
+                ForEach(store.visibleOtherProjects) { project in
+                    projectRow(project)
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(Color.stxMuted)
-                .accessibilityLabel("Clear project search")
+
+                if store.visibleRunningProjects.isEmpty,
+                   store.visibleOtherProjects.isEmpty,
+                   !store.isScanning {
+                    Text("No projects discovered")
+                        .font(.sora(11))
+                        .foregroundStyle(Color.stxMuted)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                }
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 8)
         }
-        .padding(.horizontal, 9)
-        .frame(height: 28)
-        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.stxStroke.opacity(0.65), lineWidth: 1))
+        .background(AppSurface.panelFill)
     }
 
     private func projectRow(_ project: ProjectLaunchDescriptor) -> some View {
@@ -242,7 +151,7 @@ private struct ProjectLauncherSidebarRow: View {
 #if DEBUG
 #Preview("Projects list pane") {
     ProjectLauncherListPane(store: ProjectLauncherStore())
-        .frame(width: 270, height: 680)
+        .frame(width: 210, height: 680)
         .background(VisualEffectBackground())
 }
 #endif
