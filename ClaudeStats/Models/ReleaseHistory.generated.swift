@@ -3,6 +3,22 @@
 extension ReleaseHistoryCatalog {
     static let generatedEntries: [ReleaseHistoryEntry] = [
         ReleaseHistoryEntry(
+            version: "1.9.12",
+            date: "July 10, 2026",
+            headline: "avoid admin API in Pages deployment",
+            changes: [
+                "avoid admin API in Pages deployment",
+            ]
+        ),
+        ReleaseHistoryEntry(
+            version: "1.9.11",
+            date: "July 10, 2026",
+            headline: "重构了release工作流，将appcast发布拆分为快照提交和正式部署两个步骤：使用GitHub Actions原生Pages部署流程，新增专用deploy-pages作业处理Pages部署，不再直接推送gh-pages分支触发部署。更新了AGENTS.md文档以匹配新的部署流程和配置要求，补充了Pages一次性设置的变更说明。",
+            changes: [
+                "重构了release工作流，将appcast发布拆分为快照提交和正式部署两个步骤：使用GitHub Actions原生Pages部署流程，新增专用deploy-pages作业处理Pages部署，不再直接推送gh-pages分支触发部署。更新了AGENTS.md文档以匹配新的部署流程和配置要求，补充了Pages一次性设置的变更说明。",
+            ]
+        ),
+        ReleaseHistoryEntry(
             version: "1.9.10",
             date: "July 10, 2026",
             headline: "This commit adds the full project launcher feature set:",
