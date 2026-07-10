@@ -3,6 +3,18 @@
 extension ReleaseHistoryCatalog {
     static let generatedEntries: [ReleaseHistoryEntry] = [
         ReleaseHistoryEntry(
+            version: "1.9.10",
+            date: "July 10, 2026",
+            headline: "This commit adds the full project launcher feature set:",
+            changes: [
+                "新增项目扫描识别能力，支持检测Electron、Web、Docker、Xcode等多种项目类型",
+                "实现进程管理系统，支持长运行进程和一次性脚本，包含进程树清理和停止命令执行",
+                "新增侧边栏和详情视图，支持项目搜索、启停操作和日志查看",
+                "集成到主应用框架，添加项目功能开关和导航入口",
+                "完善应用退出时的进程清理逻辑，确保所有运行中的项目进程被正确终止",
+            ]
+        ),
+        ReleaseHistoryEntry(
             version: "1.9.9",
             date: "July 1, 2026",
             headline: "将多处使用的AIConfigsMiniStat组件统一替换为新的WorkspaceMiniStat，同时删除不再使用的AIConfigsMiniStat定义，减少代码冗余并统一组件样式。",
