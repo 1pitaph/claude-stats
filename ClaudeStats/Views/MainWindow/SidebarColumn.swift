@@ -11,11 +11,11 @@ import AppKit
 struct SidebarColumn: View {
     @Binding var page: MainPage
     var availablePages: [MainPage]
+    var isAppPageActive = true
     var isLinuxDoActive = false
     var isSessionsActive = false
     var isConfigsActive = false
     var isMemoryActive = false
-    var isProjectsActive = false
     var isGitActive = false
     var isWarpActive = false
     var isTrackActive = false
@@ -24,7 +24,6 @@ struct SidebarColumn: View {
     var onOpenSessions: () -> Void
     var onOpenConfigs: () -> Void
     var onOpenMemory: () -> Void
-    var onOpenProjects: () -> Void
     var onOpenGit: () -> Void
     var onOpenNetwork: () -> Void
     var onOpenWarp: () -> Void
@@ -126,16 +125,7 @@ struct SidebarColumn: View {
                         }
                     }
                     if AppVariant.isEnabled(.projects) {
-                        SidebarRow(
-                            title: "Projects",
-                            symbol: AppIcon.Workspace.projects,
-                            isSelected: isProjectsActive,
-                            trailingSymbol: "chevron.right",
-                            showsTrailingOnHover: true
-                        ) {
-                            clearTextFocus()
-                            onOpenProjects()
-                        }
+                        navRow(.projects)
                     }
                     if env.preferences.gitTrackingEnabled {
                         SidebarRow(
@@ -283,7 +273,7 @@ struct SidebarColumn: View {
                 title: p.title,
                 symbol: p.symbol,
                 assetName: p.assetName,
-                isSelected: page == p
+                isSelected: isAppPageActive && page == p
             ) {
                 clearTextFocus()
                 page = p
@@ -383,12 +373,11 @@ struct SidebarRow: View {
     @Previewable @State var page: MainPage = .dashboard
     return SidebarColumn(
         page: $page,
-        availablePages: [.dashboard, .usage, .activity, .dailyReport, .git],
+        availablePages: [.dashboard, .usage, .activity, .dailyReport, .projects, .git],
         isLinuxDoActive: false,
         isSessionsActive: false,
         isConfigsActive: false,
         isMemoryActive: false,
-        isProjectsActive: false,
         isGitActive: false,
         isWarpActive: false,
         isTrackActive: false,
@@ -397,7 +386,6 @@ struct SidebarRow: View {
         onOpenSessions: {},
         onOpenConfigs: {},
         onOpenMemory: {},
-        onOpenProjects: {},
         onOpenGit: {},
         onOpenNetwork: {},
         onOpenWarp: {},

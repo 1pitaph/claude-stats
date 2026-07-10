@@ -1,23 +1,14 @@
 import SwiftUI
 
-struct ProjectLauncherSidebar: View {
+struct ProjectLauncherListPane: View {
     @Bindable var store: ProjectLauncherStore
-    var onExit: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Color.clear.frame(height: 44)
-
-            SidebarRow(
-                title: "Back to App",
-                symbol: AppIcon.Navigation.back,
-                isSelected: false,
-                action: onExit
-            )
+            header
 
             statusCard
-                .padding(.horizontal, 8)
-                .padding(.top, 10)
+                .padding(.horizontal, 10)
 
             searchField
                 .padding(.horizontal, 10)
@@ -54,22 +45,33 @@ struct ProjectLauncherSidebar: View {
             }
         }
         .padding(.bottom, 10)
+        .background(Color.primary.opacity(0.025))
     }
 
-    private var statusCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
+    private var header: some View {
+        HStack(alignment: .bottom, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text("PROJECTS")
                     .font(.sora(10, weight: .semibold))
                     .tracking(1.0)
                     .foregroundStyle(Color.stxMuted)
-                Spacer(minLength: 8)
-                if store.isScanning {
-                    ProgressView()
-                        .controlSize(.mini)
-                }
+                Text("Launcher")
+                    .font(.sora(18, weight: .semibold))
             }
+            Spacer(minLength: 8)
+            if store.isScanning {
+                ProgressView()
+                    .controlSize(.mini)
+                    .help("Scanning projects")
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 50)
+        .padding(.bottom, 12)
+    }
 
+    private var statusCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 WorkspaceMiniStat(value: "\(store.projects.count)", label: "projects")
                 WorkspaceMiniStat(value: "\(store.runningActionCount)", label: "running")
@@ -238,9 +240,9 @@ private struct ProjectLauncherSidebarRow: View {
 }
 
 #if DEBUG
-#Preview("Projects sidebar") {
-    ProjectLauncherSidebar(store: ProjectLauncherStore(), onExit: {})
-        .frame(width: 240, height: 680)
+#Preview("Projects list pane") {
+    ProjectLauncherListPane(store: ProjectLauncherStore())
+        .frame(width: 270, height: 680)
         .background(VisualEffectBackground())
 }
 #endif

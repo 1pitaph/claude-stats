@@ -4,7 +4,7 @@ import SwiftUI
 /// Top-level page shown in the main window's detail column. Settings live in
 /// their own main-window mode, not as a `MainPage`.
 enum MainPage: String, CaseIterable, Identifiable, Sendable {
-    case dashboard, linuxDo, usage, leaderboards, activity, dailyReport, gantt, git, system, terminal
+    case dashboard, linuxDo, usage, leaderboards, activity, dailyReport, gantt, projects, git, system, terminal
     var id: String { rawValue }
 
     var title: String {
@@ -16,6 +16,7 @@ enum MainPage: String, CaseIterable, Identifiable, Sendable {
         case .activity: L10n.string("main_page.activity", defaultValue: "Activity")
         case .dailyReport: L10n.string("main_page.daily_report", defaultValue: "Daily Report")
         case .gantt: L10n.string("main_page.gantt", defaultValue: "Gantt")
+        case .projects: "Projects"
         case .git: L10n.string("main_page.git", defaultValue: "Git")
         case .system: L10n.string("main_page.system", defaultValue: "System")
         case .terminal: L10n.string("main_page.terminal", defaultValue: "Terminal")
@@ -31,6 +32,7 @@ enum MainPage: String, CaseIterable, Identifiable, Sendable {
         case .activity: AppIcon.Workspace.activity
         case .dailyReport: AppIcon.Workspace.dailyReport
         case .gantt: AppIcon.Workspace.gantt
+        case .projects: AppIcon.Workspace.projects
         case .git: AppIcon.Workspace.git
         case .system: AppIcon.Workspace.system
         case .terminal: AppIcon.Workspace.terminal
@@ -91,6 +93,7 @@ struct MainWindowView: View {
         var pages: [MainPage] = [.dashboard, .usage, .leaderboards, .dailyReport, .gantt]
         if env.preferences.aiActivityAnalysisEnabled { pages.append(.activity) }
         if env.preferences.systemMonitorEnabled { pages.append(.system) }
+        if AppVariant.isEnabled(.projects) { pages.append(.projects) }
         return pages
     }
 
@@ -211,11 +214,11 @@ struct MainWindowView: View {
                 SidebarColumn(
                     page: $page,
                     availablePages: availablePages,
+                    isAppPageActive: mode == .app,
                     isLinuxDoActive: mode == .linuxDo,
                     isSessionsActive: AppVariant.isEnabled(.sessions) && mode == .sessions,
                     isConfigsActive: mode == .configs,
                     isMemoryActive: AppVariant.isEnabled(.memory) && mode == .memory,
-                    isProjectsActive: AppVariant.isEnabled(.projects) && mode == .projects,
                     isGitActive: mode == .git,
                     isWarpActive: mode == .warp,
                     isTrackActive: AppVariant.isEnabled(.track) && mode == .track,
@@ -224,7 +227,6 @@ struct MainWindowView: View {
                     onOpenSessions: openSessions,
                     onOpenConfigs: openConfigs,
                     onOpenMemory: openMemory,
-                    onOpenProjects: openProjects,
                     onOpenGit: openGit,
                     onOpenNetwork: openNetwork,
                     onOpenWarp: { openWarp() },
@@ -263,8 +265,6 @@ struct MainWindowView: View {
                 #else
                 MemoryWorkspaceSidebar(store: env.memory, onExit: closeMemory)
                 #endif
-            } projectsSidebar: {
-                ProjectLauncherSidebar(store: env.projects, onExit: closeProjects)
             } gitSidebar: {
                 GitWorkspaceSidebar(
                     model: env.gitActivity,
@@ -328,8 +328,6 @@ struct MainWindowView: View {
                 #else
                 MemoryWorkspaceView(store: env.memory)
                 #endif
-            } projectsDetail: {
-                ProjectLauncherDetailView(store: env.projects)
             } gitDetail: {
                 GitWorkspaceDetailView(
                     selection: gitSelectionBinding,
@@ -373,7 +371,7 @@ struct MainWindowView: View {
                     .onTapGesture { clearTextFocus() }
             }
 
-            if mode == .app || mode == .linuxDo || mode == .sessions || mode == .configs || mode == .memory || mode == .projects || mode == .git || mode == .network || mode == .warp || mode == .ops || mode == .track {
+            if mode == .app || mode == .linuxDo || mode == .sessions || mode == .configs || mode == .memory || mode == .git || mode == .network || mode == .warp || mode == .ops || mode == .track {
                 sidebarToggle
                     .padding(.leading, 81)
                     .padding(.top, 11)
@@ -511,6 +509,8 @@ struct MainWindowView: View {
             DailyReportWorkspaceView(store: env.dailyReport)
         case .gantt:
             MainGanttView()
+        case .projects:
+            ProjectLauncherDetailView(store: env.projects)
         case .git:
             GitWorkspaceDetailView(
                 selection: gitSelectionBinding,
@@ -640,11 +640,6 @@ struct MainWindowView: View {
         transition(to: .git)
     }
 
-    private func openProjects() {
-        guard AppVariant.isEnabled(.projects) else { return }
-        transition(to: .projects)
-    }
-
     #if CLAUDE_STATS_LITE
     private func openNetwork() {}
     #else
@@ -718,10 +713,6 @@ struct MainWindowView: View {
     #endif
 
     private func closeGit() {
-        transition(to: .app)
-    }
-
-    private func closeProjects() {
         transition(to: .app)
     }
 
@@ -827,6 +818,18 @@ struct MainWindowView: View {
             pageRaw = MainPage.dailyReport.rawValue
         }
 
+        if modeRaw == "projects" {
+            modeRaw = MainWindowMode.app.rawValue
+            sidebarVisible = true
+            if AppVariant.isEnabled(.projects) {
+                page = .projects
+                pageRaw = MainPage.projects.rawValue
+            } else {
+                page = .dashboard
+                pageRaw = MainPage.dashboard.rawValue
+            }
+        }
+
         #if CLAUDE_STATS_LITE
         if modeRaw == "sessions"
             || modeRaw == "memory"
@@ -836,7 +839,6 @@ struct MainWindowView: View {
             || modeRaw == "warp"
             || modeRaw == "ops"
             || modeRaw == "track"
-            || modeRaw == "projects"
             || modeRaw == "chat" {
             modeRaw = MainWindowMode.app.rawValue
             sidebarVisible = true
@@ -912,7 +914,7 @@ struct MainWindowView: View {
             pageRaw = MainPage.dashboard.rawValue
         }
 
-        if mode == .linuxDo || mode == .projects || mode == .git {
+        if mode == .linuxDo || mode == .git {
             sidebarVisible = true
         }
     }

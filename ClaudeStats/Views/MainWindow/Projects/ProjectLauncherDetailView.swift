@@ -19,15 +19,12 @@ struct ProjectLauncherDetailView: View {
             sourceIDs: GitWorkspaceSourceCatalog.storageString(for: sourceIDs)
         )
 
-        VStack(alignment: .leading, spacing: 0) {
-            ProjectLauncherHeader(
-                store: store,
-                project: store.selectedProject,
-                revealProject: revealSelectedProject
-            )
-            StxRule()
-            content
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        HSplitView {
+            ProjectLauncherListPane(store: store)
+                .frame(minWidth: 210, idealWidth: 270, maxWidth: 340, maxHeight: .infinity)
+
+            projectDetailPane
+                .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
         }
         .task(id: reloadKey) {
             await store.reloadIfNeeded(
@@ -40,6 +37,19 @@ struct ProjectLauncherDetailView: View {
             Button("OK") { store.clearError() }
         } message: {
             Text(store.lastError ?? "")
+        }
+    }
+
+    private var projectDetailPane: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ProjectLauncherHeader(
+                store: store,
+                project: store.selectedProject,
+                revealProject: revealSelectedProject
+            )
+            StxRule()
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

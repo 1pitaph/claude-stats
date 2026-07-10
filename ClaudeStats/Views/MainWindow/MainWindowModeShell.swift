@@ -6,7 +6,6 @@ enum MainWindowMode: String, Sendable {
     case sessions
     case configs
     case memory
-    case projects
     case git
     case settings
     case network
@@ -21,7 +20,6 @@ enum MainWindowMotion {
     static let sessionsSidebarWidth: CGFloat = 240
     static let configsSidebarWidth: CGFloat = 240
     static let memorySidebarWidth: CGFloat = 240
-    static let projectsSidebarWidth: CGFloat = 240
     static let gitSidebarWidth: CGFloat = 240
     static let settingsSidebarWidth: CGFloat = 220
     static let networkSidebarWidth: CGFloat = 240
@@ -127,11 +125,10 @@ enum MainWindowMotion {
     }
 }
 
-/// Stable two-column shell for the main window. The sidebar column transitions
-/// directly between app, LinuxDo, sessions, configs, memory, Projects, Git, settings, network, Warp, ops, and Track
-/// navigation while the detail panel stays mounted so its leading boundary can
-/// move with the sidebar width.
-struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSidebar: View, ConfigsSidebar: View, MemorySidebar: View, ProjectsSidebar: View, GitSidebar: View, SettingsSidebar: View, NetworkSidebar: View, WarpSidebar: View, OpsSidebar: View, TrackSidebar: View, AppDetail: View, LinuxDoDetail: View, SessionsDetail: View, ConfigsDetail: View, MemoryDetail: View, ProjectsDetail: View, GitDetail: View, SettingsDetail: View, NetworkDetail: View, WarpDetail: View, OpsDetail: View, TrackDetail: View>: View {
+/// Stable two-column shell for the main window. Dedicated workspaces transition
+/// to their own sidebars while the detail panel stays mounted so its leading
+/// boundary can move with the sidebar width.
+struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSidebar: View, ConfigsSidebar: View, MemorySidebar: View, GitSidebar: View, SettingsSidebar: View, NetworkSidebar: View, WarpSidebar: View, OpsSidebar: View, TrackSidebar: View, AppDetail: View, LinuxDoDetail: View, SessionsDetail: View, ConfigsDetail: View, MemoryDetail: View, GitDetail: View, SettingsDetail: View, NetworkDetail: View, WarpDetail: View, OpsDetail: View, TrackDetail: View>: View {
     let mode: MainWindowMode
     let sidebarVisible: Bool
     let boundaryFalloffEnabled: Bool
@@ -141,7 +138,6 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
     private let sessionsSidebar: SessionsSidebar
     private let configsSidebar: ConfigsSidebar
     private let memorySidebar: MemorySidebar
-    private let projectsSidebar: ProjectsSidebar
     private let gitSidebar: GitSidebar
     private let settingsSidebar: SettingsSidebar
     private let networkSidebar: NetworkSidebar
@@ -153,7 +149,6 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
     private let sessionsDetail: SessionsDetail
     private let configsDetail: ConfigsDetail
     private let memoryDetail: MemoryDetail
-    private let projectsDetail: ProjectsDetail
     private let gitDetail: GitDetail
     private let settingsDetail: SettingsDetail
     private let networkDetail: NetworkDetail
@@ -170,7 +165,6 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
         @ViewBuilder sessionsSidebar: () -> SessionsSidebar,
         @ViewBuilder configsSidebar: () -> ConfigsSidebar,
         @ViewBuilder memorySidebar: () -> MemorySidebar,
-        @ViewBuilder projectsSidebar: () -> ProjectsSidebar,
         @ViewBuilder gitSidebar: () -> GitSidebar,
         @ViewBuilder settingsSidebar: () -> SettingsSidebar,
         @ViewBuilder networkSidebar: () -> NetworkSidebar,
@@ -182,7 +176,6 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
         @ViewBuilder sessionsDetail: () -> SessionsDetail,
         @ViewBuilder configsDetail: () -> ConfigsDetail,
         @ViewBuilder memoryDetail: () -> MemoryDetail,
-        @ViewBuilder projectsDetail: () -> ProjectsDetail,
         @ViewBuilder gitDetail: () -> GitDetail,
         @ViewBuilder settingsDetail: () -> SettingsDetail,
         @ViewBuilder networkDetail: () -> NetworkDetail,
@@ -198,7 +191,6 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
         self.sessionsSidebar = sessionsSidebar()
         self.configsSidebar = configsSidebar()
         self.memorySidebar = memorySidebar()
-        self.projectsSidebar = projectsSidebar()
         self.gitSidebar = gitSidebar()
         self.settingsSidebar = settingsSidebar()
         self.networkSidebar = networkSidebar()
@@ -210,7 +202,6 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
         self.sessionsDetail = sessionsDetail()
         self.configsDetail = configsDetail()
         self.memoryDetail = memoryDetail()
-        self.projectsDetail = projectsDetail()
         self.gitDetail = gitDetail()
         self.settingsDetail = settingsDetail()
         self.networkDetail = networkDetail()
@@ -246,8 +237,6 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
             sidebarVisible ? MainWindowMotion.configsSidebarWidth : 0
         case .memory:
             sidebarVisible ? MainWindowMotion.memorySidebarWidth : 0
-        case .projects:
-            sidebarVisible ? MainWindowMotion.projectsSidebarWidth : 0
         case .git:
             sidebarVisible ? MainWindowMotion.gitSidebarWidth : 0
         case .settings:
@@ -274,8 +263,6 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
         case .configs:
             return sidebarVisible
         case .memory:
-            return sidebarVisible
-        case .projects:
             return sidebarVisible
         case .git:
             return sidebarVisible
@@ -310,10 +297,6 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
 
     private var memorySidebarIsActive: Bool {
         mode == .memory && sidebarVisible
-    }
-
-    private var projectsSidebarIsActive: Bool {
-        mode == .projects && sidebarVisible
     }
 
     private var gitSidebarIsActive: Bool {
@@ -377,13 +360,6 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
                     .opacity(sidebarVisible ? 1 : 0)
                     .allowsHitTesting(memorySidebarIsActive)
                     .accessibilityHidden(!memorySidebarIsActive)
-                    .transition(MainWindowMotion.secondarySidebarTransition)
-            case .projects:
-                projectsSidebar
-                    .frame(width: MainWindowMotion.projectsSidebarWidth)
-                    .opacity(sidebarVisible ? 1 : 0)
-                    .allowsHitTesting(projectsSidebarIsActive)
-                    .accessibilityHidden(!projectsSidebarIsActive)
                     .transition(MainWindowMotion.secondarySidebarTransition)
             case .git:
                 gitSidebar
@@ -454,10 +430,6 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
                 memoryDetail
                     .transition(MainWindowMotion.memoryDetailTransition)
                     .zIndex(1)
-            case .projects:
-                projectsDetail
-                    .transition(MainWindowMotion.memoryDetailTransition)
-                    .zIndex(1)
             case .git:
                 gitDetail
                     .transition(MainWindowMotion.gitDetailTransition)
@@ -525,13 +497,6 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
             Spacer()
         }
         .padding()
-    } projectsSidebar: {
-        VStack(alignment: .leading) {
-            Text("Back")
-            Text("Projects")
-            Spacer()
-        }
-        .padding()
     } gitSidebar: {
         VStack(alignment: .leading) {
             Text("Back")
@@ -584,8 +549,6 @@ struct MainWindowModeShell<AppSidebar: View, LinuxDoSidebar: View, SessionsSideb
         Color.stxBackground.overlay(Text("Config Detail"))
     } memoryDetail: {
         Color.stxBackground.overlay(Text("Memory Detail"))
-    } projectsDetail: {
-        Color.stxBackground.overlay(Text("Projects Detail"))
     } gitDetail: {
         Color.stxBackground.overlay(Text("Git Detail"))
     } settingsDetail: {
