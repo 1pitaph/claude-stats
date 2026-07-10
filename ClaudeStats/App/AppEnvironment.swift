@@ -38,6 +38,7 @@ final class AppEnvironment {
     /// main-window open/close cycles (reopening doesn't refire a fetch).
     let dashboard: DashboardViewModel
     let gitActivity: GitActivityViewModel
+    let projects: ProjectLauncherStore
     let github = GitHubViewModel()
     #if !CLAUDE_STATS_LITE
     let linuxDo: LinuxDoStore
@@ -103,6 +104,7 @@ final class AppEnvironment {
         self.dailyReport = DailyReportViewModel()
         self.dashboard = DashboardViewModel(pricing: pricing)
         self.gitActivity = GitActivityViewModel()
+        self.projects = ProjectLauncherStore()
         self.claudeStatus = ClaudeStatusViewModel(preferences: preferences)
         self.openAIStatus = OpenAIStatusViewModel(preferences: preferences)
         self.leaderboards = LeaderboardSyncViewModel(
@@ -164,6 +166,7 @@ final class AppEnvironment {
         self.linuxDo = linuxDo ?? LinuxDoStore(preferences: preferences, credentials: linuxDoCredentials)
         self.dashboard = DashboardViewModel(pricing: pricing)
         self.gitActivity = GitActivityViewModel()
+        self.projects = ProjectLauncherStore()
         self.claudeStatus = ClaudeStatusViewModel(preferences: preferences)
         self.openAIStatus = OpenAIStatusViewModel(preferences: preferences)
         self.leaderboards = LeaderboardSyncViewModel(

@@ -15,6 +15,7 @@ struct SidebarColumn: View {
     var isSessionsActive = false
     var isConfigsActive = false
     var isMemoryActive = false
+    var isProjectsActive = false
     var isGitActive = false
     var isWarpActive = false
     var isTrackActive = false
@@ -23,6 +24,7 @@ struct SidebarColumn: View {
     var onOpenSessions: () -> Void
     var onOpenConfigs: () -> Void
     var onOpenMemory: () -> Void
+    var onOpenProjects: () -> Void
     var onOpenGit: () -> Void
     var onOpenNetwork: () -> Void
     var onOpenWarp: () -> Void
@@ -37,128 +39,143 @@ struct SidebarColumn: View {
         VStack(alignment: .leading, spacing: 0) {
             sidebarHeader
 
-            navRow(.dashboard)
-            if AppVariant.isEnabled(.linuxDo) {
-                SidebarRow(
-                    title: MainPage.linuxDo.title,
-                    symbol: MainPage.linuxDo.symbol,
-                    assetName: MainPage.linuxDo.assetName,
-                    isSelected: isLinuxDoActive,
-                    trailingSymbol: "chevron.right",
-                    showsTrailingOnHover: true
-                ) {
-                    clearTextFocus()
-                    onOpenLinuxDo()
-                }
-            }
-            if AppVariant.isEnabled(.sessions) {
-                SidebarRow(
-                    title: "Sessions",
-                    symbol: AppIcon.Resource.transcriptSearch,
-                    isSelected: isSessionsActive,
-                    trailingSymbol: "chevron.right",
-                    showsTrailingOnHover: true
-                ) {
-                    clearTextFocus()
-                    onOpenSessions()
-                }
-            }
+            AppScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    navRow(.dashboard)
+                    if AppVariant.isEnabled(.linuxDo) {
+                        SidebarRow(
+                            title: MainPage.linuxDo.title,
+                            symbol: MainPage.linuxDo.symbol,
+                            assetName: MainPage.linuxDo.assetName,
+                            isSelected: isLinuxDoActive,
+                            trailingSymbol: "chevron.right",
+                            showsTrailingOnHover: true
+                        ) {
+                            clearTextFocus()
+                            onOpenLinuxDo()
+                        }
+                    }
+                    if AppVariant.isEnabled(.sessions) {
+                        SidebarRow(
+                            title: "Sessions",
+                            symbol: AppIcon.Resource.transcriptSearch,
+                            isSelected: isSessionsActive,
+                            trailingSymbol: "chevron.right",
+                            showsTrailingOnHover: true
+                        ) {
+                            clearTextFocus()
+                            onOpenSessions()
+                        }
+                    }
 
-            sectionHeader("STATS")
-            navRow(.usage)
-            navRow(.leaderboards)
-            if env.preferences.aiActivityAnalysisEnabled { navRow(.activity) }
-            if env.preferences.systemMonitorEnabled { navRow(.system) }
+                    sectionHeader("STATS")
+                    navRow(.usage)
+                    navRow(.leaderboards)
+                    if env.preferences.aiActivityAnalysisEnabled { navRow(.activity) }
+                    if env.preferences.systemMonitorEnabled { navRow(.system) }
 
-            sectionHeader("TOOLS")
-            navRow(.dailyReport)
-            navRow(.gantt)
-            if AppVariant.isEnabled(.track) {
-                SidebarRow(
-                    title: "Track",
-                    symbol: AppIcon.Workspace.track,
-                    isSelected: isTrackActive,
-                    trailingSymbol: "chevron.right",
-                    showsTrailingOnHover: true
-                ) {
-                    clearTextFocus()
-                    onOpenTrack()
+                    sectionHeader("TOOLS")
+                    navRow(.dailyReport)
+                    navRow(.gantt)
+                    if AppVariant.isEnabled(.track) {
+                        SidebarRow(
+                            title: "Track",
+                            symbol: AppIcon.Workspace.track,
+                            isSelected: isTrackActive,
+                            trailingSymbol: "chevron.right",
+                            showsTrailingOnHover: true
+                        ) {
+                            clearTextFocus()
+                            onOpenTrack()
+                        }
+                    }
+                    if AppVariant.isEnabled(.warp) {
+                        SidebarRow(
+                            title: "Warp",
+                            symbol: AppIcon.Workspace.warp,
+                            isSelected: isWarpActive,
+                            trailingSymbol: "chevron.right",
+                            showsTrailingOnHover: true
+                        ) {
+                            clearTextFocus()
+                            onOpenWarp()
+                        }
+                    }
+                    if AppVariant.isEnabled(.memory) {
+                        SidebarRow(
+                            title: "Memory",
+                            symbol: AppIcon.Workspace.memory,
+                            isSelected: isMemoryActive,
+                            trailingSymbol: "chevron.right",
+                            showsTrailingOnHover: true
+                        ) {
+                            clearTextFocus()
+                            onOpenMemory()
+                        }
+                    }
+                    if AppVariant.isEnabled(.config) {
+                        SidebarRow(
+                            title: "Config",
+                            symbol: AppIcon.Workspace.configs,
+                            isSelected: isConfigsActive,
+                            trailingSymbol: "chevron.right",
+                            showsTrailingOnHover: true
+                        ) {
+                            clearTextFocus()
+                            onOpenConfigs()
+                        }
+                    }
+                    if AppVariant.isEnabled(.projects) {
+                        SidebarRow(
+                            title: "Projects",
+                            symbol: AppIcon.Workspace.projects,
+                            isSelected: isProjectsActive,
+                            trailingSymbol: "chevron.right",
+                            showsTrailingOnHover: true
+                        ) {
+                            clearTextFocus()
+                            onOpenProjects()
+                        }
+                    }
+                    if env.preferences.gitTrackingEnabled {
+                        SidebarRow(
+                            title: MainPage.git.title,
+                            symbol: MainPage.git.symbol,
+                            isSelected: isGitActive,
+                            trailingSymbol: "chevron.right",
+                            showsTrailingOnHover: true
+                        ) {
+                            clearTextFocus()
+                            onOpenGit()
+                        }
+                    }
+                    if AppVariant.isEnabled(.ops) {
+                        SidebarRow(
+                            title: "Ops",
+                            symbol: AppIcon.Workspace.ops,
+                            isSelected: false,
+                            trailingSymbol: "chevron.right",
+                            showsTrailingOnHover: true
+                        ) {
+                            clearTextFocus()
+                            onOpenOps()
+                        }
+                    }
+                    if AppVariant.isEnabled(.network) {
+                        SidebarRow(
+                            title: "Network",
+                            symbol: AppIcon.Workspace.network,
+                            isSelected: false,
+                            trailingSymbol: "chevron.right",
+                            showsTrailingOnHover: true
+                        ) {
+                            clearTextFocus()
+                            onOpenNetwork()
+                        }
+                    }
                 }
+                .padding(.bottom, 6)
             }
-            if AppVariant.isEnabled(.warp) {
-                SidebarRow(
-                    title: "Warp",
-                    symbol: AppIcon.Workspace.warp,
-                    isSelected: isWarpActive,
-                    trailingSymbol: "chevron.right",
-                    showsTrailingOnHover: true
-                ) {
-                    clearTextFocus()
-                    onOpenWarp()
-                }
-            }
-            if AppVariant.isEnabled(.memory) {
-                SidebarRow(
-                    title: "Memory",
-                    symbol: AppIcon.Workspace.memory,
-                    isSelected: isMemoryActive,
-                    trailingSymbol: "chevron.right",
-                    showsTrailingOnHover: true
-                ) {
-                    clearTextFocus()
-                    onOpenMemory()
-                }
-            }
-            if AppVariant.isEnabled(.config) {
-                SidebarRow(
-                    title: "Config",
-                    symbol: AppIcon.Workspace.configs,
-                    isSelected: isConfigsActive,
-                    trailingSymbol: "chevron.right",
-                    showsTrailingOnHover: true
-                ) {
-                    clearTextFocus()
-                    onOpenConfigs()
-                }
-            }
-            if env.preferences.gitTrackingEnabled {
-                SidebarRow(
-                    title: MainPage.git.title,
-                    symbol: MainPage.git.symbol,
-                    isSelected: isGitActive,
-                    trailingSymbol: "chevron.right",
-                    showsTrailingOnHover: true
-                ) {
-                    clearTextFocus()
-                    onOpenGit()
-                }
-            }
-            if AppVariant.isEnabled(.ops) {
-                SidebarRow(
-                    title: "Ops",
-                    symbol: AppIcon.Workspace.ops,
-                    isSelected: false,
-                    trailingSymbol: "chevron.right",
-                    showsTrailingOnHover: true
-                ) {
-                    clearTextFocus()
-                    onOpenOps()
-                }
-            }
-            if AppVariant.isEnabled(.network) {
-                SidebarRow(
-                    title: "Network",
-                    symbol: AppIcon.Workspace.network,
-                    isSelected: false,
-                    trailingSymbol: "chevron.right",
-                    showsTrailingOnHover: true
-                ) {
-                    clearTextFocus()
-                    onOpenNetwork()
-                }
-            }
-
-            Spacer(minLength: 0)
 
             SidebarRow(title: "Settings", symbol: AppIcon.Workspace.settings, isSelected: false) {
                 clearTextFocus()
@@ -371,6 +388,7 @@ struct SidebarRow: View {
         isSessionsActive: false,
         isConfigsActive: false,
         isMemoryActive: false,
+        isProjectsActive: false,
         isGitActive: false,
         isWarpActive: false,
         isTrackActive: false,
@@ -379,6 +397,7 @@ struct SidebarRow: View {
         onOpenSessions: {},
         onOpenConfigs: {},
         onOpenMemory: {},
+        onOpenProjects: {},
         onOpenGit: {},
         onOpenNetwork: {},
         onOpenWarp: {},

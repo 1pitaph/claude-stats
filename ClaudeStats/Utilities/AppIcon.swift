@@ -118,6 +118,7 @@ enum AppIcon {
         static let memory = "brain"
         static let network = "network"
         static let ops = "wrench.and.screwdriver"
+        static let projects = "play.rectangle"
         static let settings = "gearshape"
         static let system = "cpu"
         static let terminal = "terminal.fill"

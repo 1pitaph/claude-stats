@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var automaticTerminationDisabled = false
     private var suddenTerminationDisabled = false
     private var userRequestedTermination = false
+    private var isStoppingProjectsForTermination = false
 
     override init() {
         self.env = MainActor.assumeIsolated {
@@ -123,7 +124,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         authorizeUserTermination(reason: "AppKit termination request")
-        return .terminateNow
+        guard env.projects.runningActionCount > 0 else { return .terminateNow }
+        guard !isStoppingProjectsForTermination else { return .terminateLater }
+        isStoppingProjectsForTermination = true
+        env.projects.stopAll()
+        Task { @MainActor [weak self] in
+            for _ in 0..<100 {
+                guard let self else { return }
+                if self.env.projects.runningActionCount == 0 { break }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            guard let self else { return }
+            self.isStoppingProjectsForTermination = false
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 
     func applicationWillTerminate(_ notification: Notification) {

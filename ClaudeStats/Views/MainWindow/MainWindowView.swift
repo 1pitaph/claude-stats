@@ -215,6 +215,7 @@ struct MainWindowView: View {
                     isSessionsActive: AppVariant.isEnabled(.sessions) && mode == .sessions,
                     isConfigsActive: mode == .configs,
                     isMemoryActive: AppVariant.isEnabled(.memory) && mode == .memory,
+                    isProjectsActive: AppVariant.isEnabled(.projects) && mode == .projects,
                     isGitActive: mode == .git,
                     isWarpActive: mode == .warp,
                     isTrackActive: AppVariant.isEnabled(.track) && mode == .track,
@@ -223,6 +224,7 @@ struct MainWindowView: View {
                     onOpenSessions: openSessions,
                     onOpenConfigs: openConfigs,
                     onOpenMemory: openMemory,
+                    onOpenProjects: openProjects,
                     onOpenGit: openGit,
                     onOpenNetwork: openNetwork,
                     onOpenWarp: { openWarp() },
@@ -261,6 +263,8 @@ struct MainWindowView: View {
                 #else
                 MemoryWorkspaceSidebar(store: env.memory, onExit: closeMemory)
                 #endif
+            } projectsSidebar: {
+                ProjectLauncherSidebar(store: env.projects, onExit: closeProjects)
             } gitSidebar: {
                 GitWorkspaceSidebar(
                     model: env.gitActivity,
@@ -324,6 +328,8 @@ struct MainWindowView: View {
                 #else
                 MemoryWorkspaceView(store: env.memory)
                 #endif
+            } projectsDetail: {
+                ProjectLauncherDetailView(store: env.projects)
             } gitDetail: {
                 GitWorkspaceDetailView(
                     selection: gitSelectionBinding,
@@ -367,7 +373,7 @@ struct MainWindowView: View {
                     .onTapGesture { clearTextFocus() }
             }
 
-            if mode == .app || mode == .linuxDo || mode == .sessions || mode == .configs || mode == .memory || mode == .git || mode == .network || mode == .warp || mode == .ops || mode == .track {
+            if mode == .app || mode == .linuxDo || mode == .sessions || mode == .configs || mode == .memory || mode == .projects || mode == .git || mode == .network || mode == .warp || mode == .ops || mode == .track {
                 sidebarToggle
                     .padding(.leading, 81)
                     .padding(.top, 11)
@@ -634,6 +640,11 @@ struct MainWindowView: View {
         transition(to: .git)
     }
 
+    private func openProjects() {
+        guard AppVariant.isEnabled(.projects) else { return }
+        transition(to: .projects)
+    }
+
     #if CLAUDE_STATS_LITE
     private func openNetwork() {}
     #else
@@ -707,6 +718,10 @@ struct MainWindowView: View {
     #endif
 
     private func closeGit() {
+        transition(to: .app)
+    }
+
+    private func closeProjects() {
         transition(to: .app)
     }
 
@@ -821,6 +836,7 @@ struct MainWindowView: View {
             || modeRaw == "warp"
             || modeRaw == "ops"
             || modeRaw == "track"
+            || modeRaw == "projects"
             || modeRaw == "chat" {
             modeRaw = MainWindowMode.app.rawValue
             sidebarVisible = true
@@ -896,7 +912,7 @@ struct MainWindowView: View {
             pageRaw = MainPage.dashboard.rawValue
         }
 
-        if mode == .linuxDo || mode == .git {
+        if mode == .linuxDo || mode == .projects || mode == .git {
             sidebarVisible = true
         }
     }
