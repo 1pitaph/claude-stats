@@ -110,8 +110,9 @@ the GitHub Release body) and minimal HTML (embedded directly in the appcast's
 **One-time setup:**
 
 1. Enable GitHub Pages on this repo: Settings → Pages → Source = **GitHub
-   Actions**. The release workflow also sets `build_type=workflow` before each
-   deployment so it cannot fall back to the legacy branch build pipeline.
+   Actions**. Changing the publishing source requires repository administration
+   permission, so the release workflow verifies this setting without trying to
+   modify it through `GITHUB_TOKEN`.
 2. Optional migration mirror: keep `1pitaph/claude-stats-releases` Pages enabled,
    create a fine-grained PAT scoped to that repo with **Contents: Read and write**,
    and add it as `RELEASES_REPO_TOKEN` until old builds have moved to the new feed.

@@ -55,8 +55,8 @@ name: Release
 #                             key goes in Info.plist as SUPublicEDKey. Without
 #                             this secret the appcast step is skipped (releases
 #                             still publish, but installed apps won't see them).
-#                             Requires GitHub Pages enabled for this repo. The
-#                             workflow configures Pages to use GitHub Actions.
+#                             Requires GitHub Pages enabled for this repo with
+#                             Settings → Pages → Source set to GitHub Actions.
 #
 # Git language stats runtime:
 #   The workflow builds a relocatable GitTools runtime from pinned Ruby,
@@ -315,15 +315,20 @@ jobs:
             appcast-lite.xml \
             "Claude Stats Lite"
 
-      - name: Configure GitHub Pages for Actions
+      - name: Verify GitHub Pages uses Actions
         if: steps.sparkle.outputs.enabled == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh api --method PUT \
+          BUILD_TYPE="$(gh api \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "repos/${GITHUB_REPOSITORY}/pages" \
-            -f build_type=workflow
+            --jq '.build_type')"
+          if [[ "$BUILD_TYPE" != "workflow" ]]; then
+            echo "::error::GitHub Pages must use GitHub Actions. Open Settings → Pages and set Source to GitHub Actions."
+            exit 1
+          fi
+          echo "GitHub Pages publishing source is GitHub Actions."
 
       - name: Configure GitHub Pages
         if: steps.sparkle.outputs.enabled == 'true'
