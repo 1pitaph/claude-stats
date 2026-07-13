@@ -32,12 +32,12 @@
 </div>
 </div>
 ]]></description>
-      <pubDate>Fri, 10 Jul 2026 11:43:19 GMT</pubDate>
-      <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.9.12/ClaudeStats-1.9.12.dmg" sparkle:edSignature="AT5roxPKIgUPT813NioFmvfcgX7UP9RqDYYxqaDotm7gVduyjNxXEoXSKdu97kbgzZ2/rTaCJJAqEDQCUtVpBw==" length="92452476" type="application/octet-stream"/>
+      <pubDate>Mon, 13 Jul 2026 11:17:37 GMT</pubDate>
+      <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.9.12/ClaudeStats-1.9.12.dmg" sparkle:edSignature="nVmKAbyNXcnpXWNWpU+FOC8+jv1QSao9Xl74W9dsd8a/FKN+yVQD0BbrWtooFiQcAaacU6o6hlcNUXttfZKbDw==" length="92452795" type="application/octet-stream"/>
       <sparkle:deltas>
-        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.9.12/ClaudeStats-102-from-100.delta" sparkle:deltaFrom="100" sparkle:edSignature="SEzsACygf6evoZghDPUbhuztBvW7/Ld3fGgzPDLpD0OECwPPXGZ1NHmQkBjmnheG5piD44s8iSWSBfmfJZCcDg==" length="1201554" type="application/octet-stream"/>
-        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.9.12/ClaudeStats-102-from-99.delta" sparkle:deltaFrom="99" sparkle:edSignature="j3BHGGKMXo1cWO2ScTZzveUSzsziGCHx0OIYmc66pAwRHGnpGd6za6iUWwe090E7f6CGEo1aKmP3OIQBio9VAw==" length="3203938" type="application/octet-stream"/>
-        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.9.12/ClaudeStats-102-from-96.delta" sparkle:deltaFrom="96" sparkle:edSignature="Vr+DUOV0SaCk/cpWF9IIoUnLSmUmJ0Eg2aPjMYCVSDryQRKf/8PylQdqBuQW6CGM2EeTzYB6CrcDdPc0EeaDAA==" length="4242366" type="application/octet-stream"/>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.9.12/ClaudeStats-102-from-100.delta" sparkle:deltaFrom="100" sparkle:edSignature="e+LUCfl1mgO9lvVmDrK04+4EYdeoEHRQQeUv3QixcQ4PaW++F4bzLVwwiiARhr9sXtythvezCaL2pa47usCBDQ==" length="1222066" type="application/octet-stream"/>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.9.12/ClaudeStats-102-from-99.delta" sparkle:deltaFrom="99" sparkle:edSignature="eQe42f+OFKyrOVFKLqZPuq4w5AA8cUy153GASdwl5MgeF1+wMMahwograYHRrQHWqlUevzOnhSXvPPS7lHCECA==" length="3203254" type="application/octet-stream"/>
+        <enclosure url="https://github.com/1pitaph/claude-stats/releases/download/v1.9.12/ClaudeStats-102-from-96.delta" sparkle:deltaFrom="96" sparkle:edSignature="dYXTZ/hRArLbKvElxD216JRHDWxObmi6iiwGp7xGIIOmkxfp6BFQzww4+xNFOi/8x/JaH18kDenSeB5uVlPzDA==" length="4232438" type="application/octet-stream"/>
       </sparkle:deltas>
     </item>
     <item>
